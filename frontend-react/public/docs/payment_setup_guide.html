@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QRaku — 決済導入ガイド (Square / PayPay)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <style>
+        /* ==================== RESET & BASE ==================== */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f1f5f9;
+            color: #1e293b;
+            line-height: 1.8;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ==================== PRINT STYLES ==================== */
+        @media print {
+            body { background: #fff; font-size: 11pt; }
+            .no-print { display: none !important; }
+            .page-break { page-break-before: always; }
+            .container { max-width: 100%; box-shadow: none; border: none; }
+            .hero { background: #4f46e5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .step-card { break-inside: avoid; box-shadow: none; border: 1px solid #e2e8f0; }
+            .toc { break-inside: avoid; }
+            a { color: #4f46e5; text-decoration: underline; }
+        }
+
+        /* ==================== LAYOUT ==================== */
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #ffffff;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.08);
+            border-radius: 0 0 24px 24px;
+        }
+
+        /* ==================== HERO ==================== */
+        .hero {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #ec4899 100%);
+            color: white;
+            padding: 48px 40px;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -30%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+        .hero h1 {
+            font-size: 32px;
+            font-weight: 900;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+            position: relative;
+        }
+        .hero .subtitle {
+            font-size: 15px;
+            opacity: 0.85;
+            font-weight: 400;
+            position: relative;
+        }
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(8px);
+            padding: 6px 16px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        /* ==================== TOOLBAR ==================== */
+        .toolbar {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            padding: 16px 40px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .toolbar button {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 20px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .btn-pdf {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            box-shadow: 0 4px 12px rgba(239,68,68,0.25);
+        }
+        .btn-pdf:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(239,68,68,0.35); }
+        .btn-back {
+            background: white;
+            color: #6366f1;
+            border-color: #c7d2fe;
+        }
+        .btn-back:hover { background: #eef2ff; }
+
+        /* ==================== TABLE OF CONTENTS ==================== */
+        .toc {
+            margin: 32px 40px;
+            padding: 24px 32px;
+            background: linear-gradient(135deg, #eef2ff, #faf5ff);
+            border-radius: 16px;
+            border: 1px solid #e0e7ff;
+        }
+        .toc h3 {
+            font-size: 16px;
+            font-weight: 900;
+            color: #4f46e5;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .toc ol {
+            list-style: none;
+            counter-reset: toc;
+            padding-left: 0;
+        }
+        .toc li {
+            counter-increment: toc;
+            margin-bottom: 6px;
+        }
+        .toc li a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #475569;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            padding: 6px 12px;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+        .toc li a:hover { background: rgba(79,70,229,0.08); color: #4f46e5; }
+        .toc li a::before {
+            content: counter(toc);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 8px;
+            background: #4f46e5;
+            color: white;
+            font-size: 11px;
+            font-weight: 900;
+            flex-shrink: 0;
+        }
+
+        /* ==================== SECTIONS ==================== */
+        .section { padding: 32px 40px; }
+        .section + .section { border-top: 1px solid #f1f5f9; }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .section-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .section-icon.blue { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .section-icon.red { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .section-icon.emerald { background: linear-gradient(135deg, #10b981, #059669); }
+        .section-icon.purple { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
+        .section-icon .material-symbols-outlined { color: white; font-size: 24px; }
+
+        .section-title {
+            font-size: 22px;
+            font-weight: 900;
+            letter-spacing: -0.3px;
+        }
+        .section-subtitle {
+            font-size: 13px;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+
+        /* ==================== STEP CARDS ==================== */
+        .step-card {
+            background: #f8fafc;
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 16px;
+            border: 1px solid #e2e8f0;
+            transition: all 0.2s;
+        }
+        .step-card:hover { border-color: #c7d2fe; box-shadow: 0 4px 12px rgba(0,0,0,0.04); }
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 900;
+            color: white;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        .step-number.blue { background: #3b82f6; }
+        .step-number.red { background: #ef4444; }
+        .step-number.emerald { background: #10b981; }
+
+        .step-card h4 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+        .step-card p, .step-card li {
+            font-size: 14px;
+            color: #475569;
+            line-height: 1.9;
+        }
+        .step-card ul, .step-card ol {
+            padding-left: 20px;
+            margin-top: 8px;
+        }
+        .step-card ul li { list-style: disc; margin-bottom: 4px; }
+        .step-card ol li { margin-bottom: 4px; }
+
+        /* ==================== INFO BOX ==================== */
+        .info-box {
+            padding: 16px 20px;
+            border-radius: 12px;
+            margin: 16px 0;
+            font-size: 13px;
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+        }
+        .info-box.warning {
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            color: #92400e;
+        }
+        .info-box.tip {
+            background: #ecfdf5;
+            border: 1px solid #a7f3d0;
+            color: #065f46;
+        }
+        .info-box.caution {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+        }
+        .info-box .material-symbols-outlined { font-size: 20px; flex-shrink: 0; margin-top: 2px; }
+
+        /* ==================== URL HIGHLIGHT ==================== */
+        .url-box {
+            background: #1e1b4b;
+            color: #c4b5fd;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            word-break: break-all;
+        }
+        .url-box .material-symbols-outlined { color: #818cf8; font-size: 18px; }
+
+        /* ==================== COMPARISON TABLE ==================== */
+        .comparison-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+            margin: 16px 0;
+        }
+        .comparison-table th {
+            background: #f1f5f9;
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .comparison-table td {
+            padding: 12px 16px;
+            font-size: 14px;
+            border-top: 1px solid #f1f5f9;
+            vertical-align: top;
+        }
+        .comparison-table tr:nth-child(even) td { background: #fafbfd; }
+
+        /* ==================== FOOTER ==================== */
+        .footer {
+            background: #1e1b4b;
+            color: #94a3b8;
+            padding: 32px 40px;
+            font-size: 12px;
+            line-height: 1.8;
+            border-radius: 0 0 24px 24px;
+        }
+        .footer strong { color: white; }
+
+        /* ==================== RESPONSIVE ==================== */
+        @media (max-width: 640px) {
+            .hero { padding: 32px 20px; }
+            .hero h1 { font-size: 24px; }
+            .toolbar { padding: 12px 20px; flex-wrap: wrap; }
+            .toc { margin: 20px; padding: 20px; }
+            .section { padding: 24px 20px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <!-- ============ HERO ============ -->
+    <div class="hero">
+        <div class="hero-badge">
+            <span class="material-symbols-outlined" style="font-size:16px">verified</span>
+            公式ドキュメント — 2026年4月版
+        </div>
+        <h1>💳 決済導入ガイド</h1>
+        <p class="subtitle">Square決済・PayPayダイレクト決済をQRakuに接続するための完全マニュアルです。</p>
+    </div>
+
+    <!-- ============ TOOLBAR ============ -->
+    <div class="toolbar no-print">
+        <button class="btn-back" onclick="history.back()">
+            <span class="material-symbols-outlined" style="font-size:18px">arrow_back</span>
+            管理画面に戻る
+        </button>
+        <button class="btn-pdf" onclick="window.print()">
+            <span class="material-symbols-outlined" style="font-size:18px">picture_as_pdf</span>
+            PDFダウンロード
+        </button>
+    </div>
+
+    <!-- ============ TABLE OF CONTENTS ============ -->
+    <div class="toc">
+        <h3>
+            <span class="material-symbols-outlined">list</span>
+            目次
+        </h3>
+        <ol>
+            <li><a href="#overview">決済方式の概要と比較</a></li>
+            <li><a href="#square-setup">Square 決済の導入手順</a></li>
+            <li><a href="#paypay-setup">PayPay ダイレクト決済の導入手順</a></li>
+            <li><a href="#qraku-config">QRaku 管理画面での設定方法</a></li>
+            <li><a href="#testing">テスト・動作確認の方法</a></li>
+            <li><a href="#faq">よくある質問 (FAQ)</a></li>
+        </ol>
+    </div>
+
+    <!-- ============ SECTION 1: OVERVIEW ============ -->
+    <div class="section" id="overview">
+        <div class="section-header">
+            <div class="section-icon purple">
+                <span class="material-symbols-outlined">compare_arrows</span>
+            </div>
+            <div>
+                <div class="section-title">1. 決済方式の概要と比較</div>
+                <div class="section-subtitle">QRakuが対応する3つの決済方式</div>
+            </div>
+        </div>
+
+        <p style="margin-bottom:16px;">QRakuでは、お店の運営スタイルに合わせて以下の3つの決済方式から選択できます。</p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>項目</th>
+                    <th>🏪 現場決済</th>
+                    <th>💳 Square決済</th>
+                    <th>📱 PayPay決済</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>概要</strong></td>
+                    <td>レジ・現金等でお客様と直接精算</td>
+                    <td>SquareのPOS端末・オンラインカード決済</td>
+                    <td>PayPayアプリでQRコード決済</td>
+                </tr>
+                <tr>
+                    <td><strong>初期費用</strong></td>
+                    <td>なし</td>
+                    <td>Square Reader: ¥7,980 (税込)</td>
+                    <td>なし</td>
+                </tr>
+                <tr>
+                    <td><strong>決済手数料</strong></td>
+                    <td>なし</td>
+                    <td>3.25〜3.75%</td>
+                    <td>1.60〜1.98%</td>
+                </tr>
+                <tr>
+                    <td><strong>入金サイクル</strong></td>
+                    <td>即時（現金）</td>
+                    <td>翌営業日〜</td>
+                    <td>月末締め翌月払い</td>
+                </tr>
+                <tr>
+                    <td><strong>対応カード</strong></td>
+                    <td>—</td>
+                    <td>Visa, Mastercard, AMEX, JCB, etc.</td>
+                    <td>PayPay残高のみ</td>
+                </tr>
+                <tr>
+                    <td><strong>導入難易度</strong></td>
+                    <td>⭐ 不要</td>
+                    <td>⭐⭐ OAuthボタン1クリック</td>
+                    <td>⭐⭐⭐ APIキー取得が必要</td>
+                </tr>
+                <tr>
+                    <td><strong>おすすめシーン</strong></td>
+                    <td>小規模・現金中心</td>
+                    <td>カード対応したい全店舗</td>
+                    <td>日本国内・若年層集客</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- ============ SECTION 2: SQUARE ============ -->
+    <div class="section page-break" id="square-setup">
+        <div class="section-header">
+            <div class="section-icon blue">
+                <span class="material-symbols-outlined">credit_card</span>
+            </div>
+            <div>
+                <div class="section-title">2. Square 決済の導入手順</div>
+                <div class="section-subtitle">OAuth連携で簡単に接続 — 所要時間：約10分</div>
+            </div>
+        </div>
+
+        <!-- Step 1 -->
+        <div class="step-card">
+            <h4><span class="step-number blue">1</span>Square アカウントを作成する</h4>
+            <p>まず、Squareの公式サイトでビジネスアカウントを作成してください。</p>
+            <div class="url-box">
+                <span class="material-symbols-outlined">link</span>
+                https://squareup.com/jp/ja
+            </div>
+            <ul>
+                <li>メールアドレスとパスワードを登録</li>
+                <li>ビジネス情報（店舗名、業種、住所）を入力</li>
+                <li>銀行口座情報を登録（売上の入金先）</li>
+                <li>本人確認書類のアップロード（必要に応じて）</li>
+            </ul>
+            <div class="info-box tip">
+                <span class="material-symbols-outlined">lightbulb</span>
+                <div>既にSquareアカウントをお持ちの場合は、この手順はスキップしてOKです。</div>
+            </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="step-card">
+            <h4><span class="step-number blue">2</span>Square Developerダッシュボードで設定確認</h4>
+            <p>QRakuとSquareを連携するために、Square Developerダッシュボードでアプリケーション設定を確認します。</p>
+            <div class="url-box">
+                <span class="material-symbols-outlined">link</span>
+                https://developer.squareup.com/apps
+            </div>
+            <p style="margin-top:8px;">以下の権限 (Scopes) がQRaku側で自動的に要求されます：</p>
+            <ul>
+                <li><strong>PAYMENTS_WRITE</strong> — 決済の作成</li>
+                <li><strong>PAYMENTS_READ</strong> — 決済情報の読み取り</li>
+                <li><strong>ORDERS_WRITE / ORDERS_READ</strong> — 注文管理</li>
+                <li><strong>MERCHANT_PROFILE_READ</strong> — 加盟店情報の読み取り</li>
+            </ul>
+            <div class="info-box warning">
+                <span class="material-symbols-outlined">info</span>
+                <div>店舗オーナー様がDeveloperダッシュボードで操作する必要は<strong>ありません</strong>。QRakuの管理画面から「連携する」ボタンを押すだけで、OAuth認証が自動的に行われます。</div>
+            </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="step-card">
+            <h4><span class="step-number blue">3</span>QRaku 管理画面で Square を連携する</h4>
+            <p>QRakuの決済設定ページで以下の操作を行います：</p>
+            <ol>
+                <li>管理画面 → <strong>「決済設定」</strong> ページを開く</li>
+                <li>決済方式から <strong>「Square 決済」</strong> を選択</li>
+                <li><strong>「Squareアカウントを連携する (OAuth)」</strong> ボタンをクリック</li>
+                <li>Squareのログイン画面が表示されるので、ログインして<strong>「許可する」</strong>をクリック</li>
+                <li>自動的にQRaku管理画面に戻り、<strong>「連携済み」</strong>と表示されれば完了 ✅</li>
+            </ol>
+            <div class="info-box tip">
+                <span class="material-symbols-outlined">lightbulb</span>
+                <div>連携後、Squareダッシュボードで<strong>ロケーション（店舗）</strong>が正しく選択されていることを確認してください。複数店舗がある場合、デフォルトのロケーションが使用されます。</div>
+            </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="step-card">
+            <h4><span class="step-number blue">4</span>Square Reader / Terminal の準備（対面決済の場合）</h4>
+            <p>店内のテーブル決済でクレジットカードを受け付ける場合は、Square端末が必要です：</p>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>端末</th>
+                        <th>価格</th>
+                        <th>特徴</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Square Reader</strong></td>
+                        <td>¥7,980</td>
+                        <td>Bluetooth接続。スマホ・タブレットと連携。タッチ決済・ICチップ対応</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Square Terminal</strong></td>
+                        <td>¥46,980</td>
+                        <td>オールインワン端末。Wi-Fi内蔵、レシート印刷可</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Square Stand</strong></td>
+                        <td>¥36,980</td>
+                        <td>iPad用POS端末。レジカウンター設置型</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="info-box tip">
+                <span class="material-symbols-outlined">lightbulb</span>
+                <div><strong>QRaku × Square のオンライン決済</strong>のみを使用する場合は、物理端末は不要です。お客様はスマホのブラウザ上でカード情報を入力して決済できます。</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ SECTION 3: PAYPAY ============ -->
+    <div class="section page-break" id="paypay-setup">
+        <div class="section-header">
+            <div class="section-icon red">
+                <span class="material-symbols-outlined">qr_code_2</span>
+            </div>
+            <div>
+                <div class="section-title">3. PayPay ダイレクト決済の導入手順</div>
+                <div class="section-subtitle">APIキー発行が必要 — 所要時間：約30分〜1営業日</div>
+            </div>
+        </div>
+
+        <!-- Step 1 -->
+        <div class="step-card">
+            <h4><span class="step-number red">1</span>PayPay for Business に登録する</h4>
+            <p>まず、PayPayの加盟店契約を行います。</p>
+            <div class="url-box">
+                <span class="material-symbols-outlined">link</span>
+                https://merchant.paypay.ne.jp/
+            </div>
+            <ul>
+                <li>「加盟店お申し込みはこちら」をクリック</li>
+                <li>法人情報 or 個人事業主情報を入力</li>
+                <li>業種・業態として <strong>「飲食業」</strong> を選択</li>
+                <li>銀行口座情報を登録</li>
+                <li>審査完了メールが届くまで待つ（通常1〜3営業日）</li>
+            </ul>
+            <div class="info-box warning">
+                <span class="material-symbols-outlined">info</span>
+                <div>PayPayの加盟店審査には<strong>1〜3営業日</strong>かかる場合があります。お急ぎの場合は、まず「現場決済」または「Square決済」でサービスを開始し、審査完了後にPayPayを追加することをおすすめします。</div>
+            </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="step-card">
+            <h4><span class="step-number red">2</span>PayPay for Developers でAPIキーを取得する</h4>
+            <p>加盟店審査が完了したら、API連携用の認証情報を取得します。</p>
+            <div class="url-box">
+                <span class="material-symbols-outlined">link</span>
+                https://developer.paypay.ne.jp/
+            </div>
+            <ol>
+                <li>PayPay for Developersにログイン</li>
+                <li>左メニューの <strong>「ダッシュボード」</strong> → <strong>「APIキー管理」</strong> を開く</li>
+                <li>以下の3つの情報をメモ・コピーしてください：
+                    <ul>
+                        <li><strong>API Key</strong> — 英数字の文字列</li>
+                        <li><strong>API Secret</strong> — 英数字の文字列</li>
+                        <li><strong>加盟店ID (Merchant ID)</strong> — 数字の文字列</li>
+                    </ul>
+                </li>
+            </ol>
+            <div class="info-box caution">
+                <span class="material-symbols-outlined">warning</span>
+                <div><strong>重要：</strong>API SecretはPayPay画面で一度しか表示されません。必ずメモ帳などに保存してから次のステップに進んでください。紛失した場合はAPIキーの再発行が必要です。</div>
+            </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="step-card">
+            <h4><span class="step-number red">3</span>本番 / サンドボックス環境の選択</h4>
+            <p>PayPay for Developersでは、テスト用の<strong>サンドボックス環境</strong>と、実際に課金が発生する<strong>本番環境</strong>が分かれています。</p>
+            <table class="comparison-table">
+                <thead>
+                    <tr><th>環境</th><th>用途</th><th>注意点</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>サンドボックス</strong></td>
+                        <td>テスト決済。実際のお金は動かない</td>
+                        <td>テスト用のPayPayアカウントが必要</td>
+                    </tr>
+                    <tr>
+                        <td><strong>本番 (Production)</strong></td>
+                        <td>実際のPayPay残高から引き落とす</td>
+                        <td>お客様の実際の残高から引き落とされます</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="info-box tip">
+                <span class="material-symbols-outlined">lightbulb</span>
+                <div>初めて導入する場合は、まずサンドボックスのAPIキーでテストし、問題なければ本番のAPIキーに切り替えることを推奨します。</div>
+            </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="step-card">
+            <h4><span class="step-number red">4</span>QRaku 管理画面で認証情報を設定する</h4>
+            <p>取得した3つの情報をQRaku管理画面に入力します：</p>
+            <ol>
+                <li>管理画面 → <strong>「決済設定」</strong> ページを開く</li>
+                <li>決済方式から <strong>「PayPay ダイレクト」</strong> を選択</li>
+                <li>表示されるフォームに <strong>API Key</strong>、<strong>API Secret</strong>、<strong>加盟店ID</strong> を入力</li>
+                <li><strong>「認証情報を保存」</strong> ボタンをクリック</li>
+                <li><strong>「✅ 認証情報設定済み」</strong>と表示されれば完了</li>
+            </ol>
+        </div>
+    </div>
+
+    <!-- ============ SECTION 4: QRAKU CONFIG ============ -->
+    <div class="section page-break" id="qraku-config">
+        <div class="section-header">
+            <div class="section-icon emerald">
+                <span class="material-symbols-outlined">settings</span>
+            </div>
+            <div>
+                <div class="section-title">4. QRaku 管理画面での設定方法</div>
+                <div class="section-subtitle">決済設定画面の操作ガイド</div>
+            </div>
+        </div>
+
+        <div class="step-card">
+            <h4><span class="step-number emerald">1</span>決済設定画面へのアクセス方法</h4>
+            <p>管理画面にログイン後、以下の方法で決済設定ページにアクセスできます：</p>
+            <ol>
+                <li>管理画面上部のナビゲーションバーで <strong>「決済」</strong> タブをクリック</li>
+                <li>または、URLバーに直接以下を入力：</li>
+            </ol>
+            <div class="url-box">
+                <span class="material-symbols-outlined">link</span>
+                https://あなたのドメイン/{店舗ID}/admin/payment
+            </div>
+        </div>
+
+        <div class="step-card">
+            <h4><span class="step-number emerald">2</span>決済方式の切り替え</h4>
+            <p>決済設定画面では、3つの決済カードが表示されます。使いたい決済方式のカードをクリックするだけで即座に切り替わります。</p>
+            <ul>
+                <li><strong>現場決済</strong> — QRakuの決済APIをバイパスし、自店舗で直接精算</li>
+                <li><strong>Square 決済</strong> — クレジットカード・電子マネー等のオンライン決済</li>
+                <li><strong>PayPay ダイレクト</strong> — QRコードでPayPay残高から決済</li>
+            </ul>
+            <div class="info-box warning">
+                <span class="material-symbols-outlined">info</span>
+                <div>決済方式を切り替えると、<strong>即座に</strong>お客様の決済フローに反映されます。営業時間外に切り替えることをおすすめします。</div>
+            </div>
+        </div>
+
+        <div class="step-card">
+            <h4><span class="step-number emerald">3</span>連携の解除方法</h4>
+            <ul>
+                <li><strong>Square：</strong> 「Square連携を解除」ボタンをクリック → 確認ダイアログで「OK」</li>
+                <li><strong>PayPay：</strong> API Key、API Secret を空欄にして保存すれば認証情報がクリアされます</li>
+                <li>解除後は、自動的に「現場決済」モードに戻ります</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- ============ SECTION 5: TESTING ============ -->
+    <div class="section page-break" id="testing">
+        <div class="section-header">
+            <div class="section-icon purple">
+                <span class="material-symbols-outlined">bug_report</span>
+            </div>
+            <div>
+                <div class="section-title">5. テスト・動作確認の方法</div>
+                <div class="section-subtitle">導入後、必ずテスト決済を行ってください</div>
+            </div>
+        </div>
+
+        <div class="step-card">
+            <h4><span class="step-number emerald">✓</span>Square のテスト</h4>
+            <ol>
+                <li>Square Developer ダッシュボードの<strong>サンドボックス</strong>モードでテスト用アカウントを作成</li>
+                <li>QRakuの管理画面でSquare連携（サンドボックスモード）を完了</li>
+                <li>テスト用テーブルQRコードをスキャンし、注文・決済を実施</li>
+                <li>Square ダッシュボードの「トランザクション」で決済が記録されていることを確認</li>
+            </ol>
+            <div class="info-box tip">
+                <span class="material-symbols-outlined">lightbulb</span>
+                <div>テスト用カード番号: <code style="background:#f1f5f9;padding:2px 8px;border-radius:4px;">4532 0123 4567 8901</code>（有効期限: 任意の未来日、CVV: 任意の3桁）</div>
+            </div>
+        </div>
+
+        <div class="step-card">
+            <h4><span class="step-number emerald">✓</span>PayPay のテスト</h4>
+            <ol>
+                <li>PayPay for Developersの<strong>サンドボックス</strong>APIキーをQRakuに設定</li>
+                <li>Sandbox用PayPayアプリ（またはWebテスト環境）を使用</li>
+                <li>QRコード決済フローを最後まで実施</li>
+                <li>PayPay Developer ダッシュボードの「テスト」タブで決済履歴を確認</li>
+            </ol>
+        </div>
+
+        <div class="step-card">
+            <h4><span class="step-number emerald">✓</span>本番切り替えチェックリスト</h4>
+            <ul>
+                <li>✅ サンドボックスでのテスト決済が問題なく完了した</li>
+                <li>✅ 本番用のAPIキー / OAuth連携に切り替えた</li>
+                <li>✅ 実際の少額決済（¥1〜¥100）でテストし、入金確認済み</li>
+                <li>✅ 返金（Refund）のフローも確認済み</li>
+                <li>✅ 店舗スタッフへの操作手順を共有済み</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- ============ SECTION 6: FAQ ============ -->
+    <div class="section page-break" id="faq">
+        <div class="section-header">
+            <div class="section-icon purple">
+                <span class="material-symbols-outlined">help</span>
+            </div>
+            <div>
+                <div class="section-title">6. よくある質問 (FAQ)</div>
+                <div class="section-subtitle">お困りの際はこちらをご参照ください</div>
+            </div>
+        </div>
+
+        <div class="step-card">
+            <h4>Q. Square連携ボタンを押してもエラーになります</h4>
+            <p><strong>A.</strong> 以下を確認してください：</p>
+            <ul>
+                <li>Squareアカウントで日本の銀行口座が登録されているか</li>
+                <li>ブラウザのポップアップブロックが有効になっていないか</li>
+                <li>Squareのサービスステータスに障害が発生していないか</li>
+            </ul>
+        </div>
+
+        <div class="step-card">
+            <h4>Q. PayPayの認証情報を忘れました</h4>
+            <p><strong>A.</strong> PayPay for Developersダッシュボードにログインし、「APIキー管理」からAPIキーを再発行してください。API Secretは再表示できないため、再発行が必要です。</p>
+        </div>
+
+        <div class="step-card">
+            <h4>Q. Square と PayPay を同時に使えますか？</h4>
+            <p><strong>A.</strong> 現在のQRakuでは、一度に<strong>1つの決済方式</strong>のみ有効にできます。ただし、「現場決済」モードでSquare端末とPayPay店頭QRコードを併用する使い方は可能です。</p>
+        </div>
+
+        <div class="step-card">
+            <h4>Q. 返金（Refund）はどうやりますか？</h4>
+            <p><strong>A.</strong></p>
+            <ul>
+                <li><strong>Square：</strong> Squareダッシュボードの「トランザクション」から個別の決済を選択し、「返金」ボタンをクリック</li>
+                <li><strong>PayPay：</strong> PayPay for Business管理画面から対象の取引を検索し、返金処理を実施</li>
+            </ul>
+        </div>
+
+        <div class="step-card">
+            <h4>Q. 手数料を安くする方法はありますか？</h4>
+            <p><strong>A.</strong> PayPayは飲食業の場合、加盟店申込時に業種割引が適用される場合があります。また、Squareはキャンペーン期間中に手数料が割引されることがあるので、定期的に公式サイトをチェックしてください。</p>
+        </div>
+    </div>
+
+    <!-- ============ FOOTER ============ -->
+    <div class="footer">
+        <p><strong>QRaku — 決済導入ガイド</strong></p>
+        <p>© 2026 QRaku. このドキュメントは店舗オーナー様向けの参考資料です。</p>
+        <p>最新情報はQRaku管理画面または公式サイトをご確認ください。</p>
+        <p style="margin-top:12px;">
+            📧 お問い合わせ: support@qraku.com &nbsp; | &nbsp;
+            📞 サポート: 03-XXXX-XXXX（平日 10:00〜18:00）
+        </p>
+    </div>
+
+</div>
+</body>
+</html>

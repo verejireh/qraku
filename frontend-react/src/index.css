@@ -1,0 +1,305 @@
+:root {
+  /* Default Tsubaki (Crimson) - Material Design 3 Variables Fallback */
+  --color-primary: #c21e2f;
+  --color-accent: #9f1239;
+  --primary: #c21e2f;
+
+  --primary-fixed: #fde8e9;
+  --primary-fixed-dim: #fca5a5;
+  --primary-container: #fde8e9;
+  --on-primary-container: #7f1d1d;
+  --on-primary-fixed-variant: #9f1239;
+
+  --secondary: #f43f5e;
+  --secondary-fixed: #ffedd5;
+  --secondary-fixed-dim: #fdba74;
+  --secondary-container: #fff1f2;
+  --on-secondary-container: #4c0519;
+
+  --tertiary: #fb923c;
+  --tertiary-fixed: #ffedd5;
+  --tertiary-fixed-dim: #fdba74;
+  --tertiary-container: #fff7ed;
+  --on-tertiary-container: #7c2d12;
+
+  --surface: #f8f6f6;
+  --surface-dim: #f0ecec;
+  --surface-bright: #ffffff;
+  --surface-variant: #f1f5f9;
+  --on-surface: #334155;
+  --on-surface-variant: #64748b;
+
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f8fafc;
+  --surface-container: #f1f5f9;
+  --surface-container-high: #e2e8f0;
+  --surface-container-highest: #cbd5e1;
+  --outline-variant: #e2e8f0;
+  --on-background: #0f172a;
+
+  --bg-main: #f8f6f6;
+  --bg-card: #ffffff;
+  --text-main: #334155;
+  --text-dim: #94a3b8;
+  --border-subtle: rgba(194, 30, 47, 0.1);
+}
+
+.theme-sakura {
+  --color-primary: #ffb8c6;
+  --color-accent: #fb7185;
+  --primary: #ffb8c6;
+}
+
+.theme-cosmos {
+  --color-primary: #e13370;
+  --color-accent: #be185d;
+  --primary: #e13370;
+}
+
+.theme-sunflower {
+  --color-primary: #ffd900;
+  --color-accent: #f59e0b;
+  --primary: #ffd900;
+}
+
+.theme-lavender {
+  --color-primary: #9c7aff;
+  --color-accent: #7c3aed;
+  --primary: #9c7aff;
+}
+
+.theme-ajisai {
+  --color-primary: #5cd0f0;
+  --color-accent: #0ea5e9;
+  --primary: #5cd0f0;
+}
+
+.theme-tsubaki {
+  --color-primary: #c21e2f;
+  --color-accent: #9f1239;
+  --primary: #c21e2f;
+}
+
+.theme-bamboo {
+  --color-primary: #7f8000;
+  --color-accent: #65a30d;
+  --primary: #7f8000;
+}
+
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    margin: 0;
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    @apply transition-colors duration-300 font-sans;
+  }
+}
+
+.bg-charcoal {
+  background-color: var(--bg-main);
+}
+
+.bg-card-dark {
+  background-color: var(--bg-card);
+}
+
+.border-white\/\[0\.05\] {
+  border-color: var(--border-subtle);
+}
+
+/* Sakura Theme Variables */
+[data-theme='sakura'] {
+  --primary: #ffb8c6;
+  --background-light: #f8f5f6;
+  --sakura-pink: #ffb8c6;
+}
+
+/* Cosmos Theme Variables */
+[data-theme='cosmos'] {
+  --primary: #e13370;
+  --background-light: #fdfbfc;
+  --cosmos-fuchsia: #e13370;
+}
+
+/* Sunflower Theme Variables */
+[data-theme='sunflower'] {
+  --primary: #ffd900;
+  --background-light: #f8f8f5;
+  --sunflower-yellow: #ffd900;
+}
+
+/* Lavender Theme Variables */
+[data-theme='lavender'] {
+  --primary: #9c7aff;
+  --background-light: #f9f7ff;
+  --lavender-soft: #f1edff;
+  --lavender-deep: #6a5e8d;
+}
+
+/* Ajisai (Hydrangea) Theme Variables */
+[data-theme='ajisai'] {
+  --primary: #5cd0f0;
+  --background-light: #f6f8f8;
+}
+
+/* Camellia (Tsubaki) Theme Variables */
+[data-theme='tsubaki'] {
+  --primary: #c21e2f;
+  --background-light: #f8f6f6;
+}
+
+/* Bamboo Theme Variables */
+[data-theme='bamboo'] {
+  --primary: #7f8000;
+  --background-light: #f8f8f5;
+}
+
+/* Theme Patterns & Effects */
+.sakura-bg {
+  background-color: var(--background-light);
+  background-image: radial-gradient(var(--sakura-pink) 0.5px, transparent 0.5px), radial-gradient(var(--sakura-pink) 0.5px, var(--background-light) 0.5px);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+  opacity: 0.4;
+}
+
+.cosmos-bg {
+  background-image: radial-gradient(#ffffff 0.5px, transparent 0.5px), radial-gradient(#ffffff 0.5px, transparent 0.5px);
+  background-size: 40px 40px;
+  background-position: 0 0, 20px 20px;
+  opacity: 0.2;
+}
+
+.sunflower-bg {
+  background-color: var(--background-light);
+  background-image: radial-gradient(circle at 20% 20%, rgba(255, 217, 0, 0.05) 0%, transparent 40%), radial-gradient(circle at 80% 80%, rgba(255, 217, 0, 0.05) 0%, transparent 40%);
+}
+
+.petal-bg-pattern {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  opacity: 0.03;
+  pointer-events: none;
+}
+
+.lavender-glow {
+  box-shadow: 0 0 20px rgba(156, 122, 255, 0.2);
+}
+
+.glass-nav-lavender {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+
+.glass-card-lavender {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+
+.hydrangea-bg {
+  background-image: radial-gradient(circle at 10% 20%, rgba(92, 208, 240, 0.1) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(92, 208, 240, 0.15) 0%, transparent 40%);
+}
+
+.camellia-pattern {
+  background-image: radial-gradient(circle at 2px 2px, rgba(194, 30, 47, 0.05) 1px, transparent 0);
+  background-size: 40px 40px;
+}
+
+.camellia-overlay {
+  background: linear-gradient(rgba(32, 18, 19, 0.97), rgba(32, 18, 19, 0.97)),
+    url('https://images.unsplash.com/photo-1595853035070-59a39fe84de3?auto=format&fit=crop&q=80&w=1000');
+  background-size: cover;
+  background-attachment: fixed;
+}
+
+.bamboo-bg {
+  background-image: radial-gradient(circle at 2px 2px, rgba(127, 128, 0, 0.05) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+.receipt-paper-camellia {
+  background: linear-gradient(180deg, rgba(32, 18, 19, 1) 0%, rgba(45, 25, 27, 1) 100%);
+  position: relative;
+}
+
+.receipt-paper-camellia::after {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 0;
+  right: 0;
+  height: 10px;
+  background: linear-gradient(-135deg, transparent 5px, var(--background-dark) 0), linear-gradient(135deg, transparent 5px, var(--background-dark) 0);
+  background-size: 10px 10px;
+  background-repeat: repeat-x;
+}
+
+.jagged-bottom {
+  position: relative;
+}
+
+.jagged-bottom::after {
+  content: "";
+  position: absolute;
+  bottom: -10px;
+  left: 0;
+  width: 100%;
+  height: 10px;
+  background: linear-gradient(-45deg, transparent 5px, white 5px), linear-gradient(45deg, transparent 5px, white 5px);
+  background-size: 10px 10px;
+  background-repeat: repeat-x;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.soft-glow-bg {
+  background: radial-gradient(circle at 50% -20%, var(--color-primary), transparent 50%);
+  opacity: 0.1;
+}
+
+.toss-card {
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.1);
+  @apply border border-white/[0.03];
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.primary-glow {
+  box-shadow: 0 0 20px var(--color-primary);
+}

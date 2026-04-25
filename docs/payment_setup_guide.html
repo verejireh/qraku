@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>QRaku 決済連携 導入ガイド</title>
+<style>
+@page { size: A4; margin: 18mm 16mm; }
+body {
+  font-family: "Yu Gothic", "Meiryo", "MS Gothic", sans-serif;
+  color: #1b1b1d;
+  line-height: 1.7;
+  font-size: 10.5pt;
+}
+h1 {
+  font-size: 22pt;
+  color: #b80035;
+  border-bottom: 3px solid #b80035;
+  padding-bottom: 8px;
+  margin-top: 0;
+}
+h2 {
+  font-size: 15pt;
+  color: #b80035;
+  margin-top: 28px;
+  padding: 6px 10px;
+  background: linear-gradient(90deg, #ffe0e7 0%, #fff 100%);
+  border-left: 5px solid #b80035;
+}
+h3 {
+  font-size: 12pt;
+  color: #333;
+  margin-top: 20px;
+  border-bottom: 1px dashed #ddd;
+  padding-bottom: 4px;
+}
+h4 { font-size: 11pt; color: #555; margin-top: 12px; }
+ol, ul { padding-left: 22px; }
+li { margin-bottom: 4px; }
+code {
+  background: #f4f4f5;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: Consolas, monospace;
+  font-size: 9.5pt;
+  color: #c21e2f;
+}
+pre {
+  background: #1e1e24;
+  color: #e4e4e7;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 9pt;
+  overflow-x: auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 10px 0;
+  font-size: 10pt;
+}
+th, td {
+  border: 1px solid #ddd;
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+th { background: #ffe0e7; color: #b80035; }
+.note {
+  background: #fff7e6;
+  border-left: 4px solid #f59e0b;
+  padding: 10px 14px;
+  margin: 10px 0;
+  border-radius: 4px;
+}
+.warn {
+  background: #fee2e2;
+  border-left: 4px solid #dc2626;
+  padding: 10px 14px;
+  margin: 10px 0;
+  border-radius: 4px;
+}
+.ok {
+  background: #dcfce7;
+  border-left: 4px solid #16a34a;
+  padding: 10px 14px;
+  margin: 10px 0;
+  border-radius: 4px;
+}
+.step {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  padding: 10px 14px;
+  margin: 8px 0;
+  border-radius: 6px;
+}
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 9pt;
+  font-weight: bold;
+  color: #fff;
+  margin-right: 4px;
+}
+.b-ok { background: #16a34a; }
+.b-warn { background: #f59e0b; }
+.b-bad { background: #dc2626; }
+.toc {
+  background: #fafafa;
+  border: 1px solid #e5e5e5;
+  padding: 14px 20px;
+  border-radius: 6px;
+  margin: 20px 0;
+}
+.toc ol { margin: 6px 0; }
+hr {
+  border: none;
+  border-top: 1px solid #e5e5e5;
+  margin: 25px 0;
+}
+.cover {
+  text-align: center;
+  padding: 80px 0 40px;
+}
+.cover h1 {
+  font-size: 32pt;
+  border: none;
+}
+.cover .sub {
+  font-size: 14pt;
+  color: #666;
+  margin-top: 10px;
+}
+.page-break { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>QRaku 決済連携<br>店舗オーナー向け 導入ガイド</h1>
+  <div class="sub">Square & PayPay ダイレクト 設定マニュアル</div>
+  <div class="sub" style="margin-top:30px;font-size:11pt;">Version 1.0 &nbsp;|&nbsp; 2026年4月</div>
+</div>
+
+<div class="page-break"></div>
+
+<div class="toc">
+  <h3 style="margin-top:0;border:none;">目次</h3>
+  <ol>
+    <li>はじめに（本システムの決済方式）</li>
+    <li>事前に準備するもの</li>
+    <li>Square 決済 導入手順</li>
+    <li>PayPay ダイレクト 導入手順</li>
+    <li>管理画面での店舗側設定</li>
+    <li>テイクアウト機能 有効化手順</li>
+    <li>動作テスト（サンドボックス / 本番）</li>
+    <li>トラブルシューティング</li>
+    <li>よくある質問 (FAQ)</li>
+  </ol>
+</div>
+
+<h2>1. はじめに</h2>
+
+<p>QRaku は 3つの決済方式 に対応しています。店舗様のご利用形態に合わせてお選びください。</p>
+
+<table>
+<tr><th>方式</th><th>特徴</th><th>必要な契約</th></tr>
+<tr><td><b>① 窓口支払い</b><br>(pay_at_counter)</td><td>食後に店舗レジで現金/カード決済。オンライン決済は使わない。</td><td>不要</td></tr>
+<tr><td><b>② Square 連携</b><br>(square_integrated)</td><td>カード・Apple Pay・Google Pay など。テイクアウト先払いも Square POS / プリンターと同期。</td><td>Square アカウント</td></tr>
+<tr><td><b>③ PayPay ダイレクト</b><br>(paypay_direct)</td><td>PayPay ユーザー向け。手数料が低く、日本国内のお客様に最適。</td><td>PayPay for Business + PayPay for Developers</td></tr>
+</table>
+
+<div class="note">
+<b>重要:</b> テイクアウト（お持ち帰り）注文を受け付けるには ②または③ の契約が必要です。先払いが行われないと注文そのものが成立しない仕様になっています。
+</div>
+
+<h2>2. 事前に準備するもの</h2>
+
+<ol>
+  <li>店舗名義の銀行口座（入金先）</li>
+  <li>代表者の本人確認書類（運転免許証など）</li>
+  <li>営業許可証（飲食店営業許可のコピー）</li>
+  <li>メールアドレス（管理画面ログイン用）</li>
+  <li>法人の場合: 登記事項証明書</li>
+</ol>
+
+<div class="page-break"></div>
+
+<h2>3. Square 決済 導入手順</h2>
+
+<h3>3-1. Square アカウントを作る</h3>
+<ol>
+  <li><a>https://squareup.com/jp/ja</a> にアクセスし、「無料でアカウント作成」を押す。</li>
+  <li>メールアドレス・パスワード・店舗情報（業種: レストラン）を入力。</li>
+  <li>本人確認・事業情報審査を完了させる（通常 1〜3 営業日）。</li>
+  <li>審査通過後、銀行口座を登録して入金先を設定する。</li>
+</ol>
+
+<h3>3-2. ロケーション（店舗）を登録</h3>
+<ol>
+  <li>Square Dashboard → 「アカウントと設定」 → 「店舗情報・ロケーション」。</li>
+  <li>店舗名・住所・営業時間を登録し「<b>有効</b>（ACTIVE）」状態にする。</li>
+  <li>複数店舗を運営する場合でも、QRaku は自動的に「最初のアクティブな店舗」を選択します。</li>
+</ol>
+
+<div class="warn">
+<b>注意:</b> 複数店舗を運営する場合、連携したい店舗だけを有効化しておいてください。後から個別選択する UI は現バージョンではありません。
+</div>
+
+<h3>3-3. QRaku 管理画面で連携ボタンを押す</h3>
+<ol>
+  <li>QRaku 管理画面にログイン → 左メニュー「決済設定」を開く。</li>
+  <li>決済方式で「<b>② Square 連携</b>」を選択。</li>
+  <li>「<b>Squareと連携する</b>」ボタンを押す。</li>
+  <li>Square の承認画面にリダイレクトされるので、表示された内容を確認して「許可」を押す。</li>
+  <li>自動的に QRaku に戻り、「連携済み」と表示されれば完了。</li>
+</ol>
+
+<div class="ok">
+<b>連携で保存されるもの:</b> access_token / refresh_token / merchant_id / location_id。自動取得されるため、オーナー様が手入力する項目はありません。
+</div>
+
+<h3>3-4. お客様側で使える決済手段</h3>
+<ul>
+  <li>Visa / Mastercard / JCB / American Express / Diners</li>
+  <li>Apple Pay（iOS Safari）</li>
+  <li>Google Pay（Android Chrome）</li>
+</ul>
+
+<h3>3-5. Square 決済の手数料</h3>
+<table>
+<tr><th>方式</th><th>手数料（2026年4月時点）</th></tr>
+<tr><td>対面カード決済</td><td>3.25%</td></tr>
+<tr><td>オンライン・QRコード経由</td><td>3.6%</td></tr>
+</table>
+<p>※ 最新の手数料は Square 公式サイトでご確認ください。</p>
+
+<div class="page-break"></div>
+
+<h2>4. PayPay ダイレクト 導入手順</h2>
+
+<h3>4-1. PayPay for Business に加盟店登録</h3>
+<ol>
+  <li><a>https://paypay.ne.jp/business/</a> から「加盟店申込」を行う。</li>
+  <li>店舗情報・代表者情報・銀行口座を入力して提出。</li>
+  <li>審査（通常 7〜14 営業日）通過後、<b>加盟店ID（Merchant ID）</b> が発行される。</li>
+</ol>
+
+<h3>4-2. PayPay for Developers で API キーを取得</h3>
+<ol>
+  <li><a>https://developer.paypay.ne.jp/</a> にアクセスし、PayPay for Business と<b>同じメールアドレス</b>でログイン。</li>
+  <li>左メニュー「API キー管理」を開く。</li>
+  <li><b>ステージング環境</b>（テスト用）で「新しい API キーを発行」を押し、以下 2 つをメモ:
+    <ul>
+      <li>API Key（例: <code>stg_xxxxxxxxxxxx</code>）</li>
+      <li>API Secret（例: <code>xxxxxxxxxxxxxxxx==</code>）</li>
+    </ul>
+  </li>
+  <li>動作テスト後、<b>本番環境</b>に切り替えて同じ手順で発行。
+    <ul><li>本番キーには <code>stg_</code> のプレフィックスが付きません。</li></ul>
+  </li>
+</ol>
+
+<div class="warn">
+<b>秘密情報の取り扱い:</b> API Secret は画面に一度しか表示されません。安全な場所（パスワード管理ツール等）に保存してください。
+</div>
+
+<h3>4-3. QRaku 管理画面に 3 つの値を入力</h3>
+<ol>
+  <li>管理画面 → 「決済設定」 → 決済方式「<b>③ PayPay ダイレクト</b>」を選択。</li>
+  <li>以下 3 項目を入力:
+    <ul>
+      <li><b>API Key</b></li>
+      <li><b>API Secret</b></li>
+      <li><b>Merchant ID（加盟店ID）</b></li>
+    </ul>
+  </li>
+  <li>「保存」ボタンを押す。「設定済み」の緑バッジが表示されれば完了。</li>
+</ol>
+
+<h3>4-4. PayPay の手数料</h3>
+<ul>
+  <li>2026年4月時点: <b>1.98%</b>（Square より低い）</li>
+  <li>入金サイクル: 月2回〜月6回（契約プランによる）</li>
+</ul>
+
+<h3>4-5. お客様側の決済フロー</h3>
+<ol>
+  <li>カートで「<b>PayPay で決済する</b>」を押す</li>
+  <li>PayPay アプリまたは Web 画面に自動遷移、QR コードまたは金額を確認</li>
+  <li>PayPay 残高・銀行口座・クレジットカードのいずれかで支払い</li>
+  <li>QRaku に自動復帰 → 注文が確定 → 領収書ページ表示</li>
+</ol>
+
+<div class="page-break"></div>
+
+<h2>5. 管理画面での店舗側設定</h2>
+
+<h3>5-1. 基本情報（/admin）</h3>
+<ul>
+  <li>店舗名・営業時間・店舗テーマ（桜・コスモス等 8種類）を設定</li>
+  <li>ポイント発行率・受取設定・消費税表示設定</li>
+</ul>
+
+<h3>5-2. 決済設定（/admin/payment）</h3>
+<p>上記 3 章・4 章で説明した Square / PayPay の連携画面。</p>
+
+<h3>5-3. 運営管理（/admin/operation）</h3>
+<ul>
+  <li>テーブルの追加・削除・編集</li>
+  <li>注文確認方式（KDS / Square POS）の切り替え</li>
+  <li>言語設定（日本語・英語・韓国語・中国語）</li>
+  <li><b>テイクアウト</b>機能の ON/OFF トグル</li>
+</ul>
+
+<h3>5-4. スタッフ管理（/admin/staff-manage）</h3>
+<ul>
+  <li>マスター PIN（店長用）の設定</li>
+  <li>スタッフの追加・削除・個人 PIN 設定</li>
+</ul>
+
+<h3>5-5. 表示設定（/admin）</h3>
+<p>厨房ページ・レジページ・スタッフページのうち、不要なページを非表示にできます（<b>最低 1 つは ON</b> が必須）。</p>
+
+<h2>6. テイクアウト機能 有効化手順</h2>
+
+<div class="step">
+<b>STEP 1:</b> 「決済設定」で Square または PayPay のどちらかを連携する<br>
+（テイクアウトには先払いが必須のため、オンライン決済が未設定だと機能しません）
+</div>
+
+<div class="step">
+<b>STEP 2:</b> 「運営管理」ページで「<b>テイクアウト</b>」トグルを ON にする
+</div>
+
+<div class="step">
+<b>STEP 3:</b> 「メニュー管理」で、テイクアウト可能なメニュー 1 品ずつに「Takeout OK」トグルを ON にする
+</div>
+
+<div class="step">
+<b>STEP 4:</b> 「QR Builder」ページで「テイクアウト」タブに切り替え、QR コードを 1 枚印刷して店内の目立つ場所（レジ横、入口など）に掲示する
+</div>
+
+<h3>6-1. テーブル客が同時にテイクアウトを注文する場合</h3>
+<ul>
+  <li>テーブル QR からアクセスしたお客様には、メニューカテゴリの末尾に「<b>🥡 テイクアウト</b>」カテゴリが自動表示される</li>
+  <li>このカテゴリで注文したアイテムは「<b>🥡 포장</b>」バッジ付きで厨房に表示される</li>
+  <li>お会計時、食事代と一緒にレジで一括後払い</li>
+</ul>
+
+<h3>6-2. テイクアウト専用 QR を読んだお客様の流れ</h3>
+<ol>
+  <li>店頭 QR をスキャン → テイクアウト可能メニューだけが表示される</li>
+  <li>カートに追加 → 「注文する」ボタン</li>
+  <li>受取予定時刻を選択</li>
+  <li>Square / PayPay で<b>先払い</b></li>
+  <li>決済完了後、注文が厨房に送信され、4 桁の受取コードが発行される</li>
+  <li>完成したら Kitchen → Register で「受取準備完了」 → スタッフが受取コードを確認して商品を渡す</li>
+</ol>
+
+<div class="page-break"></div>
+
+<h2>7. 動作テスト（サンドボックス / 本番）</h2>
+
+<h3>7-1. Square サンドボックステスト</h3>
+<p>本番運用を始める前に必ずサンドボックス（テスト環境）で動作確認してください。</p>
+<ol>
+  <li>システム管理者に <code>SQUARE_ENVIRONMENT=sandbox</code> でサーバー起動してもらう</li>
+  <li>Square Developer Dashboard でサンドボックス用アカウントを作成</li>
+  <li>テスト用カード番号で決済テスト:
+    <ul>
+      <li>成功: <code>4111 1111 1111 1111</code> / CVV <code>111</code> / 有効期限: 将来日付</li>
+      <li>失敗: <code>4000 0000 0000 0002</code></li>
+    </ul>
+  </li>
+  <li>厨房画面に注文が表示されることを確認</li>
+  <li>レシートページが正しく生成されることを確認</li>
+</ol>
+
+<h3>7-2. PayPay ステージングテスト</h3>
+<ol>
+  <li>API キーが <code>stg_</code> で始まっているかを確認（QRaku が自動でステージング API に振り分け）</li>
+  <li>PayPay for Developers から配布される「テスト用 PayPay アプリ」をスマホにインストール</li>
+  <li>テスト決済を実行し、ステータスが <b>COMPLETED</b> になることを確認</li>
+</ol>
+
+<h3>7-3. 本番環境への切り替え</h3>
+<ol>
+  <li>Square: 管理画面で一度 OAuth 解除 → 本番環境に切り替え → 再連携</li>
+  <li>PayPay: 本番用 API Key/Secret に書き換えて保存</li>
+  <li>実際に 1 件少額注文（100〜500円）を入れて入金を確認</li>
+</ol>
+
+<h2>8. トラブルシューティング</h2>
+
+<table>
+<tr><th>症状</th><th>原因・対処</th></tr>
+<tr><td>「テイクアウト」ボタンがグレーアウトして押せない</td><td>運営管理でテイクアウトが OFF です。ONにしてください。</td></tr>
+<tr><td>決済画面で「カード入力欄が出てこない」</td><td>Square 連携が切れています。決済設定で再連携してください。</td></tr>
+<tr><td>PayPay 決済後、注文が作成されない</td><td>PayPay 完了ページへのリダイレクト URL が誤っています。システム管理者に <code>FRONTEND_BASE_URL</code> の設定確認を依頼してください。</td></tr>
+<tr><td>Kitchen 画面に注文が出ない</td><td>テイクアウト注文は<b>決済完了後</b>のみ表示されます。未決済は表示されません。</td></tr>
+<tr><td>「Authentication required」エラー</td><td>管理画面のセッションが切れています。再ログインしてください。</td></tr>
+<tr><td>Square トークン期限切れ（約 90日）</td><td>決済設定で OAuth を解除し、再度「Square と連携する」を押してください。</td></tr>
+</table>
+
+<h2>9. よくある質問</h2>
+
+<h4>Q1. 複数の決済方式を同時に使えますか？</h4>
+<p>1 店舗 1 方式までです。Square 連携中は PayPay ダイレクトと併用できません。テイクアウト用に PayPay、イートインはレジ後払い、という運用は可能です。</p>
+
+<h4>Q2. 手数料はいつ・どう引かれますか？</h4>
+<p>Square / PayPay のそれぞれの入金サイクルで、売上から手数料を差し引いた金額が銀行口座に振り込まれます。QRaku 側では手数料を取りません。</p>
+
+<h4>Q3. 領収書は発行できますか？</h4>
+<p>お客様は注文後のレシートページ（<code>/receipt/:orderId</code>）をスマホで保存可能です。紙の領収書が必要な場合はレジでスタッフに申し出てください。</p>
+
+<h4>Q4. 返金はどうしますか？</h4>
+<p>Square: Square Dashboard → 注文履歴から返金処理。PayPay: PayPay for Business の管理画面から返金処理（API 経由も可能、システム管理者にご相談ください）。</p>
+
+<h4>Q5. QR コードを紛失・破損したら？</h4>
+<p>「QR Builder」ページから同じ QR を何度でも再印刷できます。セキュリティ上の問題はありません（QR は店舗 ID のみを含む公開情報）。</p>
+
+<h4>Q6. マスター PIN を忘れたら？</h4>
+<p>管理画面（<code>/admin/staff-manage</code>）にログインできれば再設定可能です。管理画面ログイン自体を忘れた場合はシステム管理者にパスワードリセットを依頼してください。</p>
+
+<hr>
+
+<p style="text-align:center;color:#999;font-size:9pt;margin-top:40px;">
+© 2026 QRaku — お問い合わせ: support@qraku.com
+</p>
+
+</body>
+</html>

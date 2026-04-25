@@ -1,0 +1,101 @@
+# ============================================
+# QRaku Order Service — .gitignore
+# ============================================
+
+# ── 1. 보안 인증서 및 비밀 키 ──────────────────────
+# 이 파일들이 GitHub에 올라가면 서비스가 해킹될 수 있습니다!
+.env
+.env.*
+!.env.example
+qraku
+qraku.pub
+*.pem
+*.key
+
+# GCP 서비스 계정 키 (절대 공개 금지!)
+*_key.json
+*_credentials.json
+qraku_gcp_storage_key.json
+
+# ── 2. 데이터베이스 파일 ──────────────────────────
+# 고객 개인정보·주문 데이터가 포함되어 있습니다
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# ── 3. Python 임시/캐시 파일 ─────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# ── 4. Node.js / 프론트엔드 ─────────────────────
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# ── 5. OS 생성 시스템 파일 ───────────────────────
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ── 6. IDE / 에디터 설정 ────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# ── 7. 로그·임시·테스트 산출물 ──────────────────
+*.log
+*.tmp
+temp/
+backend/test.pdf
+backend/test.png
+backend/batch_test.pdf
+backend/batch_test.zip
+backend/debug_tables.log
+backend/backend.log
+
+# ── 8. 배포 관련 ─────────────────────────────────
+deploy_package.zip
+*.zip
+sync.ffs_db
+
+# ── 9. Stitch 디자인 임시 다운로드 ───────────────
+stitch_designs/
+stitch_downloads/
+stitch.html
+stitch_raw.html
+*stitch*.html
+
+# ── 10. 기타 임시 HTML (루트의 대용량 임시 파일) ──
+landing.html
+lavender_new.html
+sakura_new.html
+pricing_extracted.html
+myproject*.html
+
+# ── 11. Antigravity / AI 에이전트 작업 파일 ──────
+.agent/
+.claude/
+.gemini/
+.antigravityignore

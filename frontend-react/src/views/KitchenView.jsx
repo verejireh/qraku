@@ -158,13 +158,32 @@ export default function KitchenView() {
             setMenus(menuDict);
             setAllMenus(rawMenus);
 
-            const [res, tablesRes] = await Promise.all([
-                axios.get('/api/orders/', { params: { store_id: actualStoreId } }),
-                axios.get(`/api/staff/shops/${actualStoreId}/register-tables`)
-            ]);
-            const rawOrders = Array.isArray(res.data) ? res.data : (res.data?.orders || []);
+            // 데모 모드: 인증 불필요 엔드포인트 사용
+            // ⚠️ 보안: ?demo=1 + demo_tmp_ 접두사 슬러그일 때만 데모 분기 허용
+            const storeSlug = storeRes.data.slug || actualStoreId;
+            const isTempDemoStore = typeof storeSlug === 'string' && storeSlug.startsWith('demo_tmp_');
+            const isDemoMode = new URLSearchParams(window.location.search).get('demo') === '1' && isTempDemoStore;
+            let rawOrders = [];
+            let rawTables = [];
+            if (isDemoMode) {
+                const [ordersRes, tablesRes] = await Promise.all([
+                    axios.get(`/api/demo/orders/${storeSlug}`).catch(() => ({ data: [] })),
+                    axios.get(`/api/demo/tables/${storeSlug}`).catch(() => ({ data: [] })),
+                ]);
+                rawOrders = Array.isArray(ordersRes.data) ? ordersRes.data : [];
+                rawTables = Array.isArray(tablesRes.data) ? tablesRes.data : [];
+
+            } else {
+                const [res, tablesRes] = await Promise.all([
+                    axios.get('/api/orders/', { params: { store_id: actualStoreId } }),
+                    axios.get(`/api/staff/shops/${actualStoreId}/register-tables`)
+                ]);
+                rawOrders = Array.isArray(res.data) ? res.data : (res.data?.orders || []);
+                rawTables = Array.isArray(tablesRes.data) ? tablesRes.data : [];
+            }
             setOrders(rawOrders);
-            setTables(Array.isArray(tablesRes.data) ? tablesRes.data : []);
+            setTables(rawTables);
+
 
             // guest 방문 정보 배치 조회
             const uuids = [...new Set(
@@ -503,7 +522,7 @@ export default function KitchenView() {
                         className="w-full py-4 bg-white text-[#0f1117] text-base font-bold rounded-xl hover:bg-white/90 transition-all flex items-center justify-center gap-2"
                     >
                         <Bell size={18} />
-                        営業開始
+                        音声通知をオンにする
                     </button>
                 </div>
             </div>

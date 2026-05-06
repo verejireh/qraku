@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
+import staffApi from '../hooks/useStaffApi'
 import { ShoppingCart, Plus, Minus, X } from 'lucide-react'
 import { useStaffAuth } from '../components/StaffLoginGate'
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav'
@@ -40,9 +41,18 @@ export default function RegisterView() {
     const [registerTables, setRegisterTables] = useState([])
     const [todaySales, setTodaySales] = useState(null)
     const [takeoutOrders, setTakeoutOrders] = useState([])
+    const [timeQueries, setTimeQueries] = useState([])
     const [storeInfo, setStoreInfo] = useState(null)
     const [loading, setLoading] = useState(true)
     const [now, setNow] = useState(new Date())
+
+    /* ── 営業ステータス操作 ─────────────────────────────────── */
+    const [openingStore, setOpeningStore] = useState(false)
+    const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+
+    /* ── タイムセール 手動トグル ──────────────────────────── */
+    const [timeSaleActive, setTimeSaleActive] = useState(false)
+    const [showTimeSaleAdminModal, setShowTimeSaleAdminModal] = useState(false)
 
     /* ── 選択テーブル & 決済 ─────────────────────────────── */
     const [selectedTableId, setSelectedTableId] = useState(null)
@@ -71,22 +81,28 @@ export default function RegisterView() {
     /* ── データ取得 ────────────────────────────────────── */
     const fetchAll = useCallback(async () => {
         try {
-            const [staffRes, regRes, salesRes, takeoutRes] = await Promise.allSettled([
+            const [staffRes, regRes, salesRes, takeoutRes, queriesRes] = await Promise.allSettled([
                 axios.get(`/api/staff/shops/${shop_id}/register-tables`),
-                axios.get('/api/register/tables', { params: { shop_id } }),
-                axios.get('/api/register/today-sales', { params: { shop_id } }),
-                axios.get('/api/register/takeout', { params: { shop_id } }),
+                staffApi.get('/api/register/tables', { params: { shop_id } }),
+                staffApi.get('/api/register/today-sales', { params: { shop_id } }),
+                staffApi.get('/api/register/takeout', { params: { shop_id } }),
+                axios.get(`/api/takeout/time-query/pending/${shop_id}`)
             ])
             if (staffRes.status === 'fulfilled') setStaffTables(staffRes.value.data || [])
             if (regRes.status === 'fulfilled') setRegisterTables(regRes.value.data || [])
             if (salesRes.status === 'fulfilled') setTodaySales(salesRes.value.data)
             if (takeoutRes.status === 'fulfilled') setTakeoutOrders(takeoutRes.value.data || [])
+            if (queriesRes.status === 'fulfilled') setTimeQueries(Array.isArray(queriesRes.value.data) ? queriesRes.value.data : [])
         } catch (e) { console.error(e) }
         finally { setLoading(false) }
     }, [shop_id])
 
     const fetchStoreInfo = useCallback(async () => {
-        try { setStoreInfo((await axios.get(`/api/stores/${shop_id}`)).data) } catch (e) { console.error(e) }
+        try {
+            const data = (await axios.get(`/api/stores/${shop_id}`)).data
+            setStoreInfo(data)
+            setTimeSaleActive(Boolean(data.food_rescue_manual_active))
+        } catch (e) { console.error(e) }
     }, [shop_id])
 
     const fetchMenus = useCallback(async () => {
@@ -99,6 +115,44 @@ export default function RegisterView() {
     }, [shop_id])
 
     useEffect(() => { fetchStoreInfo(); fetchMenus(); fetchAll() }, [fetchStoreInfo, fetchMenus, fetchAll])
+
+    /* ── 営業開始/終了 トグル ─────────────────────────────── */
+    const toggleStoreOpen = async (newValue) => {
+        if (!storeInfo?.id) return
+        setOpeningStore(true)
+        try {
+            await staffApi.patch(`/api/stores/${storeInfo.id}/business-status`, { is_open: newValue })
+            setStoreInfo(prev => prev ? { ...prev, is_open: newValue } : prev)
+        } catch (e) {
+            alert('営業ステータスの変更に失敗しました: ' + (e.response?.data?.detail || e.message))
+        } finally {
+            setOpeningStore(false)
+        }
+    }
+
+    const handleStartBusiness = () => toggleStoreOpen(true)
+    const handleConfirmClose = async () => {
+        setShowCloseConfirm(false)
+        await toggleStoreOpen(false)
+    }
+
+    /* ── タイムセールトグル ──────────────────────────── */
+    const toggleTimeSale = async () => {
+        if (!storeInfo?.food_rescue_active) {
+            setShowTimeSaleAdminModal(true)
+            return
+        }
+        const newVal = !timeSaleActive
+        setTimeSaleActive(newVal)
+        try {
+            await staffApi.patch(`/api/stores/${storeInfo.id}/food-rescue-status`, {
+                food_rescue_manual_active: newVal
+            })
+        } catch (e) {
+            setTimeSaleActive(!newVal) // rollback
+            alert('タイムセールの切り替えに失敗しました: ' + (e.response?.data?.detail || e.message))
+        }
+    }
 
     /* ── WebSocket ─────────────────────────────────────── */
     useEffect(() => {
@@ -142,7 +196,7 @@ export default function RegisterView() {
         if (!selectedTable) { setTableDetail(null); return }
         let cancelled = false
         setDetailLoading(true)
-        axios.get(`/api/register/table/${selectedTable.id}`)
+        staffApi.get(`/api/register/table/${selectedTable.id}`)
             .then(res => { if (!cancelled) setTableDetail(res.data) })
             .catch(console.error)
             .finally(() => { if (!cancelled) setDetailLoading(false) })
@@ -154,7 +208,7 @@ export default function RegisterView() {
         if (!selectedTable || !window.confirm(`テーブル ${selectedTable.table_number}番の会計を完了しますか？`)) return
         setPaying(true)
         try {
-            await axios.post(`/api/register/table/${selectedTable.id}/pay`, { payment_method: payMethod })
+            await staffApi.post(`/api/register/table/${selectedTable.id}/pay`, { payment_method: payMethod })
             setSelectedTableId(null); setTableDetail(null); fetchAll()
         } catch (e) { alert('決済処理に失敗しました') }
         finally { setPaying(false) }
@@ -162,7 +216,7 @@ export default function RegisterView() {
 
     /* ── テイクアウト完了 ─────────────────────────────── */
     const handleTakeoutComplete = async (id) => {
-        try { await axios.post(`/api/register/takeout/${id}/complete`); fetchAll() } catch (e) { alert('処理失敗') }
+        try { await staffApi.post(`/api/register/takeout/${id}/complete`); fetchAll() } catch (e) { alert('処理失敗') }
     }
 
     /* ── POS 手動注文 ─────────────────────────────────── */
@@ -227,10 +281,63 @@ export default function RegisterView() {
                     </h1>
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-stone-400 hidden sm:block">
+                    {/* ── 営業開始/終了 ボタン ── */}
+                    {storeInfo && (
+                        storeInfo.is_open ? (
+                            <button
+                                onClick={() => setShowCloseConfirm(true)}
+                                disabled={openingStore}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors border border-emerald-200 disabled:opacity-50"
+                                title="営業中 — クリックで終了"
+                            >
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                <span>営業中</span>
+                            </button>
+                        ) : (
+                            <button
+                                onClick={handleStartBusiness}
+                                disabled={openingStore}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#b80035] text-white hover:bg-[#9c002d] transition-colors shadow-md disabled:opacity-50"
+                            >
+                                <Icon name="play_arrow" className="!text-base" />
+                                <span>{openingStore ? '処理中...' : '営業開始'}</span>
+                            </button>
+                        )
+                    )}
+
+                    {/* ── タイムセールトグル ── */}
+                    {storeInfo && (
+                        <button
+                            onClick={toggleTimeSale}
+                            title={!storeInfo.food_rescue_active ? '管理画面でフードレスキューを有効にしてください' : ''}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
+                                !storeInfo.food_rescue_active
+                                    ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
+                                    : timeSaleActive
+                                        ? 'bg-rose-500 text-white border-rose-500 shadow-md animate-pulse'
+                                        : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
+                            }`}
+                        >
+                            <span>🔥</span>
+                            <span>タイムセール{timeSaleActive ? ' ON' : ' OFF'}</span>
+                        </button>
+                    )}
+
+                    <span className="text-[11px] text-stone-400 hidden sm:block mr-2">
                         {now.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' })}
                         &nbsp;{now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
                     </span>
+                    {timeQueries.length > 0 && (
+                        <button 
+                            onClick={() => navigate(`/${shop_id}/staff`)}
+                            className="relative flex items-center justify-center p-1.5 rounded-xl bg-amber-50 text-amber-500 hover:bg-amber-100 transition-colors animate-pulse mr-1"
+                        >
+                            <Icon name="notifications_active" className="!text-xl" />
+                            <span className="absolute -top-1.5 -right-1.5 bg-[#b80035] text-white text-[10px] font-black w-4.5 h-4.5 px-1.5 flex items-center justify-center rounded-full shadow-sm">
+                                {timeQueries.length}
+                            </span>
+                        </button>
+                    )}
                     <button onClick={() => setShowSales(v => !v)}
                         className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#ffdada]/50 text-[#b80035] hover:bg-[#ffdada] transition-colors">
                         <Icon name="bar_chart" className="!text-base" />
@@ -467,6 +574,29 @@ export default function RegisterView() {
                                     )}
                                 </div>
 
+                                {/* 食べ放題 / 飲み放題 라인 */}
+                                {tableDetail?.tabehoudai_lines?.length > 0 && (
+                                    <div className="border-t border-stone-100 bg-rose-50/40 divide-y divide-rose-100/60">
+                                        {tableDetail.tabehoudai_lines.map((line, i) => (
+                                            <div key={i} className="flex justify-between items-center px-5 py-3.5">
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <Icon name="restaurant" className="!text-[16px] text-rose-500" />
+                                                        <span className="font-bold text-[#1b1b1d] text-sm">{line.name}</span>
+                                                        {line.status === 'expired' && (
+                                                            <span className="text-[9px] font-black text-stone-500 bg-stone-200 px-1.5 py-0.5 rounded">時間終了</span>
+                                                        )}
+                                                    </div>
+                                                    <span className="text-[11px] text-stone-500 ml-5">
+                                                        ¥{line.price_per_person.toLocaleString()} × {line.num_people}名
+                                                    </span>
+                                                </div>
+                                                <span className="font-bold text-rose-600 text-sm">¥{(line.total || 0).toLocaleString()}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
                                 {/* Total */}
                                 <div className="bg-gradient-to-r from-[#ffdada]/40 to-[#ffdada]/20 px-5 py-4 flex justify-between items-center">
                                     <span className="font-bold text-stone-600">合計金額</span>
@@ -643,6 +773,79 @@ export default function RegisterView() {
                                     <Icon name="send" className="!text-lg" /> 注文を送信
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ 営業終了 確認モーダル ═══ */}
+            {showCloseConfirm && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowCloseConfirm(false)}>
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-5" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center">
+                                <Icon name="warning" className="!text-3xl text-amber-500" />
+                            </div>
+                            <div>
+                                <h3 className="font-black text-lg text-stone-800">営業を終了しますか？</h3>
+                                <p className="text-xs text-stone-500 mt-0.5">本当によろしいですか？</p>
+                            </div>
+                        </div>
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 leading-relaxed">
+                            <ul className="list-disc list-inside space-y-1">
+                                <li>テイクアウトの注文受付が停止します</li>
+                                <li>お客様の <strong>「カートに追加」</strong>ボタンが無効になります</li>
+                                <li>後で「営業開始」を押せば再開できます</li>
+                            </ul>
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setShowCloseConfirm(false)}
+                                className="flex-1 py-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-sm transition-colors"
+                            >
+                                キャンセル
+                            </button>
+                            <button
+                                onClick={handleConfirmClose}
+                                disabled={openingStore}
+                                className="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm transition-colors shadow-md disabled:opacity-50"
+                            >
+                                {openingStore ? '処理中...' : '営業終了'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ タイムセール: Admin未設定 案内モーダル ═══ */}
+            {showTimeSaleAdminModal && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowTimeSaleAdminModal(false)}>
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-5" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-200 flex items-center justify-center text-2xl">
+                                🔥
+                            </div>
+                            <div>
+                                <h3 className="font-black text-lg text-stone-800">フードレスキューが無効です</h3>
+                                <p className="text-xs text-stone-500 mt-0.5">先に管理画面で有効にしてください</p>
+                            </div>
+                        </div>
+                        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-sm text-rose-800 leading-relaxed">
+                            タイムセールを開始するには、管理者ページの<strong>「フードレスキュー」</strong>をONにしてください。
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setShowTimeSaleAdminModal(false)}
+                                className="flex-1 py-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-sm transition-colors"
+                            >
+                                閉じる
+                            </button>
+                            <a
+                                href={`/${shop_id}/admin/homepage`}
+                                className="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm transition-colors text-center flex items-center justify-center gap-1 shadow-md"
+                            >
+                                <Icon name="settings" className="!text-base" /> Admin設定へ
+                            </a>
                         </div>
                     </div>
                 </div>

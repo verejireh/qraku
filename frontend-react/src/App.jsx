@@ -22,6 +22,8 @@ import CheckoutView from './views/CheckoutView'
 import StoreSelectView from './views/StoreSelectView'
 import ReceiptView from './views/ReceiptView'
 import SuperAdminView from './views/SuperAdminView'
+import SuperAdminLoginView from './views/SuperAdminLoginView'
+import SuperAdminAuthGate from './components/SuperAdminAuthGate'
 import StaffTableView from './views/StaffTableView'
 import StaffView from './views/StaffView'
 import RegisterView from './views/RegisterView'
@@ -40,6 +42,10 @@ import AdminLoginView from './views/AdminLoginView'
 import AdminAuthGate from './components/AdminAuthGate'
 import PayPayCompleteView from './views/PayPayCompleteView'
 import SubscriptionView from './views/SubscriptionView'
+import LineFriendGuideView from './views/LineFriendGuideView'
+import StorePublicView from './views/StorePublicView'
+import AdminHomePageView from './views/AdminHomePageView'
+import BetaSignupView from './views/BetaSignupView'
 import ErrorBoundary from './components/ErrorBoundary'
 import { useLocation, useParams } from 'react-router-dom'
 
@@ -96,12 +102,20 @@ function App() {
               <Route path="/terms" element={<TermsOfServiceView />} />
               <Route path="/privacy" element={<PrivacyPolicyView />} />
               <Route path="/discover" element={<DiscoverView />} />
+              <Route path="/beta" element={<BetaSignupView />} />
+              <Route path="/guide/line-friend" element={<LineFriendGuideView />} />
               <Route path="/stores" element={<StoreSelectView />} />
               <Route path="/login" element={<LoginView />} />
               <Route path="/owner/login" element={<LoginView />} />
-              <Route path="/super-admin" element={<SuperAdminView />} />
+              <Route path="/super-admin/login" element={<SuperAdminLoginView />} />
+              <Route element={<SuperAdminAuthGate />}>
+                <Route path="/super-admin" element={<SuperAdminView />} />
+              </Route>
               {/* New Cleaner Route Structure (User Request) */}
               <Route path="/:shop_id">
+                {/* 매장 공개 홈페이지 (index) */}
+                <Route index element={<StorePublicView />} />
+
                 {/* Staff Portal: 認証ゲート + 4タブナビ */}
                 <Route element={<StaffPortalLayout />}>
                   <Route path="register" element={<RegisterView />} />
@@ -116,6 +130,7 @@ function App() {
                 {/* Admin Pages (인증 필요) */}
                 <Route element={<AdminAuthGate />}>
                   <Route path="admin" element={<AdminView />} />
+                  <Route path="admin/homepage" element={<AdminHomePageView />} />
                   <Route path="admin/subscription" element={<SubscriptionView />} />
                   <Route path="admin/menu" element={<MenuManagementView />} />
                   <Route path="admin/menu/new" element={<AdminMenuRegisterView />} />

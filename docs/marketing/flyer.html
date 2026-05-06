@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>QRaku — 飲食店オーナー様へ</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Noto+Serif+JP:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4 portrait; margin: 0; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Noto Sans JP', sans-serif;
+    color: #1a1a1a;
+    background: #fafaf7;
+    font-size: 11pt;
+    line-height: 1.6;
+  }
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 14mm 12mm;
+    background: #fafaf7;
+    position: relative;
+    overflow: hidden;
+  }
+  .page::before {
+    content: "";
+    position: absolute;
+    top: -120mm;
+    right: -80mm;
+    width: 240mm;
+    height: 240mm;
+    background: radial-gradient(circle, rgba(194,30,47,0.08), transparent 60%);
+    pointer-events: none;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8mm;
+  }
+  .brand-logo {
+    width: 36px; height: 36px;
+    background: #c21e2f;
+    border-radius: 8px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 2px;
+    padding: 4px;
+  }
+  .brand-logo span {
+    background: white;
+    border-radius: 1px;
+  }
+  .brand-name {
+    font-family: 'Noto Serif JP', serif;
+    font-weight: 900;
+    font-size: 22pt;
+    letter-spacing: -0.02em;
+    color: #1a1a1a;
+  }
+  .brand-tagline {
+    margin-left: auto;
+    font-size: 8pt;
+    color: #888;
+    letter-spacing: 0.15em;
+  }
+
+  .hero {
+    position: relative;
+    z-index: 1;
+    margin-bottom: 12mm;
+  }
+  .hero-eyebrow {
+    display: inline-block;
+    background: #c21e2f;
+    color: white;
+    font-size: 8pt;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 999px;
+    letter-spacing: 0.1em;
+    margin-bottom: 6mm;
+  }
+  .hero h1 {
+    font-family: 'Noto Serif JP', serif;
+    font-weight: 900;
+    font-size: 32pt;
+    line-height: 1.25;
+    margin: 0 0 5mm 0;
+    color: #1a1a1a;
+    letter-spacing: -0.02em;
+  }
+  .hero h1 em {
+    font-style: normal;
+    color: #c21e2f;
+    position: relative;
+  }
+  .hero-lead {
+    font-size: 12pt;
+    line-height: 1.85;
+    color: #444;
+    max-width: 168mm;
+  }
+  .hero-lead strong {
+    color: #1a1a1a;
+    font-weight: 700;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4mm;
+    margin: 10mm 0;
+    padding: 6mm 0;
+    border-top: 2px solid #1a1a1a;
+    border-bottom: 1px solid #e5e0d6;
+  }
+  .stat { text-align: center; }
+  .stat-num {
+    font-family: 'Noto Serif JP', serif;
+    font-size: 28pt;
+    font-weight: 900;
+    color: #c21e2f;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .stat-num small { font-size: 14pt; }
+  .stat-label {
+    font-size: 8.5pt;
+    color: #555;
+    margin-top: 2mm;
+    letter-spacing: 0.05em;
+  }
+
+  .pains {
+    margin: 8mm 0;
+  }
+  .pains-title {
+    font-family: 'Noto Serif JP', serif;
+    font-size: 14pt;
+    font-weight: 700;
+    color: #1a1a1a;
+    margin-bottom: 6mm;
+    text-align: center;
+    letter-spacing: 0.05em;
+  }
+  .pains-title::before, .pains-title::after {
+    content: "—";
+    color: #c21e2f;
+    margin: 0 8px;
+  }
+  .pain-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4mm;
+  }
+  .pain {
+    background: white;
+    border: 1px solid #e5e0d6;
+    border-radius: 4mm;
+    padding: 5mm;
+    position: relative;
+  }
+  .pain-num {
+    font-family: 'Noto Serif JP', serif;
+    font-size: 24pt;
+    font-weight: 900;
+    color: #c21e2f;
+    opacity: 0.18;
+    position: absolute;
+    top: 3mm; right: 4mm;
+    line-height: 1;
+  }
+  .pain-from {
+    font-size: 8.5pt;
+    color: #999;
+    text-decoration: line-through;
+    margin-bottom: 2mm;
+  }
+  .pain-to {
+    font-weight: 700;
+    font-size: 11pt;
+    color: #1a1a1a;
+    line-height: 1.5;
+    margin-bottom: 2mm;
+  }
+  .pain-desc {
+    font-size: 9pt;
+    color: #555;
+    line-height: 1.65;
+  }
+
+  .promise {
+    background: #1a1a1a;
+    color: white;
+    padding: 7mm 8mm;
+    border-radius: 4mm;
+    margin: 8mm 0;
+    position: relative;
+  }
+  .promise-quote {
+    font-family: 'Noto Serif JP', serif;
+    font-size: 13pt;
+    font-weight: 500;
+    line-height: 1.85;
+    margin: 0;
+  }
+  .promise-quote::before {
+    content: "「";
+    color: #c21e2f;
+    font-size: 16pt;
+  }
+  .promise-quote::after {
+    content: "」";
+    color: #c21e2f;
+    font-size: 16pt;
+  }
+  .promise-by {
+    margin-top: 4mm;
+    font-size: 9pt;
+    color: #ccc;
+    text-align: right;
+  }
+
+  .cta-block {
+    background: linear-gradient(135deg, #c21e2f, #8b1622);
+    color: white;
+    padding: 8mm;
+    border-radius: 4mm;
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 6mm;
+    align-items: center;
+    margin-top: 8mm;
+  }
+  .cta-text h2 {
+    font-family: 'Noto Serif JP', serif;
+    font-size: 18pt;
+    font-weight: 900;
+    margin: 0 0 3mm 0;
+    line-height: 1.3;
+  }
+  .cta-text p {
+    margin: 0 0 4mm 0;
+    font-size: 10pt;
+    line-height: 1.7;
+    opacity: 0.95;
+  }
+  .cta-price {
+    font-size: 9pt;
+    opacity: 0.85;
+  }
+  .cta-price strong {
+    font-size: 13pt;
+    font-weight: 900;
+    margin-left: 4px;
+  }
+  .cta-qr {
+    background: white;
+    padding: 4mm;
+    border-radius: 3mm;
+    text-align: center;
+  }
+  .cta-qr-box {
+    width: 100%;
+    aspect-ratio: 1;
+    background:
+      linear-gradient(45deg, #1a1a1a 25%, transparent 25%),
+      linear-gradient(-45deg, #1a1a1a 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #1a1a1a 75%),
+      linear-gradient(-45deg, transparent 75%, #1a1a1a 75%);
+    background-size: 12px 12px;
+    background-position: 0 0, 0 6px, 6px -6px, -6px 0px;
+    border-radius: 2mm;
+    margin-bottom: 3mm;
+    position: relative;
+    overflow: hidden;
+  }
+  .cta-qr-box::after {
+    content: "QR";
+    position: absolute;
+    inset: 25%;
+    background: white;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: #c21e2f;
+    font-weight: 900;
+    font-family: 'Noto Serif JP', serif;
+    font-size: 16pt;
+  }
+  .cta-qr-label {
+    color: #1a1a1a;
+    font-size: 8pt;
+    font-weight: 700;
+  }
+  .cta-qr-url {
+    color: #c21e2f;
+    font-size: 9pt;
+    font-weight: 900;
+    margin-top: 1mm;
+  }
+
+  .footer {
+    margin-top: 6mm;
+    padding-top: 4mm;
+    border-top: 1px solid #e5e0d6;
+    display: flex;
+    justify-content: space-between;
+    font-size: 8pt;
+    color: #888;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="brand">
+    <div class="brand-logo"><span></span><span></span><span></span><span></span></div>
+    <div class="brand-name">QRaku</div>
+    <div class="brand-tagline">QR ORDERING FOR RESTAURANTS</div>
+  </div>
+
+  <section class="hero">
+    <span class="hero-eyebrow">飲食店オーナー様へ</span>
+    <h1>
+      「いらっしゃいませ」を、<br/>
+      もう一度<em>心から</em>。
+    </h1>
+    <p class="hero-lead">
+      開店した日のことを覚えていますか。<br/>
+      お客様の「美味しかった」が、何より嬉しかったあの感覚。<br/>
+      <strong>QRakuは、注文受付という日々の負担を引き受けます。</strong><br/>
+      あなたとスタッフは、料理と接客に戻ってください。
+    </p>
+  </section>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-num">2,400<small>+</small></div>
+      <div class="stat-label">導入店舗数</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">70<small>%</small></div>
+      <div class="stat-label">注文受付時間 削減</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">3<small>分</small></div>
+      <div class="stat-label">導入セットアップ</div>
+    </div>
+  </div>
+
+  <section class="pains">
+    <div class="pains-title">こんなことに、気づいていませんか</div>
+    <div class="pain-grid">
+      <div class="pain">
+        <div class="pain-num">01</div>
+        <div class="pain-from">「すみません〜」を待たせる罪悪感</div>
+        <div class="pain-to">お客様は<br/>QRをスキャンするだけ。</div>
+        <div class="pain-desc">注文を取りに行くために中断していた、料理も接客も、すべて元の場所へ。スタッフ1人分の余裕が生まれます。</div>
+      </div>
+      <div class="pain">
+        <div class="pain-num">02</div>
+        <div class="pain-from">伝達ミスでクレーム、再調理</div>
+        <div class="pain-to">注文は厨房タブレットへ<br/>そのまま届きます。</div>
+        <div class="pain-desc">紙伝票も口頭メモも不要。WebSocketでリアルタイム通知。「言った/言わない」のトラブルがゼロに。</div>
+      </div>
+      <div class="pain">
+        <div class="pain-num">03</div>
+        <div class="pain-from">外国人観光客の対応に汗</div>
+        <div class="pain-to">日本語・英語・韓国語<br/>中国語に自動対応。</div>
+        <div class="pain-desc">メニューはGemini AIで自動翻訳。インバウンド客にも安心して提供。「ちゃんと伝わった」という安堵を、毎日に。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="promise">
+    <p class="promise-quote">
+      お客様の表情を見られる時間が増えました。料理に集中できることが、こんなに嬉しいとは思いませんでした。
+    </p>
+    <div class="promise-by">— 田中 誠 様 / 居酒屋 はなまる</div>
+  </section>
+
+  <div class="cta-block">
+    <div class="cta-text">
+      <h2>60日間、無料で。</h2>
+      <p>
+        クレジットカード不要。<br/>
+        まずは、いつもの夜営業で試してみてください。<br/>
+        合わなければ、何も支払うものはありません。
+      </p>
+      <div class="cta-price">
+        月額 <strong>¥2,480〜</strong> &nbsp;・&nbsp; 初期費用 <strong>0円</strong>
+      </div>
+    </div>
+    <div class="cta-qr">
+      <div class="cta-qr-box"></div>
+      <div class="cta-qr-label">スマートフォンで読み取り</div>
+      <div class="cta-qr-url">qraku.com</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>QRaku — QRコードでかんたん注文</span>
+    <span>お問い合わせ &nbsp;|&nbsp; qraku.com &nbsp;|&nbsp; 24時間サポート</span>
+  </div>
+</div>
+</body>
+</html>

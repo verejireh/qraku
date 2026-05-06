@@ -20,8 +20,9 @@ from database import get_session
 from models import (
     Store, Table, TableStatus, Order, OrderItem, Menu,
     CustomerPoint, PointHistory, PointTransactionType, PointAccrualType,
-    GuestProfile,
+    GuestProfile, TabehoudaiSession, MenuGroup,
 )
+from utils.jwt import require_staff_or_admin
 from datetime import datetime, date
 import uuid
 import json
@@ -116,6 +117,7 @@ async def _build_item_list(orders: list[Order], session: AsyncSession) -> list[d
 async def get_register_tables(
     shop_id: str = Query(...),
     session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
 ):
     """
     전체 테이블 현황 반환.
@@ -123,6 +125,8 @@ async def get_register_tables(
     각 테이블에 unpaid 합계 금액 포함.
     """
     store = await _resolve_store(shop_id, session)
+    if store.id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     shop_variants = _shop_id_variants(store)
 
     # 모든 테이블 조회
@@ -185,11 +189,14 @@ async def get_register_tables(
 async def get_table_detail(
     table_id: int,
     session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
 ):
     """테이블 정보 + 미결제 주문 항목 전체 리스트 반환"""
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     store = await session.get(Store, table.store_id)
     if not store:
@@ -197,7 +204,35 @@ async def get_table_detail(
 
     orders = await _get_unpaid_orders_for_table(store, table, session)
     items = await _build_item_list(orders, session)
-    total_amount = sum(o.total_amount for o in orders)
+    items_subtotal = sum(o.total_amount for o in orders)
+
+    # ── 食べ放題: 미결제 세션(active or expired) 정산 라인 추가 ─────────────────
+    tabehoudai_lines: list[dict] = []
+    tabehoudai_total = 0
+    sess_res = await session.execute(
+        select(TabehoudaiSession).where(
+            TabehoudaiSession.table_id == table.id,
+            TabehoudaiSession.status.in_(["active", "expired"]),
+        )
+    )
+    pending_sessions = sess_res.scalars().all()
+    for s in pending_sessions:
+        group = await session.get(MenuGroup, s.group_id)
+        if not group:
+            continue
+        line_total = group.price_per_person * s.num_people
+        tabehoudai_total += line_total
+        tabehoudai_lines.append({
+            "session_id": s.id,
+            "name": group.name,
+            "course_type": group.course_type,
+            "price_per_person": group.price_per_person,
+            "num_people": s.num_people,
+            "total": line_total,
+            "status": s.status,
+        })
+
+    total_amount = items_subtotal + tabehoudai_total
 
     # ── guest 방문 정보 조회 ──────────────────────────────────────────────────
     guest_info = None
@@ -221,6 +256,9 @@ async def get_table_detail(
         "status": table.status,
         "guest_count": table.guest_count,
         "checkout_requested_at": table.checkout_requested_at.isoformat() if table.checkout_requested_at else None,
+        "items_subtotal": items_subtotal,
+        "tabehoudai_total": tabehoudai_total,
+        "tabehoudai_lines": tabehoudai_lines,
         "total_amount": total_amount,
         "order_ids": [o.id for o in orders],
         "items": items,
@@ -245,6 +283,7 @@ async def complete_payment(
     table_id: int,
     body: PayRequest,
     session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
 ):
     """
     결제 완료 처리:
@@ -256,16 +295,37 @@ async def complete_payment(
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     store = await session.get(Store, table.store_id)
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
 
     orders = await _get_unpaid_orders_for_table(store, table, session)
-    if not orders:
+
+    # 食べ放題 미결제 세션 합산 + settle 마킹
+    sess_res = await session.execute(
+        select(TabehoudaiSession).where(
+            TabehoudaiSession.table_id == table.id,
+            TabehoudaiSession.status.in_(["active", "expired"]),
+        )
+    )
+    pending_sessions = sess_res.scalars().all()
+    tabehoudai_total = 0
+    for s in pending_sessions:
+        group = await session.get(MenuGroup, s.group_id)
+        if group:
+            tabehoudai_total += group.price_per_person * s.num_people
+        s.status = "settled"
+        s.settled_at = datetime.utcnow()
+        session.add(s)
+
+    if not orders and not pending_sessions:
         raise HTTPException(status_code=400, detail="No unpaid orders for this table")
 
-    total_amount = sum(o.total_amount for o in orders)
+    items_subtotal = sum(o.total_amount for o in orders)
+    total_amount = items_subtotal + tabehoudai_total
     customer_id = orders[0].guest_uuid if orders else None
 
     # 1. 주문 → paid
@@ -362,12 +422,15 @@ async def complete_payment(
 async def get_today_sales(
     shop_id: str = Query(...),
     session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
 ):
     """
     오늘(로컬 날짜 기준) 결제 완료된 주문의 매출 요약:
     총 매출, 결제 건수, 평균 단가, 결제 수단별 내역
     """
     store = await _resolve_store(shop_id, session)
+    if store.id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     shop_variants = _shop_id_variants(store)
     today = date.today()
 
@@ -418,12 +481,15 @@ async def get_today_sales(
 async def get_takeout_orders(
     shop_id: str = Query(...),
     session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
 ):
     """
     오늘의 테이크아웃 주문 목록.
     미결제 주문 전체 + 오늘 결제 완료된 주문 포함.
     """
     store = await _resolve_store(shop_id, session)
+    if store.id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     shop_variants = _shop_id_variants(store)
     today = date.today()
 
@@ -485,11 +551,15 @@ async def get_takeout_orders(
 async def complete_takeout(
     order_id: int,
     session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
 ):
     """테이크아웃 주문 → status=served (픽업 완료)"""
     order = await session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    store = await _resolve_store(order.shop_id, session)
+    if store.id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     if order.order_type != "take_out":
         raise HTTPException(status_code=400, detail="Not a take-out order")
 
@@ -511,6 +581,7 @@ async def complete_takeout(
 async def delete_order_item(
     item_id: int,
     session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
 ):
     """
     주문 항목 삭제 후 해당 Order.total_amount 재계산.
@@ -523,6 +594,9 @@ async def delete_order_item(
     order = await session.get(Order, item.order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    store = await _resolve_store(order.shop_id, session)
+    if store.id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     if order.payment_status == "paid":
         raise HTTPException(status_code=400, detail="Cannot delete item from a paid order")
 

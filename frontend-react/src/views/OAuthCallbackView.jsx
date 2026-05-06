@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import { setAdminToken } from '../hooks/useAdminApi'
-import { QrCode, Store, MapPin, Utensils, ArrowLeft, CheckCircle, AlertCircle } from 'lucide-react'
+import { QrCode, Store, MapPin, Utensils, ArrowLeft, CheckCircle, AlertCircle, Link as LinkIcon, Check, X } from 'lucide-react'
 
 const STORE_CATEGORIES = [
     { value: 'restaurant', label: '🍽️ レストラン・食堂' },
@@ -39,9 +39,29 @@ export default function OAuthCallbackView() {
         address: '',
         phone: '',
         owner_name: payload.name || '',
+        shop_id: '',
     })
     const [agreedTerms, setAgreedTerms] = useState(false)
+    const [slugStatus, setSlugStatus] = useState({ checking: false, available: null, message: '' })
     const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }))
+
+    // shop_id 실시간 가용성 체크 (debounce 500ms)
+    useEffect(() => {
+        if (!form.shop_id || form.shop_id.length < 3) {
+            setSlugStatus({ checking: false, available: null, message: '' })
+            return
+        }
+        setSlugStatus({ checking: true, available: null, message: '' })
+        const timer = setTimeout(async () => {
+            try {
+                const res = await axios.get(`/api/auth/check-slug?slug=${encodeURIComponent(form.shop_id)}`)
+                setSlugStatus({ checking: false, available: res.data.available, message: res.data.message })
+            } catch {
+                setSlugStatus({ checking: false, available: false, message: '確認に失敗しました' })
+            }
+        }, 500)
+        return () => clearTimeout(timer)
+    }, [form.shop_id])
 
     useEffect(() => {
         if (!token) {
@@ -51,17 +71,13 @@ export default function OAuthCallbackView() {
 
     const handleSubmit = async () => {
         if (!form.store_name.trim()) { setError('店舗名を入力してください'); return }
+        if (!form.shop_id.trim()) { setError('shop_id を入力してください'); return }
+        if (slugStatus.available !== true) { setError('使用可能な shop_id を入力してください'); return }
         if (!agreedTerms) { setError('利用規約と個人情報保護方針への同意が必要です'); return }
         setError('')
         setLoading(true)
 
         try {
-            const slugBase = (payload.email || payload.provider_id || 'user')
-                .split('@')[0]
-                .replace(/[^a-z0-9]/gi, '')
-                .toLowerCase()
-            const slug = `${slugBase}${Math.floor(1000 + Math.random() * 9000)}`
-
             const res = await axios.post('/api/auth/complete-oauth-signup', {
                 oauth_token: token,
                 store_name: form.store_name,
@@ -69,7 +85,7 @@ export default function OAuthCallbackView() {
                 address: form.address || '',
                 phone: form.phone || '',
                 owner_name: form.owner_name || '',
-                slug,
+                slug: form.shop_id.trim().toLowerCase(),
             })
             const storeData = res.data.store || res.data
             if (res.data.token) {
@@ -190,6 +206,35 @@ export default function OAuthCallbackView() {
                             value={form.store_name}
                             onChange={e => set('store_name', e.target.value)}
                         />
+                    </div>
+
+                    {/* ── shop_id (お店専用 URL) ─────────────────────────── */}
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                            <LinkIcon className="w-3 h-3" /> shop_id (お店専用 URL) *
+                        </label>
+                        <div className="flex items-center gap-1 px-3 rounded-2xl bg-white/5 border border-white/10 focus-within:border-rose-500/50 transition-colors">
+                            <span className="text-slate-500 text-sm font-mono shrink-0">qraku.com/</span>
+                            <input
+                                className="flex-1 bg-transparent py-3 outline-none text-white text-sm font-mono placeholder:text-white/20"
+                                placeholder="menya-sakura"
+                                value={form.shop_id}
+                                onChange={e => set('shop_id', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                                maxLength={30}
+                            />
+                            <span className="shrink-0 w-5 h-5 flex items-center justify-center">
+                                {slugStatus.checking && <div className="w-3 h-3 border-2 border-rose-500/50 border-t-rose-500 rounded-full animate-spin" />}
+                                {slugStatus.available === true && <Check className="w-4 h-4 text-emerald-400" />}
+                                {slugStatus.available === false && <X className="w-4 h-4 text-red-400" />}
+                            </span>
+                        </div>
+                        <p className={`text-xs mt-1 px-1 leading-relaxed ${
+                            slugStatus.available === true ? 'text-emerald-400' :
+                            slugStatus.available === false ? 'text-red-400' :
+                            'text-slate-500'
+                        }`}>
+                            {slugStatus.message || '英小文字・数字・ハイフン (-) のみ、3〜30文字。後から変更可能です'}
+                        </p>
                     </div>
 
                     <div className="space-y-1">

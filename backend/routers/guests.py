@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
-from models import GuestProfile
+from models import GuestProfile, Store, StampCard
 from pydantic import BaseModel
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -75,3 +75,44 @@ async def update_guest_language(guest_uuid: str, update_data: LanguageUpdate, se
     await session.commit()
     await session.refresh(guest)
     return guest
+
+@router.get("/{guest_uuid}/stamps/{store_id}")
+async def get_guest_stamp_card(guest_uuid: str, store_id: int, session: AsyncSession = Depends(get_session)):
+    store = await session.get(Store, store_id)
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+        
+    result = await session.execute(
+        select(StampCard).where(
+            StampCard.guest_uuid == guest_uuid,
+            StampCard.store_id == store_id
+        )
+    )
+    card = result.scalar_one_or_none()
+    stamp_count = card.stamp_count if card else 0
+    
+    can_use_reward = store.stamp_active and stamp_count >= store.stamp_target
+    
+    return {
+        "stamp_active": store.stamp_active,
+        "stamp_target": store.stamp_target,
+        "stamp_count": stamp_count,
+        "stamp_reward_msg": store.stamp_reward_msg,
+        "stamp_reward_discount": store.stamp_reward_discount,
+        "can_use_reward": can_use_reward
+    }
+
+@router.get("/{guest_uuid}/coupons/{store_id}")
+async def get_guest_coupons(guest_uuid: str, store_id: int, session: AsyncSession = Depends(get_session)):
+    from sqlmodel import select, or_
+    from models import RewardCoupon
+    now = datetime.utcnow()
+    result = await session.execute(
+        select(RewardCoupon).where(
+            RewardCoupon.guest_uuid == guest_uuid,
+            RewardCoupon.store_id == store_id,
+            RewardCoupon.is_used == False,  # noqa: E712
+            or_(RewardCoupon.expires_at == None, RewardCoupon.expires_at >= now),  # noqa: E711
+        )
+    )
+    return result.scalars().all()

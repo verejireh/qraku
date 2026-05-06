@@ -1,0 +1,31 @@
+[project]
+name = "qraku"
+version = "0.1.0"
+description = "QRaku — QR-based restaurant ordering system"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlmodel",
+    "aiomysql",
+    "pymysql",
+    "cryptography",
+    "qrcode[pil]",
+    "python-multipart",
+    "jinja2",
+    "websockets",
+    "passlib[bcrypt]",
+    "google-genai",
+    "python-dotenv",
+    "reportlab",
+    "pytz",
+    "stripe",
+    "httpx",
+    "python-jose[cryptography]",
+    "Pillow",
+    "google-cloud-storage",
+    "paramiko",
+]
+
+[tool.uv]
+package = false

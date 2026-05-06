@@ -1,14 +1,26 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 
 export function useDisplayGuard(viewType) {
     const { shop_id } = useParams();
+    const [searchParams] = useSearchParams();
     const [isAllowed, setIsAllowed] = useState(null); // null: checking, true: allowed, false: blocked
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         let isMounted = true;
+
+        // ⚠️ 보안: ?demo=1 URL 파라미터는 "demo_tmp_" 접두사 임시 스토어에서만 허용
+        //   (일반 매장에 ?demo=1 붙여 디스플레이 가드 우회하는 공격 차단)
+        const isTempDemoStore = typeof shop_id === 'string' && shop_id.startsWith('demo_tmp_');
+        const isDemoMode = searchParams.get('demo') === '1' && isTempDemoStore;
+        if (isDemoMode) {
+            setIsAllowed(true);
+            setLoading(false);
+            return;
+        }
+
         const checkAccess = async () => {
             try {
                 const res = await axios.get(`/api/stores/${shop_id}`);
@@ -33,10 +45,11 @@ export function useDisplayGuard(viewType) {
 
         checkAccess();
         return () => { isMounted = false; };
-    }, [shop_id, viewType]);
+    }, [shop_id, viewType, searchParams]);
 
     return { isAllowed, loading, shop_id };
 }
+
 
 export function BlockedScreen({ shop_id, viewName }) {
     const navigate = useNavigate();

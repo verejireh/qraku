@@ -43,7 +43,9 @@ async def login_master_pin(shop_id: str, body: MasterPinLogin, session: AsyncSes
     if body.pin != store.master_pin:
         raise HTTPException(status_code=401, detail="PINが正しくありません。")
 
-    return {"role": "master", "shop_id": shop_id}
+    from utils.jwt import create_staff_token
+    token = create_staff_token(store_id=store.id, shop_id=shop_id)
+    return {"role": "master", "shop_id": shop_id, "token": token}
 
 
 @router.post("/staff/{shop_id}")

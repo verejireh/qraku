@@ -168,20 +168,19 @@ async def stripe_webhook(
 ):
     payload = await request.body()
 
-    # Webhook Signature 검증
-    if STRIPE_WEBHOOK_SECRET:
-        try:
-            event = stripe.Webhook.construct_event(
-                payload, stripe_signature, STRIPE_WEBHOOK_SECRET
-            )
-        except stripe.error.SignatureVerificationError:
-            raise HTTPException(status_code=400, detail="Invalid Stripe webhook signature")
-    else:
-        # 개발 모드: 서명 없이 처리
-        try:
-            event = json.loads(payload)
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    # Webhook Signature 검증 (프로덕션 필수)
+    if not STRIPE_WEBHOOK_SECRET:
+        # 시크릿 미설정 시 위조 웹훅으로 구독 상태 조작 가능 → 거부
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook secret not configured. Set STRIPE_WEBHOOK_SECRET in environment."
+        )
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, stripe_signature, STRIPE_WEBHOOK_SECRET
+        )
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid Stripe webhook signature")
 
     event_type = event.get("type") if isinstance(event, dict) else event["type"]
     data_object = event["data"]["object"] if isinstance(event, dict) else event.data.object

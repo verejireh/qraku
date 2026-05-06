@@ -13,6 +13,11 @@ endpoint_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 @router.post("/stripe")
 async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_session)):
+    if not endpoint_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook secret not configured. Set STRIPE_WEBHOOK_SECRET in environment."
+        )
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
 

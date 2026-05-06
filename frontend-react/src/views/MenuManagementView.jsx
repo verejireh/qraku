@@ -4,6 +4,7 @@ import axios from 'axios'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '../context/LanguageContext'
 import { AdminNavBar } from './AdminView'
+import MenuGroupsSection from '../components/MenuGroupsSection'
 
 export default function MenuManagementView() {
     const { shop_id } = useParams()
@@ -340,6 +341,8 @@ export default function MenuManagementView() {
                     )}
                     </AnimatePresence>
                 </div>
+
+                <MenuGroupsSection shop_id={shop_id} allMenus={menus} />
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
                     <AnimatePresence>

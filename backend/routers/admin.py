@@ -3,7 +3,7 @@ from sqlmodel import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Any, Optional
 from database import get_session
-from models import Store, Table, Order, Menu, StaffMember, PaymentSettings, PaymentMethodType
+from models import Store, Table, Order, Menu, StaffMember, PaymentSettings, PaymentMethodType, StaffAttendance
 from datetime import datetime
 import uuid
 from utils.jwt import require_admin
@@ -327,14 +327,98 @@ async def toggle_staff_duty(store_id: str, member_id: int, body: DutyToggle, adm
     member = await session.get(StaffMember, member_id)
     if not member or member.store_id != store.id:
         raise HTTPException(status_code=404, detail="Staff member not found")
-    member.is_on_duty = body.is_on_duty
+
+    now_utc = datetime.utcnow()
+    # JST = UTC+9 로 변환하여 work_date 산출
+    from datetime import timezone, timedelta as td
+    jst = timezone(td(hours=9))
+    now_jst = now_utc.replace(tzinfo=timezone.utc).astimezone(jst)
+    work_date_str = now_jst.strftime("%Y-%m-%d")
+
     if body.is_on_duty:
-        member.clock_in_at = datetime.utcnow()
+        # 出勤: 새 attendance 레코드 생성
+        member.is_on_duty = True
+        member.clock_in_at = now_utc
+        attendance = StaffAttendance(
+            store_id=store.id,
+            staff_id=member.id,
+            staff_name=member.name,
+            clock_in=now_utc,
+            work_date=work_date_str,
+        )
+        session.add(attendance)
     else:
+        # 退勤: 가장 최근 미완료 attendance 레코드에 clock_out 기록
+        result = await session.execute(
+            select(StaffAttendance)
+            .where(
+                StaffAttendance.staff_id == member.id,
+                StaffAttendance.clock_out == None  # noqa: E711
+            )
+            .order_by(StaffAttendance.clock_in.desc())
+            .limit(1)
+        )
+        attendance = result.scalar_one_or_none()
+        if attendance:
+            attendance.clock_out = now_utc
+            diff = now_utc - attendance.clock_in
+            attendance.duration_minutes = max(1, int(diff.total_seconds() / 60))
+            session.add(attendance)
+        member.is_on_duty = False
         member.clock_in_at = None
+
     session.add(member)
     await session.commit()
     return {"status": "ok", "is_on_duty": member.is_on_duty}
+
+
+@router.get("/stores/{store_id}/staff-attendance")
+async def get_staff_attendance(
+    store_id: str,
+    date_from: Optional[str] = None,   # "2026-05-01" (work_date 기준, JST)
+    date_to: Optional[str] = None,     # "2026-05-31"
+    staff_id: Optional[int] = None,
+    admin_store: Store = Depends(require_admin),
+    session: AsyncSession = Depends(get_session)
+):
+    """근태 기록 조회. date_from/date_to는 work_date 기준(JST). staff_id 지정 시 해당 스태프만 필터링."""
+    _verify_admin_access(admin_store, store_id)
+    store = await _resolve_store(store_id, session)
+
+    query = select(StaffAttendance).where(StaffAttendance.store_id == store.id)
+    if date_from:
+        query = query.where(StaffAttendance.work_date >= date_from)
+    if date_to:
+        query = query.where(StaffAttendance.work_date <= date_to)
+    if staff_id:
+        query = query.where(StaffAttendance.staff_id == staff_id)
+    query = query.order_by(StaffAttendance.work_date.desc(), StaffAttendance.clock_in.desc())
+
+    result = await session.execute(query)
+    records = result.scalars().all()
+
+    # clock_in/clock_out은 UTC로 저장되어 있으므로 JST(+9)로 변환하여 반환
+    from datetime import timezone, timedelta as td
+    jst = timezone(td(hours=9))
+
+    def to_jst_hhmm(dt):
+        if dt is None:
+            return None
+        return dt.replace(tzinfo=timezone.utc).astimezone(jst).strftime("%H:%M")
+
+    return [
+        {
+            "id": r.id,
+            "staff_id": r.staff_id,
+            "staff_name": r.staff_name,
+            "work_date": r.work_date,
+            "clock_in": to_jst_hhmm(r.clock_in),
+            "clock_out": to_jst_hhmm(r.clock_out),
+            "duration_minutes": r.duration_minutes,
+            "is_open": r.clock_out is None,  # 아직 退勤 안 한 진행 중 기록
+        }
+        for r in records
+    ]
 
 
 # ── PaymentSettings 管理 ────────────────────────────────────────────
@@ -390,14 +474,17 @@ async def update_payment_settings(
         await session.commit()
         await session.refresh(ps)
 
+    from utils.crypto import encrypt_secret
+
     if body.payment_method_type:
         ps.payment_method_type = PaymentMethodType(body.payment_method_type)
+    # ── 시크릿은 DB 저장 시 자동 암호화 (ENCRYPTION_KEY 가 설정된 경우) ───
     if body.paypay_api_key is not None:
-        ps.paypay_api_key = body.paypay_api_key
+        ps.paypay_api_key = encrypt_secret(body.paypay_api_key.strip()) or body.paypay_api_key
     if body.paypay_api_secret is not None:
-        ps.paypay_api_secret = body.paypay_api_secret
+        ps.paypay_api_secret = encrypt_secret(body.paypay_api_secret.strip()) or body.paypay_api_secret
     if body.paypay_merchant_id is not None:
-        ps.paypay_merchant_id = body.paypay_merchant_id
+        ps.paypay_merchant_id = body.paypay_merchant_id  # 머천트 ID는 식별자라 암호화 불필요
 
     session.add(ps)
     await session.commit()

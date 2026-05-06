@@ -284,7 +284,7 @@
         /* ==================== URL HIGHLIGHT ==================== */
         .url-box {
             background: #1e1b4b;
-            color: #c4b5fd;
+            color: #ffffff;
             padding: 12px 16px;
             border-radius: 10px;
             font-family: 'Courier New', monospace;
@@ -295,6 +295,7 @@
             gap: 8px;
             word-break: break-all;
         }
+        .url-box a { color: #ffffff !important; text-decoration: underline; }
         .url-box .material-symbols-outlined { color: #818cf8; font-size: 18px; }
 
         /* ==================== COMPARISON TABLE ==================== */
@@ -475,7 +476,7 @@
             <p>まず、Squareの公式サイトでビジネスアカウントを作成してください。</p>
             <div class="url-box">
                 <span class="material-symbols-outlined">link</span>
-                https://squareup.com/jp/ja
+                <a href="https://squareup.com/jp/ja" target="_blank" style="color: #ffffff !important;">https://squareup.com/jp/ja</a>
             </div>
             <ul>
                 <li>メールアドレスとパスワードを登録</li>
@@ -485,7 +486,7 @@
             </ul>
             <div class="info-box tip">
                 <span class="material-symbols-outlined">lightbulb</span>
-                <div>既にSquareアカウントをお持ちの場合は、この手順はスキップしてOKです。</div>
+                <div><strong>既にSquareをご利用中の店舗様へ：</strong><br>手順1と2はスキップし、そのまま「手順3：QRaku 管理画面で Square を連携する」へ進んでください。</div>
             </div>
         </div>
 
@@ -495,7 +496,7 @@
             <p>QRakuとSquareを連携するために、Square Developerダッシュボードでアプリケーション設定を確認します。</p>
             <div class="url-box">
                 <span class="material-symbols-outlined">link</span>
-                https://developer.squareup.com/apps
+                <a href="https://developer.squareup.com/apps" target="_blank" style="color: #ffffff !important;">https://developer.squareup.com/apps</a>
             </div>
             <p style="margin-top:8px;">以下の権限 (Scopes) がQRaku側で自動的に要求されます：</p>
             <ul>
@@ -582,7 +583,7 @@
             <p>まず、PayPayの加盟店契約を行います。</p>
             <div class="url-box">
                 <span class="material-symbols-outlined">link</span>
-                https://merchant.paypay.ne.jp/
+                <a href="https://merchant.paypay.ne.jp/" target="_blank" style="color: #ffffff !important;">https://merchant.paypay.ne.jp/</a>
             </div>
             <ul>
                 <li>「加盟店お申し込みはこちら」をクリック</li>
@@ -595,6 +596,10 @@
                 <span class="material-symbols-outlined">info</span>
                 <div>PayPayの加盟店審査には<strong>1〜3営業日</strong>かかる場合があります。お急ぎの場合は、まず「現場決済」または「Square決済」でサービスを開始し、審査完了後にPayPayを追加することをおすすめします。</div>
             </div>
+            <div class="info-box tip">
+                <span class="material-symbols-outlined">lightbulb</span>
+                <div><strong>既にPayPayをご利用中の店舗様へ：</strong><br>新たに加盟店申込（手順1）を行う必要はありません。ただし、API連携を利用したことがない場合は「手順2：PayPay for DevelopersでAPIキーを取得する」へ進んでください。<br>※既にAPIキーをお持ちの場合は、そのまま「手順4」へお進みください。</div>
+            </div>
         </div>
 
         <!-- Step 2 -->
@@ -603,7 +608,7 @@
             <p>加盟店審査が完了したら、API連携用の認証情報を取得します。</p>
             <div class="url-box">
                 <span class="material-symbols-outlined">link</span>
-                https://developer.paypay.ne.jp/
+                <a href="https://developer.paypay.ne.jp/" target="_blank" style="color: #ffffff !important;">https://developer.paypay.ne.jp/</a>
             </div>
             <ol>
                 <li>PayPay for Developersにログイン</li>
@@ -684,7 +689,7 @@
             </ol>
             <div class="url-box">
                 <span class="material-symbols-outlined">link</span>
-                https://あなたのドメイン/{店舗ID}/admin/payment
+                <span style="color: #ffffff !important;">https://あなたのドメイン/{店舗ID}/admin/payment</span>
             </div>
         </div>
 

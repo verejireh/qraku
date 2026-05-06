@@ -59,31 +59,55 @@ export default function StaffView() {
             const store = storeRes.data
             setStoreData(store)
 
-            const [tablesRes, ordersRes, menusRes] = await Promise.all([
-                axios.get(`/api/staff/shops/${shop_id}/register-tables`),
-                axios.get(`/api/orders/`, { params: { store_id: shop_id } }),
-                axios.get(`/api/menus/${shop_id}`)
-            ])
+            // ⚠️ 보안: ?demo=1 + demo_tmp_ 접두사 슬러그일 때만 데모 분기 허용
+            const storeSlug = store.slug || shop_id
+            const isTempDemoStore = typeof storeSlug === 'string' && storeSlug.startsWith('demo_tmp_')
+            const isDemoMode = new URLSearchParams(window.location.search).get('demo') === '1' && isTempDemoStore
+            let rawOrders = []
+            let rawTables = []
+            if (isDemoMode) {
+                const [ordersRes, tablesRes, menusRes] = await Promise.all([
+                    axios.get(`/api/demo/orders/${storeSlug}`).catch(() => ({ data: [] })),
+                    axios.get(`/api/demo/tables/${storeSlug}`).catch(() => ({ data: [] })),
+                    axios.get(`/api/menus/${shop_id}`)
+                ])
+                rawOrders = Array.isArray(ordersRes.data) ? ordersRes.data : []
+                rawTables = Array.isArray(tablesRes.data)
+                    ? tablesRes.data.map(t => ({ ...t, status: (t.status || '').toLowerCase() }))
+                    : []
+                const rawMenus = Array.isArray(menusRes.data) ? menusRes.data : (menusRes.data?.data || [])
+                const dict = {}
+                rawMenus.forEach(m => { dict[String(m.id)] = m })
+                setMenus(dict)
+                setPosMenus(rawMenus)
+                const cats = Array.from(new Set(rawMenus.map(m => m.category)))
+                setCategories(['All', ...cats])
+            } else {
+                const [tablesRes, ordersRes, menusRes] = await Promise.all([
+                    axios.get(`/api/staff/shops/${shop_id}/register-tables`),
+                    axios.get(`/api/orders/`, { params: { store_id: shop_id } }),
+                    axios.get(`/api/menus/${shop_id}`)
+                ])
+                rawTables = Array.isArray(tablesRes.data) ? tablesRes.data : []
+                rawOrders = Array.isArray(ordersRes.data) ? ordersRes.data : (ordersRes.data?.orders || [])
+                const rawMenus = Array.isArray(menusRes.data) ? menusRes.data : (menusRes.data?.data || [])
+                const dict = {}
+                rawMenus.forEach(m => { dict[String(m.id)] = m })
+                setMenus(dict)
+                setPosMenus(rawMenus)
+                const cats = Array.from(new Set(rawMenus.map(m => m.category)))
+                setCategories(['All', ...cats])
+            }
 
-            const rawTables = Array.isArray(tablesRes.data) ? tablesRes.data : []
             setTables(rawTables.sort((a, b) => String(a.table_number).localeCompare(String(b.table_number), undefined, { numeric: true })))
-
-            const rawOrders = Array.isArray(ordersRes.data) ? ordersRes.data : (ordersRes.data?.orders || [])
             setAllOrders(rawOrders)
-
-            const rawMenus = Array.isArray(menusRes.data) ? menusRes.data : (menusRes.data?.data || [])
-            const dict = {}
-            rawMenus.forEach(m => { dict[String(m.id)] = m })
-            setMenus(dict)
-            setPosMenus(rawMenus)
-            const cats = Array.from(new Set(rawMenus.map(m => m.category)))
-            setCategories(['All', ...cats])
         } catch (e) {
             console.error('StaffView fetch error:', e)
         } finally {
             setLoading(false)
         }
     }, [shop_id])
+
 
     useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -1366,56 +1390,85 @@ export default function StaffView() {
             })()}
 
             {/* ── テイクアウト 調理時間 返答モーダル ── */}
-            {respondModal && (
+            {respondModal && (() => {
+                let items = []
+                try { items = JSON.parse(respondModal.items_snapshot || '[]') } catch (e) {}
+                return (
                 <div className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setRespondModal(null)}>
-                    <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-                        <h3 className="text-lg font-bold text-[#1b1b1d] mb-1">🥡 テイクアウト返答</h3>
-                        <p className="text-xs text-slate-500 mb-4">
-                            ¥{respondModal.total_amount?.toLocaleString()} ·
+                    <div className="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                        <div className="shrink-0 text-center mb-4">
+                            <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-2">🥡</div>
+                            <h3 className="text-xl font-black text-[#1b1b1d] tracking-tight">테이크아웃 문의 접수</h3>
+                        </div>
+                        
+                        <p className="text-sm font-bold text-amber-700 mb-4 bg-amber-50 p-3 rounded-xl border border-amber-100 text-center shadow-sm">
                             {respondModal.query_type === 'ask_specific'
-                                ? ` 「${respondModal.requested_time}」希望`
-                                : ' いつ頃できるか問い合わせ'}
+                                ? `「${respondModal.requested_time}」 수령 희망`
+                                : '최대한 빠른 조리 시간 안내 요청 (ASAP)'}
                         </p>
-
-                        <div className="space-y-3 mb-5">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" checked={responseType === 'minutes'} onChange={() => setResponseType('minutes')} className="accent-amber-500" />
-                                <span className="text-sm font-bold">N分後に可能</span>
-                            </label>
-                            {responseType === 'minutes' && (
-                                <div className="flex items-center gap-2 ml-6">
-                                    {[10, 15, 20, 30].map(m => (
-                                        <button key={m} onClick={() => setResponseMinutes(m)}
-                                            className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-all ${responseMinutes === m ? 'bg-amber-500 text-white border-amber-500' : 'border-slate-200 text-slate-500'}`}
-                                        >{m}分</button>
-                                    ))}
-                                    <input type="number" value={responseMinutes} onChange={e => setResponseMinutes(e.target.value)}
-                                        className="w-16 px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-center" min={1} max={120} />
+                        
+                        <div className="flex-1 overflow-y-auto mb-5 border border-slate-100 rounded-2xl p-4 bg-slate-50/50 space-y-2.5">
+                            {items.map((item, i) => (
+                                <div key={i} className="flex justify-between items-center text-sm">
+                                    <span className="font-semibold text-slate-700 leading-tight">{item.name}</span>
+                                    <span className="font-black text-slate-900 bg-white px-2 py-0.5 rounded-md shadow-sm border border-slate-100">×{item.quantity}</span>
                                 </div>
+                            ))}
+                            <div className="pt-3 mt-1 border-t border-slate-200/80 flex justify-between items-center">
+                                <span className="font-bold text-slate-500 text-xs">합계</span>
+                                <span className="font-black text-slate-900 text-lg tracking-tight">¥{respondModal.total_amount?.toLocaleString()}</span>
+                            </div>
+                        </div>
+
+                        <div className="shrink-0 space-y-2.5 mb-6">
+                            {respondModal.query_type === 'ask_specific' && (
+                                <label className={`flex items-center gap-3 p-3.5 rounded-xl border-2 transition-all cursor-pointer ${responseType === 'set_time' ? 'bg-emerald-50 border-emerald-400 shadow-sm' : 'bg-white border-slate-100 hover:border-slate-200'}`}>
+                                    <input type="radio" checked={responseType === 'set_time'} onChange={() => { setResponseType('set_time'); setResponseTime(respondModal.requested_time) }} className="accent-emerald-500 w-4.5 h-4.5" />
+                                    <span className={`text-sm font-bold ${responseType === 'set_time' ? 'text-emerald-800' : 'text-slate-600'}`}>희망 시간 정시 가능 ({respondModal.requested_time})</span>
+                                </label>
                             )}
 
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" checked={responseType === 'set_time'} onChange={() => setResponseType('set_time')} className="accent-amber-500" />
-                                <span className="text-sm font-bold">時刻を指定</span>
-                            </label>
-                            {responseType === 'set_time' && (
-                                <input type="time" value={responseTime} onChange={e => setResponseTime(e.target.value)}
-                                    className="ml-6 px-3 py-2 border border-slate-200 rounded-xl text-sm w-32" />
-                            )}
+                            <div className={`rounded-xl border-2 transition-all overflow-hidden ${responseType === 'minutes' ? 'bg-white border-amber-400 shadow-sm' : 'bg-white border-slate-100'}`}>
+                                <label className="flex items-center gap-3 p-3.5 cursor-pointer hover:bg-slate-50">
+                                    <input type="radio" checked={responseType === 'minutes'} onChange={() => setResponseType('minutes')} className="accent-amber-500 w-4.5 h-4.5" />
+                                    <span className={`text-sm font-bold ${responseType === 'minutes' ? 'text-amber-800' : 'text-slate-600'}`}>N분 후 수령 가능 (시간 지연/안내)</span>
+                                </label>
 
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" checked={responseType === 'decline'} onChange={() => setResponseType('decline')} className="accent-red-500" />
-                                <span className="text-sm font-bold text-red-500">現在は対応不可</span>
+                                {responseType === 'minutes' && (
+                                    <div className="p-3 pt-0 border-t border-slate-50 bg-slate-50/30">
+                                        <div className="grid grid-cols-3 gap-2 mt-2">
+                                            {[10, 20, 30, 40, 50, 60].map(m => (
+                                                <button key={m} onClick={() => setResponseMinutes(m)}
+                                                    className={`py-2.5 rounded-lg text-sm font-black transition-all ${responseMinutes === m ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20 scale-105' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                                                >+{m}분</button>
+                                            ))}
+                                        </div>
+                                        <div className="flex items-center gap-2 mt-3 bg-white p-2 rounded-xl border border-slate-200">
+                                            <span className="text-xs font-bold text-slate-400 ml-1">직접입력</span>
+                                            <input type="number" value={responseMinutes} onChange={e => setResponseMinutes(e.target.value)}
+                                                className="flex-1 w-full bg-slate-50 py-1.5 rounded-lg text-sm text-center font-black focus:ring-2 focus:ring-amber-400 focus:outline-none" min={1} max={300} />
+                                            <span className="text-xs font-bold text-slate-400 mr-1">분</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <label className={`flex items-center gap-3 p-3.5 rounded-xl border-2 transition-all cursor-pointer ${responseType === 'decline' ? 'bg-red-50 border-red-400 shadow-sm' : 'bg-white border-slate-100 hover:border-slate-200'}`}>
+                                <input type="radio" checked={responseType === 'decline'} onChange={() => setResponseType('decline')} className="accent-red-500 w-4.5 h-4.5" />
+                                <span className={`text-sm font-bold ${responseType === 'decline' ? 'text-red-700' : 'text-slate-600'}`}>현재 주문 접수 불가 (거절)</span>
                             </label>
                         </div>
 
-                        <div className="flex gap-2">
-                            <button onClick={() => setRespondModal(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl text-sm">キャンセル</button>
-                            <button onClick={handleStaffRespond} className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-white font-bold rounded-xl text-sm">返答する</button>
+                        <div className="flex gap-2 shrink-0">
+                            <button onClick={() => setRespondModal(null)} className="flex-1 py-4 bg-slate-100 text-slate-500 font-black rounded-2xl text-sm hover:bg-slate-200 transition-colors">취소</button>
+                            <button onClick={handleStaffRespond} className="flex-1 py-4 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-black rounded-2xl text-sm shadow-lg shadow-amber-500/30 hover:opacity-90 transition-opacity flex items-center justify-center gap-1">
+                                응답 전송 <span className="material-symbols-outlined !text-lg">send</span>
+                            </button>
                         </div>
                     </div>
                 </div>
-            )}
+                )
+            })()}
 
             {/* ── Delete Confirmation ── */}
             {deleteConfirm && (

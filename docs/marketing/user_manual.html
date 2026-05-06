@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>QRaku ご利用ガイド — 飲食店オーナー様向け</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Noto+Serif+JP:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4 portrait; margin: 18mm 16mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Noto Sans JP', sans-serif;
+    color: #1a1a1a;
+    background: white;
+    font-size: 10.5pt;
+    line-height: 1.75;
+  }
+  .doc { max-width: 178mm; margin: 0 auto; padding: 0 6mm; }
+
+  /* Cover */
+  .cover {
+    page-break-after: always;
+    height: 260mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 30mm 0 20mm;
+    position: relative;
+  }
+  .cover::before {
+    content: "";
+    position: absolute;
+    top: -20mm; right: -30mm;
+    width: 200mm; height: 200mm;
+    background: radial-gradient(circle, rgba(194,30,47,0.06), transparent 65%);
+  }
+  .cover-brand {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .cover-logo {
+    width: 32px; height: 32px; background: #c21e2f; border-radius: 7px;
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; padding: 4px;
+  }
+  .cover-logo span { background: white; border-radius: 1px; }
+  .cover-name {
+    font-family: 'Noto Serif JP', serif; font-weight: 900; font-size: 16pt;
+  }
+  .cover-title {
+    font-family: 'Noto Serif JP', serif;
+    font-weight: 900;
+    font-size: 36pt;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+  .cover-title em {
+    font-style: normal; color: #c21e2f;
+  }
+  .cover-sub {
+    font-size: 13pt;
+    color: #666;
+    margin-top: 6mm;
+    line-height: 1.7;
+  }
+  .cover-meta {
+    border-top: 2px solid #1a1a1a;
+    padding-top: 6mm;
+    display: flex;
+    justify-content: space-between;
+    font-size: 9pt;
+    color: #888;
+  }
+
+  /* Page intro */
+  .intro-quote {
+    font-family: 'Noto Serif JP', serif;
+    font-size: 14pt;
+    line-height: 1.85;
+    color: #333;
+    border-left: 3px solid #c21e2f;
+    padding: 4mm 0 4mm 8mm;
+    margin: 8mm 0;
+  }
+
+  /* TOC */
+  .toc {
+    page-break-after: always;
+    margin-top: 10mm;
+  }
+  .toc h2 {
+    font-family: 'Noto Serif JP', serif;
+    font-size: 18pt;
+    margin: 0 0 8mm 0;
+    border-bottom: 2px solid #1a1a1a;
+    padding-bottom: 3mm;
+  }
+  .toc-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 3mm 0;
+    border-bottom: 1px dotted #ccc;
+    font-size: 11pt;
+  }
+  .toc-item-title {
+    display: flex;
+    align-items: baseline;
+    gap: 6mm;
+  }
+  .toc-num {
+    font-family: 'Noto Serif JP', serif;
+    font-weight: 900;
+    color: #c21e2f;
+    min-width: 12mm;
+  }
+
+  /* Sections */
+  section {
+    margin-bottom: 18mm;
+  }
+  h1.chapter {
+    font-family: 'Noto Serif JP', serif;
+    font-size: 26pt;
+    font-weight: 900;
+    line-height: 1.25;
+    margin: 0 0 6mm 0;
+    page-break-before: always;
+    padding-top: 4mm;
+    letter-spacing: -0.02em;
+  }
+  h1.chapter::before {
+    content: attr(data-num);
+    display: block;
+    font-size: 9pt;
+    color: #c21e2f;
+    letter-spacing: 0.2em;
+    font-weight: 700;
+    margin-bottom: 3mm;
+  }
+  h2.section {
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 14pt;
+    font-weight: 900;
+    margin: 10mm 0 4mm 0;
+    padding-left: 4mm;
+    border-left: 4px solid #c21e2f;
+    line-height: 1.4;
+  }
+  h3.sub {
+    font-size: 11.5pt;
+    font-weight: 700;
+    color: #c21e2f;
+    margin: 6mm 0 2mm 0;
+  }
+
+  p { margin: 0 0 3mm 0; }
+  ul, ol { margin: 0 0 4mm 0; padding-left: 6mm; }
+  li { margin-bottom: 1.5mm; }
+
+  /* Step boxes */
+  .steps {
+    counter-reset: stepcounter;
+    margin: 5mm 0;
+  }
+  .step {
+    counter-increment: stepcounter;
+    display: grid;
+    grid-template-columns: 16mm 1fr;
+    gap: 4mm;
+    margin-bottom: 5mm;
+    page-break-inside: avoid;
+  }
+  .step::before {
+    content: counter(stepcounter);
+    font-family: 'Noto Serif JP', serif;
+    font-size: 18pt;
+    font-weight: 900;
+    color: white;
+    background: #c21e2f;
+    width: 12mm; height: 12mm;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    line-height: 1;
+  }
+  .step-title {
+    font-weight: 900;
+    font-size: 11.5pt;
+    margin-bottom: 1.5mm;
+    line-height: 1.5;
+  }
+  .step-body {
+    font-size: 10pt;
+    color: #333;
+    line-height: 1.7;
+  }
+
+  /* Callouts */
+  .callout {
+    background: #fff8eb;
+    border-left: 3px solid #d97706;
+    padding: 4mm 5mm;
+    border-radius: 0 3mm 3mm 0;
+    margin: 5mm 0;
+    font-size: 9.5pt;
+    line-height: 1.7;
+    page-break-inside: avoid;
+  }
+  .callout-title {
+    font-weight: 900;
+    color: #92400e;
+    margin-bottom: 1.5mm;
+    display: block;
+  }
+  .callout.tip {
+    background: #f0f9ff;
+    border-left-color: #0284c7;
+  }
+  .callout.tip .callout-title { color: #075985; }
+  .callout.warn {
+    background: #fef2f2;
+    border-left-color: #dc2626;
+  }
+  .callout.warn .callout-title { color: #991b1b; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 4mm 0 6mm 0;
+    font-size: 10pt;
+  }
+  th, td {
+    text-align: left;
+    padding: 2.5mm 3mm;
+    border-bottom: 1px solid #e5e0d6;
+    vertical-align: top;
+  }
+  th {
+    background: #1a1a1a;
+    color: white;
+    font-weight: 700;
+    font-size: 9pt;
+    letter-spacing: 0.05em;
+  }
+  td.btn-name {
+    font-weight: 700;
+    color: #c21e2f;
+    white-space: nowrap;
+  }
+
+  /* Button visual */
+  .ui-btn {
+    display: inline-block;
+    padding: 1.5mm 4mm;
+    background: #c21e2f;
+    color: white;
+    font-size: 9.5pt;
+    font-weight: 700;
+    border-radius: 999px;
+    margin: 0 1mm;
+  }
+  .ui-btn.ghost {
+    background: white;
+    color: #1a1a1a;
+    border: 1px solid #1a1a1a;
+  }
+  .ui-btn.amber {
+    background: #d97706;
+  }
+  .ui-btn.green {
+    background: #059669;
+  }
+  code {
+    background: #f5f5f0;
+    padding: 0.5mm 1.5mm;
+    border-radius: 1mm;
+    font-family: 'Courier New', monospace;
+    font-size: 9.5pt;
+    color: #c21e2f;
+  }
+
+  /* Page footer */
+  .running-footer {
+    margin-top: 30mm;
+    padding-top: 4mm;
+    border-top: 1px solid #e5e0d6;
+    display: flex;
+    justify-content: space-between;
+    font-size: 8pt;
+    color: #888;
+  }
+</style>
+</head>
+<body>
+<div class="doc">
+
+<!-- =========== COVER =========== -->
+<div class="cover">
+  <div>
+    <div class="cover-brand">
+      <div class="cover-logo"><span></span><span></span><span></span><span></span></div>
+      <div class="cover-name">QRaku</div>
+    </div>
+  </div>
+  <div>
+    <h1 class="cover-title">
+      ご利用ガイド<br/>
+      <em>2026 年版</em>
+    </h1>
+    <p class="cover-sub">
+      初めてQRakuを使う方のための、<br/>
+      導入・運用・お会計までの完全マニュアル。
+    </p>
+  </div>
+  <div class="cover-meta">
+    <span>For Restaurant Owners</span>
+    <span>qraku.com / 24時間サポート</span>
+  </div>
+</div>
+
+<!-- =========== INTRO QUOTE =========== -->
+<div class="intro-quote">
+  このガイドは、QRakuを「使いこなす」ためではなく、<br/>
+  あなたの<strong>「お店の良さ」を引き出すため</strong>に書きました。<br/>
+  難しい操作は一つもありません。最初の30分だけ、お付き合いください。
+</div>
+
+<!-- =========== TOC =========== -->
+<div class="toc">
+  <h2>目次</h2>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">01</span><span>はじめに — 60秒でQRakuがわかる</span></div><span>P.04</span></div>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">02</span><span>最初の30分 — 開店までのチェックリスト</span></div><span>P.05</span></div>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">03</span><span>メニューを登録する</span></div><span>P.06</span></div>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">04</span><span>テーブルを作り、QRコードを印刷する</span></div><span>P.08</span></div>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">05</span><span>決済を設定する — 3つの選択肢</span></div><span>P.10</span></div>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">06</span><span>お客様の体験を、自分で確かめる</span></div><span>P.13</span></div>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">07</span><span>キッチン画面の使い方</span></div><span>P.14</span></div>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">08</span><span>レジ画面 — お会計の流れ</span></div><span>P.16</span></div>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">09</span><span>スタッフ画面 — テーブル状況の把握</span></div><span>P.18</span></div>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">10</span><span>食べ放題・ランチタイムの運用</span></div><span>P.19</span></div>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">11</span><span>売上を読む — ダッシュボードと分析</span></div><span>P.21</span></div>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">12</span><span>よくあるご質問</span></div><span>P.22</span></div>
+  <div class="toc-item"><div class="toc-item-title"><span class="toc-num">13</span><span>困ったときに — サポートのご案内</span></div><span>P.23</span></div>
+</div>
+
+<!-- =========== CH 1 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 01">はじめに —<br/>60秒でQRakuがわかる</h1>
+
+<p>QRakuは、<strong>お客様の手元のスマートフォンを、注文端末に変える</strong>サービスです。テーブルにQRコードを置くだけで、お客様は専用アプリを入れることなく、メニュー閲覧から注文・決済までを完了できます。</p>
+
+<h2 class="section">QRakuがやること</h2>
+<ul>
+  <li>お客様がQRコードをスキャンすると、お店専用の注文ページが開きます。</li>
+  <li>お客様は写真付きメニューから選び、カートに入れて、注文ボタンを押します。</li>
+  <li>その瞬間、厨房のタブレットに注文が表示されます。紙伝票も、口頭での伝達も不要です。</li>
+  <li>料理を提供したらステータスを「完了」に。お客様はレジで会計するか、テーブルで決済します。</li>
+  <li>その日の売上は、ダッシュボードに自動で集計されています。</li>
+</ul>
+
+<h2 class="section">あなたが管理する3つの画面</h2>
+<table>
+  <tr><th style="width: 30mm;">画面</th><th style="width: 35mm;">使う人</th><th>役割</th></tr>
+  <tr><td class="btn-name">管理画面 (Admin)</td><td>オーナー</td><td>メニュー・テーブル・決済設定・分析。お店の頭脳。</td></tr>
+  <tr><td class="btn-name">キッチン画面</td><td>厨房スタッフ</td><td>注文をリアルタイムで受信し、調理状況を更新。</td></tr>
+  <tr><td class="btn-name">レジ画面</td><td>レジ担当</td><td>テーブル別の合計を確認し、お会計を完了する。</td></tr>
+</table>
+
+<p>本ガイドは、この3つの画面を、それぞれの役割の方が迷わず使えるよう、順を追って説明します。</p>
+
+<div class="callout tip">
+  <span class="callout-title">💡 推奨デバイス</span>
+  キッチン画面は10インチ以上のタブレットがお勧めです（油・水に強いケースを併用してください）。レジ画面はスマートフォンでも操作可能ですが、長時間使うならタブレットが快適です。
+</div>
+</section>
+
+<!-- =========== CH 2 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 02">最初の30分 —<br/>開店までのチェックリスト</h1>
+
+<p>QRakuは、最短3分でアカウント作成、追加で約30分でお店全体の運用を開始できます。以下のチェックリストに沿って進めてください。</p>
+
+<div class="steps">
+  <div class="step">
+    <div>
+      <div class="step-title">アカウント作成（5分）</div>
+      <div class="step-body"><code>qraku.com</code> にアクセス → <span class="ui-btn">無料で始める</span> → メールアドレス・店舗名・カテゴリを入力。60日間の無料トライアルが即座に始まります。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">テーマを選ぶ（2分）</div>
+      <div class="step-body">管理画面の「基本情報」から、お店の雰囲気に合う8つのテーマ（桜・椿・紫陽花・コスモス・ひまわり・ラベンダー・竹・茶花）から1つを選びます。お客様が見るメニュー画面のデザインがこれで決まります。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">メニューを5品登録（10分）</div>
+      <div class="step-body">「メニュー管理」から看板メニューを5品登録。写真は1枚ずつアップロード、価格と説明文を入れます。これだけで運用は始められます。残りは後で。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">テーブルを作成（5分）</div>
+      <div class="step-body">「テーブル管理」から店内のテーブル数だけ追加。1番、2番…と通し番号で大丈夫です。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">QRコードを印刷して貼る（5分）</div>
+      <div class="step-body"><span class="ui-btn">テーブル全QRコード印刷</span> ボタンでA4横向きPDFが出力されます。各テーブルの番号付きQRをカット → ラミネート → テーブルに貼付。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">決済方法を決める（3分）</div>
+      <div class="step-body">「決済設定」から3つから選択。最初は「カウンター会計」のみで運用を始め、後からSquareやPayPay Directを追加することもできます。</div>
+    </div>
+  </div>
+</div>
+
+<div class="callout">
+  <span class="callout-title">⏱ 完了の目安</span>
+  ここまでで約30分。あとは厨房タブレットでキッチン画面を開いておけば、お客様の注文を受ける準備は完了です。
+</div>
+</section>
+
+<!-- =========== CH 3 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 03">メニューを登録する</h1>
+
+<p>QRakuのメニュー管理は、写真・価格・説明・カテゴリ・オプション・在庫切れまで、すべて管理画面から数秒で更新できます。スマホからも操作可能です。</p>
+
+<h2 class="section">基本登録の流れ</h2>
+<div class="steps">
+  <div class="step">
+    <div>
+      <div class="step-title">「メニュー管理」を開く</div>
+      <div class="step-body">管理画面の左メニューから「メニュー管理」をクリック。すでにあるメニューが一覧で並んでいます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title"><span class="ui-btn">+ 新規メニュー</span> を押す</div>
+      <div class="step-body">右上の追加ボタンから新規登録画面へ。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">写真をアップロード</div>
+      <div class="step-body">スマホで撮った料理写真をそのままアップロード可能（推奨：明るい自然光、皿全体が入る正方形）。Google Cloud Storageで自動最適化されます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">商品名・価格・説明文を入力</div>
+      <div class="step-body">日本語で入力すれば、英語・韓国語・中国語に<strong>Gemini AIが自動翻訳</strong>します。手動修正も可能。説明文には素材のこだわりや調理法を入れると注文率が上がります。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">カテゴリを選ぶ</div>
+      <div class="step-body">「前菜」「メイン」「ドリンク」など、お客様が探しやすい分類を。カテゴリ自体も「カテゴリ管理」から自由に追加できます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">オプションを設定（任意）</div>
+      <div class="step-body">「サイズ：S/M/L」「辛さ：普通/中辛/大辛」「トッピング：チーズ +¥100」など。価格加算もここで設定。お客様は注文画面でチェックするだけ。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title"><span class="ui-btn">保存</span> を押す</div>
+      <div class="step-body">即座にお客様の注文画面に反映されます。再起動も再読み込みも不要です。</div>
+    </div>
+  </div>
+</div>
+
+<h2 class="section">よく使う操作</h2>
+<table>
+  <tr><th>やりたいこと</th><th>操作</th></tr>
+  <tr><td>本日の品切れにする</td><td>メニュー一覧の <span class="ui-btn ghost">在庫切れ</span> トグルをON。お客様画面で「Sold Out」表示に。</td></tr>
+  <tr><td>表示順を変える</td><td>ドラッグ&ドロップで並び替え。お勧めは上に。</td></tr>
+  <tr><td>季節限定で一時的に隠す</td><td><span class="ui-btn ghost">非表示</span> トグル。削除せず残せます。</td></tr>
+  <tr><td>価格をまとめて調整</td><td>一覧で価格欄を直接編集 → タブキーで次へ。Excelのように。</td></tr>
+</table>
+
+<div class="callout tip">
+  <span class="callout-title">💡 写真のコツ</span>
+  料理写真は注文率に直結します。スマホで十分ですが、<strong>窓際の自然光・上から30度の角度・白い皿</strong>。この3つを意識するだけで、プロ並みの一枚が撮れます。
+</div>
+</section>
+
+<!-- =========== CH 4 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 04">テーブルを作り、<br/>QRコードを印刷する</h1>
+
+<p>QRakuには2種類のQRコードがあります。テーブルごとに発行する「イートインQR」と、テイクアウト用の「テイクアウトQR」です。</p>
+
+<h2 class="section">イートインQRの設置</h2>
+<div class="steps">
+  <div class="step">
+    <div>
+      <div class="step-title">「テーブル管理」を開く</div>
+      <div class="step-body">管理画面 → テーブル管理。現在登録されているテーブル一覧が表示されます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">テーブルを追加する</div>
+      <div class="step-body"><span class="ui-btn">+ テーブル追加</span> をクリック → テーブル名・座席数を入力。座席数は後で売上分析に使います。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">QRコードをまとめて印刷</div>
+      <div class="step-body">右上の <span class="ui-btn">テーブル全QRコード印刷</span> をクリック。A4横向きPDFが生成され、すべてのテーブル分のQRが番号付きで配置されます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">テーマに合わせたデザインで印刷</div>
+      <div class="step-body">「QRビルダー」を使うと、お店のテーマに合わせた装飾入りQRも作成可能。桜の花柄・木目調など、メニューと統一感のあるデザインで。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">ラミネートして貼付</div>
+      <div class="step-body">水濡れ・油汚れ対策に必ずラミネートを。100均でも入手可能。アクリルスタンドに入れると見栄えも◎。</div>
+    </div>
+  </div>
+</div>
+
+<h2 class="section">テイクアウトQRの設置</h2>
+<p>テイクアウト用は1枚だけです。レジカウンター・店頭ガラス・SNSなどに貼って、お客様が事前注文できるようにします。</p>
+<ul>
+  <li><strong>店頭設置：</strong> 営業時間外でも翌営業日の予約注文を受けられます。</li>
+  <li><strong>SNS掲載：</strong> Instagramのプロフィールにリンクとして掲載すると、見た瞬間に注文できます。</li>
+  <li><strong>名刺サイズ：</strong> お客様にお持ち帰りいただける名刺型のQRも好評です。</li>
+</ul>
+
+<div class="callout warn">
+  <span class="callout-title">⚠ 注意</span>
+  テーブルQRには番号情報が埋め込まれています。間違ったテーブルに貼ると、注文がそのテーブルに紐づいてしまいます。印刷後は必ず番号を確認してから設置してください。
+</div>
+</section>
+
+<!-- =========== CH 5 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 05">決済を設定する —<br/>3つの選択肢</h1>
+
+<p>QRakuは、お店の状況に合わせて3種類の決済方式を選べます。あとから変更も追加もできるので、最初は一番シンプルなものから始めましょう。</p>
+
+<h2 class="section">3つの決済方式</h2>
+<table>
+  <tr><th>方式</th><th>初期費用</th><th>使い勝手</th><th>こんなお店に</th></tr>
+  <tr><td class="btn-name">カウンター会計</td><td>0円</td><td>注文だけ受ける</td><td>すぐに始めたい / 既存レジを使い続けたい</td></tr>
+  <tr><td class="btn-name">Square 連携</td><td>0円（Squareアカウント要）</td><td>カード・PayPay・電子マネー</td><td>Squareをすでに使っている / POS連携したい</td></tr>
+  <tr><td class="btn-name">PayPay Direct</td><td>0円（PayPay加盟店契約要）</td><td>PayPayのみ・低手数料</td><td>PayPay利用客が多い / 手数料を抑えたい</td></tr>
+</table>
+
+<h2 class="section">A. カウンター会計のまま使う</h2>
+<p>何も設定しなければ、これが既定です。お客様は注文だけスマホで完了し、お会計は従来通りレジカウンターで行います。導入初日からトラブルなく始められる方法です。</p>
+
+<h2 class="section">B. Square 連携を有効にする</h2>
+<div class="steps">
+  <div class="step">
+    <div>
+      <div class="step-title">管理画面の「決済設定」を開く</div>
+      <div class="step-body">3つのトラックから「Square 連携」を選択。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title"><span class="ui-btn">Squareに接続</span> をクリック</div>
+      <div class="step-body">Square OAuth画面が開きます。Squareアカウントでログインし、「QRakuにアクセスを許可」を選択。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">ロケーションを選択</div>
+      <div class="step-body">複数店舗を運用している場合は、対象店舗を選択。これでQRakuの売上がそのSquareロケーションに記録されます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">動作モードを選ぶ</div>
+      <div class="step-body"><strong>EatIn（イートイン）：</strong> 注文がSquareのプリンターやKDSに転送されます。<br/><strong>TakeOut（テイクアウト）：</strong> お客様がカード情報を入力し、その場で事前決済。Square Web Paymentsで安全に処理されます。</div>
+    </div>
+  </div>
+</div>
+
+<h2 class="section">C. PayPay Direct を有効にする</h2>
+<p>SquareやAirレジを介さず、QRakuがPayPayと直接連携します。手数料が抑えられ、入金サイクルも短くできます。</p>
+<div class="steps">
+  <div class="step">
+    <div>
+      <div class="step-title">PayPay for Business に加盟店契約</div>
+      <div class="step-body">PayPay公式サイトから加盟店申請。審査後、Merchant ID・APIキーが発行されます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">QRakuに認証情報を登録</div>
+      <div class="step-body">「決済設定」→ PayPay Direct → Merchant ID / API Key / API Secret を貼り付け → <span class="ui-btn">保存</span>。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">テスト注文で動作確認</div>
+      <div class="step-body">サンドボックスモードでテスト注文 → PayPay画面で承認 → 注文完了画面まで遷移すれば成功。</div>
+    </div>
+  </div>
+</div>
+
+<div class="callout tip">
+  <span class="callout-title">💡 組み合わせ運用</span>
+  「テイクアウトはPayPay Direct、イートインはカウンター会計」のような組み合わせも可能です。お客様の動線に合わせて柔軟に設計してください。
+</div>
+</section>
+
+<!-- =========== CH 6 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 06">お客様の体験を、<br/>自分で確かめる</h1>
+
+<p>導入直後、必ず一度<strong>ご自身で「お客様役」になって注文してみてください</strong>。これだけで、お客様がつまずきそうなポイントが見えてきます。</p>
+
+<h2 class="section">5分の体験テスト</h2>
+<div class="steps">
+  <div class="step">
+    <div>
+      <div class="step-title">スマホでテーブルQRをスキャン</div>
+      <div class="step-body">普段使っているスマホで、印刷したQRコードをカメラで読み取ります。専用アプリは不要です。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">メニュー画面のデザインを確認</div>
+      <div class="step-body">写真は鮮明か、価格は読みやすいか、説明文に誤字はないか。お客様目線で確認します。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">3〜4品をカートに入れて注文</div>
+      <div class="step-body">数量変更・オプション選択・カート確認の動線をなぞる。違和感があれば、すぐにメニュー側で改善できます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">キッチン画面で受信を確認</div>
+      <div class="step-body">注文ボタンを押した瞬間、厨房のタブレットに注文カードが現れることを確認します。これがQRakuの心臓部です。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">言語切替を試す</div>
+      <div class="step-body">画面右上の言語切替で英語・韓国語・中国語に切り替えると、メニュー名・説明文が翻訳されます。インバウンド対応の確認に。</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- =========== CH 7 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 07">キッチン画面の使い方</h1>
+
+<p>キッチン画面はQRakuの中で最もリアルタイム性が高い画面です。WebSocketで注文が即座に届き、調理状況を更新するとお客様にも反映されます。</p>
+
+<h2 class="section">画面の構成</h2>
+<table>
+  <tr><th>エリア</th><th>役割</th></tr>
+  <tr><td class="btn-name">注文待ち</td><td>新規受信した注文。まだ調理に入っていないもの。</td></tr>
+  <tr><td class="btn-name">調理中</td><td>「受付」を押して調理開始した注文。</td></tr>
+  <tr><td class="btn-name">調理完了</td><td>「完了」にして提供待ち、または提供済みの注文。</td></tr>
+</table>
+
+<h2 class="section">注文を処理する流れ</h2>
+<div class="steps">
+  <div class="step">
+    <div>
+      <div class="step-title">新着注文音で気づく</div>
+      <div class="step-body">注文が入るとアラート音が鳴り、注文待ちエリアに新しいカードが表示されます。テーブル番号・注文時刻・品目・オプション・備考が一目でわかります。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title"><span class="ui-btn">受付</span> を押して調理開始</div>
+      <div class="step-body">カードが「調理中」エリアに移動。お客様の注文履歴ページにも「調理中」と表示されます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">料理ができたら <span class="ui-btn green">完了</span></div>
+      <div class="step-body">提供準備が整ったら「完了」を押す。スタッフはこの表示を見て料理を運びます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">必要に応じて品目別に細かく管理</div>
+      <div class="step-body">1注文の中で「先にドリンクだけ提供」など、品目単位でステータス変更も可能。</div>
+    </div>
+  </div>
+</div>
+
+<div class="callout">
+  <span class="callout-title">🍳 厨房オペレーションのコツ</span>
+  キッチン画面は「注文待ち」を空にすることを目標に動かすと、自然と回転率が上がります。「調理中」のカードを古い順に並べ替えれば、提供漏れが防げます。
+</div>
+
+<h2 class="section">運用モードの切替（KDS と Square 転送）</h2>
+<p>管理画面の「基本情報 → 注文確認方式」で、以下の2つから選択できます。</p>
+<ul>
+  <li><strong>KDSモード（既定）：</strong> QRakuのキッチン画面で注文を受ける。タブレット1台で完結。</li>
+  <li><strong>Square転送モード：</strong> 注文が自動でSquareのキッチンプリンター/KDSへ流れます。Squareをすでに運用している店舗向け。</li>
+</ul>
+</section>
+
+<!-- =========== CH 8 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 08">レジ画面 —<br/>お会計の流れ</h1>
+
+<p>レジ画面は、テーブル別のお会計を素早く完了させるためのシンプルな画面です。注文した品目・合計金額・食べ放題コースなどがすべて自動計算されています。</p>
+
+<h2 class="section">テーブル別会計</h2>
+<div class="steps">
+  <div class="step">
+    <div>
+      <div class="step-title">「会計待ち」一覧から選ぶ</div>
+      <div class="step-body">レジ画面を開くと、「会計待ち」エリアにすべてのテーブルが並びます。お会計をご希望のテーブル番号をタップ。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">注文明細を確認</div>
+      <div class="step-body">注文した品目・数量・単価・小計が表示されます。食べ放題セッションがあれば、コース料金も自動加算。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">割引やクーポンを適用（任意）</div>
+      <div class="step-body">サービス品引き、サービス料、ポイント割引などを必要に応じて加える。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">決済方法を選んで <span class="ui-btn green">会計完了</span></div>
+      <div class="step-body">現金 / カード / PayPay / その他 から選択。Square連携時はカード端末と連動。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">テーブルがリセットされる</div>
+      <div class="step-body">会計完了するとそのテーブルは新規受け入れ可能状態に戻ります。次のお客様をご案内できます。</div>
+    </div>
+  </div>
+</div>
+
+<h2 class="section">事前決済（テイクアウト）の場合</h2>
+<p>Squareテイクアウトモード・PayPay Directを設定している場合、お客様はQRから注文した時点で<strong>すでに支払いが完了</strong>しています。レジでは「お渡し完了」のチェックのみで作業終了です。</p>
+</section>
+
+<!-- =========== CH 9 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 09">スタッフ画面 —<br/>テーブル状況の把握</h1>
+
+<p>スタッフ画面は、店内全体の状況を俯瞰で見るためのフロアスタッフ向け画面です。「今どのテーブルが何をしているか」が一目でわかります。</p>
+
+<h2 class="section">テーブルカードの色で状況を判断</h2>
+<table>
+  <tr><th>色</th><th>状態</th><th>スタッフのアクション</th></tr>
+  <tr><td>グレー</td><td>空席</td><td>新規お客様をご案内</td></tr>
+  <tr><td>青</td><td>注文待ち</td><td>QR説明や水のサーブ</td></tr>
+  <tr><td>赤（点滅）</td><td>調理中・新着注文</td><td>料理が出たら配膳</td></tr>
+  <tr><td>黄</td><td>会計待ち</td><td>レジへご案内、または席で精算</td></tr>
+  <tr><td>緑</td><td>食べ放題進行中</td><td>残り時間・ラストオーダーを把握</td></tr>
+</table>
+
+<h2 class="section">テーブルカードでできること</h2>
+<ul>
+  <li><strong>テーブル詳細を開く：</strong> 注文履歴・お客様人数・滞在時間を確認。</li>
+  <li><strong>呼び出し受信：</strong> お客様が「店員を呼ぶ」を押した場合、ここに通知が届きます。</li>
+  <li><strong>テーブル移動：</strong> お客様が席を移動した場合、注文情報を別テーブルへ移すことができます。</li>
+</ul>
+</section>
+
+<!-- =========== CH 10 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 10">食べ放題・ランチタイムの運用</h1>
+
+<p>QRakuは「メニューグループ」という独自の仕組みで、時間帯メニュー切替（ランチ／ディナー）と食べ放題コースを統一的に管理できます。</p>
+
+<h2 class="section">3種類のメニューグループ</h2>
+<table>
+  <tr><th>種類</th><th>動作</th><th>使い道</th></tr>
+  <tr><td class="btn-name">時間帯（TIME_WINDOW）</td><td>指定の時間・曜日にだけメニューが表示される</td><td>ランチ限定セット / 平日限定 / 朝定食</td></tr>
+  <tr><td class="btn-name">コース（COURSE）</td><td>テーブルでセッション開始 → 90分間 食べ放題</td><td>食べ放題 / 飲み放題 / 90分食べ飲み放題</td></tr>
+  <tr><td class="btn-name">手動（MANUAL）</td><td>ON/OFFスイッチで自由に表示切替</td><td>本日のおすすめ / 売り切れ早期終了</td></tr>
+</table>
+
+<h2 class="section">食べ放題コースを運用する</h2>
+<div class="steps">
+  <div class="step">
+    <div>
+      <div class="step-title">コースを作成</div>
+      <div class="step-body">「メニュー管理」→ メニューグループ → <span class="ui-btn">+ グループ作成</span> → COURSE を選択。1人あたり料金・時間（分）・ラストオーダー前タイミング・対象メニューを設定。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">スタッフ画面でセッション開始</div>
+      <div class="step-body">お客様が席に着いたら、スタッフ画面の「食べ放題」タブから対象テーブルをタップ → コース選択 → 人数入力 → 開始。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">お客様には残り時間バナー</div>
+      <div class="step-body">お客様の注文画面の上部にカウントダウンバナーが表示。ラストオーダー時刻が近づくと黄色に変化し、自動で「ラストオーダー」を促します。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">対象メニューは自動的に¥0</div>
+      <div class="step-body">食べ放題対象メニューには「🍴 食べ放題対象」バッジが表示され、注文されてもお会計に加算されません。コース料金 × 人数のみ計上。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div>
+      <div class="step-title">レジで自動精算</div>
+      <div class="step-body">会計時、コース合計が自動表示されます。スタッフが暗算する必要は一切ありません。</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- =========== CH 11 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 11">売上を読む —<br/>ダッシュボードと分析</h1>
+
+<p>毎晩の閉店後、5分だけダッシュボードを見る習慣をつけてください。お店を伸ばすヒントが、データの中に必ずあります。</p>
+
+<h2 class="section">管理画面のダッシュボード（毎日見る）</h2>
+<ul>
+  <li><strong>本日の売上：</strong> リアルタイムで更新。目標達成度の把握に。</li>
+  <li><strong>注文数：</strong> 客数の目安。テーブル数で割れば回転率の概算が出ます。</li>
+  <li><strong>カテゴリ別売上：</strong> ドリンク・前菜・メインなどの構成比。</li>
+  <li><strong>時間帯別客数：</strong> ピーク時間とアイドルタイムが視覚化されます。</li>
+  <li><strong>人気メニュー上位：</strong> 注文数ランキング。新メニューの参考に。</li>
+</ul>
+
+<h2 class="section">分析画面（週1で見る）</h2>
+<ul>
+  <li><strong>曜日別売上：</strong> 週末ピーク・平日ボトムの差を把握。</li>
+  <li><strong>新規/リピーター比率：</strong> ポイントシステムONの場合に表示。</li>
+  <li><strong>メニュー別収益貢献：</strong> 人気だけでなく利益貢献度を可視化。</li>
+  <li><strong>テーブル別売上：</strong> 特に売れる席・売れにくい席が判明。</li>
+</ul>
+
+<div class="callout tip">
+  <span class="callout-title">💡 データの読み方</span>
+  「売上が下がった日」より「予想より売上が高かった日」に注目してください。何が違ったのか（天気、イベント、新メニュー）が次の打ち手のヒントになります。
+</div>
+</section>
+
+<!-- =========== CH 12 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 12">よくあるご質問</h1>
+
+<h3 class="sub">Q. お客様がスマホを持っていない場合は？</h3>
+<p>スタッフ用タブレットでお客様の代わりに注文を入力できます。「スタッフ画面」→ 対象テーブル → 注文ボタンから。従来のオーダー方式と並行運用できます。</p>
+
+<h3 class="sub">Q. Wi-Fiが切れたら？</h3>
+<p>注文受付には客側のモバイル回線が使われるため、お店のWi-Fiが切れてもQRakuは動きます。ただし、店舗側のキッチン画面・レジ画面はインターネット接続が必要です。</p>
+
+<h3 class="sub">Q. 既存POSとの併用は？</h3>
+<p>可能です。Square・スマレジ・Airレジとの連携も提供しています（Square連携が動作確認済、他は実装中）。詳しくはサポートまでお問い合わせください。</p>
+
+<h3 class="sub">Q. メニューを大量に登録する方法は？</h3>
+<p>CSVアップロード機能で一括登録が可能です。Excelで作成 → CSV保存 → アップロードするだけ。100品でも10分で完了します。</p>
+
+<h3 class="sub">Q. 解約はいつでもできますか？</h3>
+<p>はい。管理画面の「サブスクリプション」から1クリックで解約できます。違約金や残期間の請求は一切ありません。データはお客様のリクエストでエクスポート提供します。</p>
+
+<h3 class="sub">Q. 店舗を増やしたら、別契約が必要？</h3>
+<p>店舗ごとにアカウントを作成いただきます。複数店舗オーナー様には専用プランをご用意しています。詳細はお問い合わせください。</p>
+</section>
+
+<!-- =========== CH 13 =========== -->
+<section>
+<h1 class="chapter" data-num="CHAPTER 13">困ったときに —<br/>サポートのご案内</h1>
+
+<p>導入から運用まで、私たちは飲食店オーナー様の伴走者です。一人で悩まず、いつでもお声がけください。</p>
+
+<h2 class="section">サポート窓口</h2>
+<table>
+  <tr><th>方法</th><th>対応時間</th><th>連絡先</th></tr>
+  <tr><td class="btn-name">チャット</td><td>9:00〜23:00</td><td>管理画面右下のチャットアイコン</td></tr>
+  <tr><td class="btn-name">メール</td><td>24時間受付</td><td>support@qraku.com</td></tr>
+  <tr><td class="btn-name">電話</td><td>平日 10:00〜18:00</td><td>050-xxxx-xxxx</td></tr>
+  <tr><td class="btn-name">緊急時オンコール</td><td>営業時間中</td><td>導入店舗様には専用番号をお渡し</td></tr>
+</table>
+
+<h2 class="section">資料・ガイド</h2>
+<ul>
+  <li><strong>操作動画：</strong> qraku.com/help にて全機能の動画ガイドをご覧いただけます。</li>
+  <li><strong>導入事例：</strong> 同業他店の運用ノウハウを毎月公開。</li>
+  <li><strong>API資料：</strong> 自社システム連携をお考えの場合は開発者向け資料をお渡しします。</li>
+</ul>
+
+<div class="callout">
+  <span class="callout-title">🤝 最後に</span>
+  QRakuは技術ですが、私たちが目指しているのは「飲食店という、人と人がつながる場所をもっと豊かにする」ことです。あなたのお店が、お客様にとっての特別な場所であり続けるために、私たちは全力でサポートします。
+</div>
+
+</section>
+
+<div class="running-footer">
+  <span>QRaku ご利用ガイド &nbsp;|&nbsp; 2026年版</span>
+  <span>qraku.com / support@qraku.com</span>
+</div>
+
+</div>
+</body>
+</html>

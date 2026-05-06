@@ -19,7 +19,7 @@ export default function StoreLayout() {
 
     const location = useLocation()
     const navigate = useNavigate()
-    const { currentTheme, setCurrentTheme } = useTheme()
+    const { currentTheme, setCurrentTheme, applyStoreTheme } = useTheme()
     const { setAvailableLanguages } = useLanguage()
     const [storeData, setStoreData] = useState(null)
     const [devTheme, setDevTheme] = useState(null)
@@ -68,9 +68,9 @@ export default function StoreLayout() {
                 // Only apply store default theme if user hasn't manually selected one
                 const themeParam = new URLSearchParams(window.location.search).get('theme')
                 if (themeParam) {
-                    setCurrentTheme(themeParam)
+                    applyStoreTheme(themeParam)
                 } else if (res.data.theme && !localStorage.getItem('theme-user-selected')) {
-                    setCurrentTheme(res.data.theme)
+                    applyStoreTheme(res.data.theme)
                 }
 
                 if (res.data.supported_languages) {
@@ -93,9 +93,9 @@ export default function StoreLayout() {
     useEffect(() => {
         const themeParam = new URLSearchParams(location.search).get('theme')
         if (themeParam) {
-            setCurrentTheme(themeParam)
+            applyStoreTheme(themeParam)
         }
-    }, [location.search, setCurrentTheme])
+    }, [location.search, applyStoreTheme])
 
     const themeParam = new URLSearchParams(location.search).get('theme')
     const activeTheme = themeParam || devTheme || currentTheme || storeData?.theme || 'tsubaki'

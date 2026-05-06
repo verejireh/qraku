@@ -3,17 +3,24 @@ from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from database import get_session
-from models import Table, Order, TableStatus, OrderItem, Menu
+from models import Table, Order, TableStatus, OrderItem, Menu, Store
+from utils.jwt import require_staff_or_admin
 import uuid
 from datetime import datetime
 
 router = APIRouter(prefix="/pos", tags=["pos"])
 
 @router.get("/summary/{table_id}")
-async def get_payment_summary(table_id: int, session: AsyncSession = Depends(get_session)):
+async def get_payment_summary(
+    table_id: int,
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
+):
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     # Get all unpaid orders for this table's current session
     # We identify the current session by orders that are NOT 'served' OR by those linked to the current table.
@@ -49,10 +56,16 @@ async def get_payment_summary(table_id: int, session: AsyncSession = Depends(get
     }
 
 @router.post("/checkout/{table_id}")
-async def request_checkout(table_id: int, session: AsyncSession = Depends(get_session)):
+async def request_checkout(
+    table_id: int,
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
+):
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     table.status = TableStatus.CHECKOUT_REQUESTED
     table.checkout_requested_at = datetime.utcnow()
@@ -61,10 +74,16 @@ async def request_checkout(table_id: int, session: AsyncSession = Depends(get_se
     return {"message": "Checkout requested", "status": table.status}
 
 @router.post("/pay/{table_id}")
-async def complete_payment(table_id: int, session: AsyncSession = Depends(get_session)):
+async def complete_payment(
+    table_id: int,
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
+):
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     # 1. Mark all unpaid orders as PAID
     statement = select(Order).where(Order.table_id == table_id, Order.payment_status == "unpaid")

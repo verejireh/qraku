@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, ShoppingBag, Trash2, Plus, Minus, CreditCard, QrCode } from 'lucide-react'
+import { X, ShoppingBag, Trash2, Plus, Minus, CreditCard, QrCode, Gift, CheckCircle2 } from 'lucide-react'
 import { useLanguage } from '../../context/LanguageContext'
 import axios from 'axios'
 
@@ -40,6 +40,12 @@ export default function MagnoliaCartModal({
     paymentMethodType = null,
     shopId = null,
     defaultWaitMinutes = 15,
+    stampStatus = null,
+    useStampReward = false,
+    setUseStampReward = () => {},
+    guestCoupons = [],
+    useCouponId = null,
+    setUseCouponId = () => {},
 }) {
     const { t } = useLanguage()
     const computeDefaultPickup = () => {
@@ -52,6 +58,20 @@ export default function MagnoliaCartModal({
     const [squareError, setSquareError] = useState(null)
     const [paypayLoading, setPaypayLoading] = useState(false)
     const cardRef = useRef(null)
+
+    // Apple Pay / Google Pay
+    const [applePay, setApplePay] = useState(null)
+    const [googlePay, setGooglePay] = useState(null)
+    const [walletPaying, setWalletPaying] = useState(false)
+    const paymentRequestRef = useRef(null)
+    const googlePayBtnRef = useRef(null)
+
+    // 결제 시 실제로 청구될 금액 (스탬프/쿠폰 할인 반영)
+    const finalAmount = Math.max(0,
+        totalAmount
+        - (useStampReward && stampStatus ? (stampStatus.stamp_reward_discount || 0) : 0)
+        - (useCouponId ? (guestCoupons.find(c => c.id === useCouponId)?.discount_amount || 0) : 0)
+    )
 
     const isTakeOut = orderType === 'take_out'
     const canUseSquare = isTakeOut && squareAppId && squareLocationId
@@ -66,6 +86,9 @@ export default function MagnoliaCartModal({
         if (!isOpen || !canUseSquare) return
 
         let card = null
+        let ap = null
+        let gp = null
+
         const init = async () => {
             try {
                 const isSandbox = !window.location.hostname.includes('production')
@@ -74,6 +97,8 @@ export default function MagnoliaCartModal({
                 if (!window.Square) throw new Error('Square SDK not loaded')
 
                 const payments = window.Square.payments(squareAppId, squareLocationId)
+
+                // ── 1. Card 입력 ───────────────────────────────────────
                 card = await payments.card({
                     style: {
                         '.input-container': { borderRadius: '8px' },
@@ -85,6 +110,44 @@ export default function MagnoliaCartModal({
                 setSquareCard(card)
                 setSquareReady(true)
                 setSquareError(null)
+
+                // ── 2. PaymentRequest 생성 (Apple/Google Pay 공용) ──────
+                const initialAmount = Math.max(0,
+                    totalAmount
+                    - (useStampReward && stampStatus ? (stampStatus.stamp_reward_discount || 0) : 0)
+                    - (useCouponId ? (guestCoupons.find(c => c.id === useCouponId)?.discount_amount || 0) : 0)
+                )
+                if (initialAmount > 0) {
+                    const pr = payments.paymentRequest({
+                        countryCode: 'JP',
+                        currencyCode: 'JPY',
+                        total: { amount: String(initialAmount), label: 'QRaku テイクアウト' },
+                    })
+                    paymentRequestRef.current = pr
+
+                    // ── 3. Apple Pay (브라우저 지원 시에만) ──────────────
+                    try {
+                        ap = await payments.applePay(pr)
+                        setApplePay(ap)
+                    } catch (err) {
+                        console.log('[Square] Apple Pay 미지원:', err?.message || err)
+                    }
+
+                    // ── 4. Google Pay (가능한 경우 버튼 자동 렌더) ───────
+                    try {
+                        gp = await payments.googlePay(pr)
+                        // attach 는 #sq-google-pay-button 컨테이너가 DOM에 있어야 함
+                        await new Promise(r => setTimeout(r, 50))
+                        await gp.attach('#sq-google-pay-button', {
+                            buttonColor: 'black',
+                            buttonType: 'pay',
+                            buttonSizeMode: 'fill',
+                        })
+                        setGooglePay(gp)
+                    } catch (err) {
+                        console.log('[Square] Google Pay 미지원:', err?.message || err)
+                    }
+                }
             } catch (e) {
                 console.error('Square SDK init error:', e)
                 setSquareError('カード入力の初期化に失敗しました。ページをリロードしてください。')
@@ -94,13 +157,63 @@ export default function MagnoliaCartModal({
         init()
 
         return () => {
-            if (card) {
-                card.destroy().catch(() => {})
-                setSquareCard(null)
-                setSquareReady(false)
-            }
+            if (card) { card.destroy().catch(() => {}); setSquareCard(null); setSquareReady(false) }
+            if (ap)   { setApplePay(null) }
+            if (gp)   { try { gp.destroy?.() } catch {}; setGooglePay(null) }
+            paymentRequestRef.current = null
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, canUseSquare, squareAppId, squareLocationId])
+
+    // 할인이 변경될 때마다 PaymentRequest 금액 갱신 (Apple/Google Pay 팝업에 표시될 금액)
+    useEffect(() => {
+        if (!paymentRequestRef.current) return
+        try {
+            paymentRequestRef.current.update({
+                total: { amount: String(finalAmount), label: 'QRaku テイクアウト' },
+            })
+        } catch (e) {
+            console.warn('paymentRequest update 실패:', e?.message)
+        }
+    }, [finalAmount])
+
+    // Google Pay 버튼 클릭 핸들러 (attach 후 별도 등록)
+    useEffect(() => {
+        if (!googlePay || !googlePayBtnRef.current) return
+        const handler = async (e) => {
+            e.preventDefault()
+            await handleWalletPay(googlePay)
+        }
+        const el = googlePayBtnRef.current
+        el.addEventListener('click', handler)
+        return () => el.removeEventListener('click', handler)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [googlePay, finalAmount])
+
+    // Apple/Google Pay 공통 결제 핸들러
+    const handleWalletPay = async (walletInstance) => {
+        if (!walletInstance) return
+        if (finalAmount <= 0) {
+            alert('決済金額が0円のため、ウォレット決済できません。')
+            return
+        }
+        setWalletPaying(true)
+        try {
+            const result = await walletInstance.tokenize()
+            if (result.status === 'OK') {
+                onPlaceOrder('square', result.token, pickupTime || null)
+            } else {
+                const msg = result.errors?.[0]?.message || '決済に失敗しました'
+                alert(`ウォレット決済エラー: ${msg}`)
+            }
+        } catch (e) {
+            // 사용자가 취소한 경우는 조용히 무시
+            if (e?.message?.toLowerCase?.().includes('cancel')) return
+            alert('ウォレット決済中にエラーが発生しました: ' + e.message)
+        } finally {
+            setWalletPaying(false)
+        }
+    }
 
     const handleTakeOutPay = async () => {
         if (!squareCard) {
@@ -135,15 +248,27 @@ export default function MagnoliaCartModal({
                 pickupTime: pickupTime || null,
                 orderType,
                 shopId,
+                useStampReward: !!useStampReward,
+                useCouponId: useCouponId || null,
             }
             localStorage.setItem(tempKey, JSON.stringify(tempOrder))
 
-            // PayPay 결제 생성 API 호출
+            // 스탬프 보상 자격을 위해 LIFF guest_uuid (line:userId) 우선
+            const guestUuidForStamp = localStorage.getItem(`guest_uuid_${shopId}`) || localStorage.getItem('guest_uuid')
+
+            // PayPay 결제 생성 API 호출 — 금액은 서버에서 재계산 (클라이언트 amount 미전송)
             const res = await axios.post('/api/paypay/create-payment', {
                 shop_id: parseInt(shopId),
-                amount: totalAmount,
-                order_description: `QRaku テイクアウト注文 ¥${totalAmount.toLocaleString()}`,
+                items: cart.map(item => ({
+                    menu_id: item.menuId,
+                    quantity: item.quantity,
+                    option_details: JSON.stringify(item.options || {}),
+                })),
+                order_description: `QRaku テイクアウト注文`,
                 temp_order_key: tempKey,
+                use_stamp_reward: !!useStampReward,
+                use_coupon_id: useCouponId || null,
+                guest_uuid: guestUuidForStamp,
             })
 
             // merchant_payment_id도 저장 (콜백 시 사용)
@@ -253,9 +378,115 @@ export default function MagnoliaCartModal({
                     {/* Footer / Checkout */}
                     {cart.length > 0 && (
                         <div className="mt-auto space-y-4">
+                            {/* Stamp CRM Banner */}
+                            {stampStatus?.stamp_active && (
+                                <div className="bg-[#06C755]/10 border border-[#06C755]/30 rounded-2xl p-4 space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex items-center gap-2">
+                                            <Gift className="w-5 h-5 text-[#06C755]" />
+                                            <span className="font-bold text-[#06C755] text-sm">LINE スタンプカード</span>
+                                        </div>
+                                        <div className="text-xs font-bold text-slate-300">
+                                            {stampStatus.stamp_count} / {stampStatus.stamp_target} 個
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Progress visually */}
+                                    <div className="flex gap-1 flex-wrap">
+                                        {Array.from({ length: stampStatus.stamp_target }).map((_, i) => (
+                                            <div key={i} className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px]
+                                                ${i < stampStatus.stamp_count 
+                                                    ? 'bg-[#06C755] text-white' 
+                                                    : 'bg-black/20 text-slate-500 border border-white/10'}`}>
+                                                {i < stampStatus.stamp_count ? '★' : i + 1}
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {stampStatus.can_use_reward ? (
+                                        <button 
+                                            onClick={() => setUseStampReward(!useStampReward)}
+                                            className={`w-full py-2.5 px-4 rounded-xl flex items-center justify-between transition-colors border
+                                                ${useStampReward 
+                                                    ? 'bg-[#06C755] border-[#06C755] text-white shadow-lg shadow-[#06C755]/20' 
+                                                    : 'bg-white/5 border-[#06C755]/50 text-slate-300 hover:bg-[#06C755]/10'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                {useStampReward ? <CheckCircle2 className="w-4 h-4" /> : <div className="w-4 h-4 rounded-full border border-current" />}
+                                                <span className="text-sm font-bold tracking-wide">
+                                                    特典を使う (-¥{stampStatus.stamp_reward_discount})
+                                                </span>
+                                            </div>
+                                            {useStampReward && <span className="text-xs font-black">適用中!</span>}
+                                        </button>
+                                    ) : (
+                                        <p className="text-xs text-slate-400">
+                                            {stampStatus.stamp_reward_msg || `あと${stampStatus.stamp_target - stampStatus.stamp_count}個で特典ゲット！`}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Photo Review Contest Coupons Banner */}
+                            {guestCoupons && guestCoupons.length > 0 && (
+                                <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl p-4 space-y-3">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Gift className="w-5 h-5 text-indigo-400" />
+                                        <span className="font-bold text-indigo-400 text-sm">特典クーポン</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {guestCoupons.map(coupon => (
+                                            <button 
+                                                key={coupon.id}
+                                                onClick={() => setUseCouponId(useCouponId === coupon.id ? null : coupon.id)}
+                                                className={`w-full py-2.5 px-4 rounded-xl flex items-center justify-between transition-colors border
+                                                    ${useCouponId === coupon.id 
+                                                        ? 'bg-indigo-500 border-indigo-500 text-white shadow-lg shadow-indigo-500/20' 
+                                                        : 'bg-white/5 border-indigo-500/50 text-slate-300 hover:bg-indigo-500/10'}`}
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    {useCouponId === coupon.id ? <CheckCircle2 className="w-4 h-4" /> : <div className="w-4 h-4 rounded-full border border-current" />}
+                                                    <span className="text-sm font-bold tracking-wide">
+                                                        ¥{coupon.discount_amount} 割引クーポン
+                                                    </span>
+                                                </div>
+                                                {useCouponId === coupon.id && <span className="text-xs font-black">適用中!</span>}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="flex items-center justify-between px-2">
-                                <span className="text-slate-400 text-sm font-medium">Total</span>
-                                <span className="text-2xl font-bold text-white tracking-tight">¥{totalAmount.toLocaleString()}</span>
+                                <span className="text-slate-400 text-sm font-medium">Subtotal</span>
+                                <span className="text-lg font-medium text-white tracking-tight">¥{totalAmount.toLocaleString()}</span>
+                            </div>
+                            
+                            {useStampReward && (
+                                <div className="flex items-center justify-between px-2 text-[#06C755]">
+                                    <span className="text-sm font-bold flex items-center gap-1">
+                                        <Gift className="w-4 h-4" /> スタンプ割引
+                                    </span>
+                                    <span className="text-lg font-bold tracking-tight">-¥{stampStatus.stamp_reward_discount.toLocaleString()}</span>
+                                </div>
+                            )}
+
+                            {useCouponId && (
+                                <div className="flex items-center justify-between px-2 text-indigo-400">
+                                    <span className="text-sm font-bold flex items-center gap-1">
+                                        <Gift className="w-4 h-4" /> クーポン割引
+                                    </span>
+                                    <span className="text-lg font-bold tracking-tight">
+                                        -¥{(guestCoupons.find(c => c.id === useCouponId)?.discount_amount || 0).toLocaleString()}
+                                    </span>
+                                </div>
+                            )}
+
+                            <div className="flex items-center justify-between px-2 pt-2 border-t border-white/10">
+                                <span className="text-white text-base font-bold">Total</span>
+                                <span className="text-3xl font-black text-white tracking-tight">
+                                    ¥{Math.max(0, totalAmount - (useStampReward ? stampStatus.stamp_reward_discount : 0) - (useCouponId ? (guestCoupons.find(c => c.id === useCouponId)?.discount_amount || 0) : 0)).toLocaleString()}
+                                </span>
                             </div>
 
                             {/* Take-out extras: pickup time + payment form */}
@@ -324,14 +555,45 @@ export default function MagnoliaCartModal({
                                         <span className="text-lg">{paypayLoading ? 'PayPay 処理中...' : 'PayPay で決済する'}</span>
                                     </button>
                                 ) : canUseSquare ? (
-                                    <button
-                                        onClick={handleTakeOutPay}
-                                        disabled={loading || !squareReady}
-                                        className="w-full py-5 bg-[#c21e2f] hover:bg-[#9f1239] text-white rounded-[1.5rem] font-bold tracking-tight shadow-xl shadow-[#c21e2f]/30 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
-                                    >
-                                        <CreditCard className="w-5 h-5" />
-                                        <span className="text-lg">{loading ? '決済処理中...' : 'カードで決済する'}</span>
-                                    </button>
+                                    <div className="space-y-2">
+                                        {/* Apple Pay (Safari/iOS 에서만 표시) */}
+                                        {applePay && (
+                                            <button
+                                                onClick={() => handleWalletPay(applePay)}
+                                                disabled={loading || walletPaying || finalAmount <= 0}
+                                                className="w-full py-4 bg-black hover:bg-slate-800 text-white rounded-[1.5rem] font-bold tracking-tight shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                            >
+                                                <span className="text-xl"></span>
+                                                <span className="text-base">Pay</span>
+                                            </button>
+                                        )}
+
+                                        {/* Google Pay (지원되는 환경에서만 Square 가 자동 렌더) */}
+                                        {googlePay && (
+                                            <div ref={googlePayBtnRef} id="sq-google-pay-button" className="w-full min-h-[52px] rounded-[1.5rem] overflow-hidden" />
+                                        )}
+
+                                        {/* Apple/Google Pay 미지원 환경을 위한 placeholder Google Pay 컨테이너 */}
+                                        {!googlePay && <div id="sq-google-pay-button" style={{ display: 'none' }} />}
+
+                                        {/* 또는 카드 직접 입력 */}
+                                        {(applePay || googlePay) && (
+                                            <div className="flex items-center gap-2 text-[10px] text-slate-500 my-1">
+                                                <div className="flex-1 h-px bg-white/10" />
+                                                <span>または カード情報を入力</span>
+                                                <div className="flex-1 h-px bg-white/10" />
+                                            </div>
+                                        )}
+
+                                        <button
+                                            onClick={handleTakeOutPay}
+                                            disabled={loading || !squareReady || walletPaying}
+                                            className="w-full py-5 bg-[#c21e2f] hover:bg-[#9f1239] text-white rounded-[1.5rem] font-bold tracking-tight shadow-xl shadow-[#c21e2f]/30 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
+                                        >
+                                            <CreditCard className="w-5 h-5" />
+                                            <span className="text-lg">{loading ? '決済処理中...' : 'カードで決済する'}</span>
+                                        </button>
+                                    </div>
                                 ) : (
                                     <div className="w-full py-5 bg-slate-700/50 text-slate-400 rounded-[1.5rem] text-center text-sm">
                                         オンライン決済が未設定のため、テイクアウトはご利用いただけません。

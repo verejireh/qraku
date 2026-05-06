@@ -8,6 +8,7 @@ Admin JWT 인증 유틸리티
 """
 
 import os
+import sys
 from datetime import datetime, timedelta
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -16,7 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
 from models import Store, SubscriptionStatus
 
-SECRET_KEY = os.getenv("SECRET_KEY", "yoursecretkeyhere")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    print("CRITICAL: SECRET_KEY 환경변수가 설정되지 않았습니다. .env 파일을 확인하세요.", file=sys.stderr)
+    sys.exit(1)
 ALGORITHM = "HS256"
 ADMIN_TOKEN_EXPIRE_HOURS = 24
 
@@ -93,3 +97,71 @@ async def require_admin_billing(
     """결제/구독 엔드포인트 전용 — 구독 만료 체크 없이 인증만 수행.
     만료된 업주도 결제 페이지에 접근해 갱신할 수 있어야 하므로 체크를 생략한다."""
     return await _load_store(credentials, session)
+
+
+# ─── Super Admin 인증 ─────────────────────────────────────────────
+SUPER_ADMIN_TOKEN_EXPIRE_HOURS = 12
+
+
+def create_super_admin_token() -> str:
+    payload = {
+        "type": "super_admin",
+        "exp": datetime.utcnow() + timedelta(hours=SUPER_ADMIN_TOKEN_EXPIRE_HOURS),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+async def require_super_admin(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Super Admin 전용 엔드포인트 보호. JWT type='super_admin' 검증."""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Super admin authentication required")
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "super_admin":
+            raise HTTPException(status_code=401, detail="Invalid super admin token")
+        return payload
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired super admin token")
+
+
+# ─── Staff (마스터PIN) 인증 ────────────────────────────────────────────
+STAFF_TOKEN_EXPIRE_HOURS = 12
+
+
+def create_staff_token(store_id: int, shop_id: str) -> str:
+    """마스터PIN 로그인 성공 시 발급하는 스태프 JWT"""
+    payload = {
+        "store_id": store_id,
+        "shop_id": shop_id,
+        "type": "staff",
+        "exp": datetime.utcnow() + timedelta(hours=STAFF_TOKEN_EXPIRE_HOURS),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+async def require_staff_or_admin(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    session: AsyncSession = Depends(get_session),
+) -> Store:
+    """
+    스태프 JWT (type=staff) 또는 어드민 JWT (type=admin) 둘 다 허용.
+    register, pos, tables staff API에 사용.
+    반환값: Store 객체
+    """
+    if not credentials:
+        raise HTTPException(status_code=401, detail="認証が必要です")
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    token_type = payload.get("type")
+    if token_type not in ("admin", "staff"):
+        raise HTTPException(status_code=401, detail="Invalid token type")
+
+    store = await session.get(Store, payload["store_id"])
+    if not store:
+        raise HTTPException(status_code=401, detail="Store not found")
+    return store

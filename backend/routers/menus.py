@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
+from datetime import datetime
 from database import get_session
-from models import Menu, SystemConfig, Store
+from models import Menu, SystemConfig, Store, MenuGroup, MenuGroupItem, MenuGroupType
 import logging
 
 router = APIRouter(prefix="/menus", tags=["menus"])
@@ -227,32 +228,109 @@ async def translate_all_menus(store_id: int, admin_store: Store = Depends(requir
         
     return {"status": "success", "updated_count": updated_count}
 
+def _is_time_window_active(group: MenuGroup, now: datetime) -> bool:
+    """현재 시각이 group의 active_from~active_to 범위 안인지 + weekday 매칭"""
+    if group.weekdays:
+        wd_map = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        today = wd_map[now.weekday()]
+        active_days = [d.strip() for d in group.weekdays.split(",") if d.strip()]
+        if today not in active_days:
+            return False
+    if not group.active_from or not group.active_to:
+        return True
+    try:
+        from datetime import time as _time
+        h1, m1 = map(int, group.active_from.split(":"))
+        h2, m2 = map(int, group.active_to.split(":"))
+        from_t = _time(h1, m1)
+        to_t = _time(h2, m2)
+        cur = now.time()
+        if from_t <= to_t:
+            return from_t <= cur <= to_t
+        return cur >= from_t or cur <= to_t
+    except Exception:
+        return True
+
+
 @router.get("/{store_id}", response_model=List[Menu])
-async def read_menus(store_id: str, session: AsyncSession = Depends(get_session)):
-    # Try to see if store_id is a numeric ID or a slug
+async def read_menus(
+    store_id: str,
+    filter_groups: bool = False,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    매장 메뉴 목록 조회.
+    - filter_groups=False (기본, admin용): 모든 메뉴 반환
+    - filter_groups=True (손님용): TIME_WINDOW/MANUAL 그룹 활성 여부에 따라 필터링
+    """
+    # Resolve store
     if store_id.isdigit():
-        stmt = select(Menu).where(Menu.store_id == int(store_id))
+        store = await session.get(Store, int(store_id))
     else:
-        # Lookup store by slug first
-        from models import Store
         store_stmt = select(Store).where(Store.slug == store_id)
         store_res = await session.execute(store_stmt)
         store = store_res.scalar_one_or_none()
-        if not store:
-            # Fallback for "store123" dummy test data if slug is missing
-            # or return empty list
-            return []
-        stmt = select(Menu).where(Menu.store_id == store.id)
-    
+    if not store:
+        return []
+
+    stmt = select(Menu).where(Menu.store_id == store.id)
     result = await session.execute(stmt)
-    return result.scalars().all()
+    menus = result.scalars().all()
+
+    if not filter_groups:
+        return menus
+
+    # 손님용 필터링: 그룹 멤버십 기반
+    groups_res = await session.execute(
+        select(MenuGroup).where(
+            MenuGroup.store_id == store.id,
+            MenuGroup.group_type.in_([MenuGroupType.TIME_WINDOW, MenuGroupType.MANUAL]),
+        )
+    )
+    groups = groups_res.scalars().all()
+
+    items_res = await session.execute(
+        select(MenuGroupItem.group_id, MenuGroupItem.menu_id)
+        .join(MenuGroup, MenuGroup.id == MenuGroupItem.group_id)
+        .where(MenuGroup.store_id == store.id)
+    )
+    # menu_id -> set of group_ids it belongs to
+    menu_to_groups: dict[int, set[int]] = {}
+    for gid, mid in items_res.all():
+        menu_to_groups.setdefault(mid, set()).add(gid)
+
+    now = datetime.now()
+    active_group_ids = set()
+    for g in groups:
+        if g.group_type == MenuGroupType.MANUAL and g.is_active:
+            active_group_ids.add(g.id)
+        elif g.group_type == MenuGroupType.TIME_WINDOW and _is_time_window_active(g, now):
+            active_group_ids.add(g.id)
+
+    # 모든 TIME_WINDOW + MANUAL 그룹 ID (제약 그룹들)
+    restricted_group_ids = {g.id for g in groups}
+
+    filtered = []
+    for m in menus:
+        membership = menu_to_groups.get(m.id, set())
+        # 제약 그룹에 속하지 않으면 항상 노출
+        if not membership.intersection(restricted_group_ids):
+            filtered.append(m)
+            continue
+        # 제약 그룹 중 하나라도 현재 활성이면 노출
+        if membership.intersection(active_group_ids):
+            filtered.append(m)
+    return filtered
 
 @router.patch("/{menu_id}/availability", response_model=Menu)
 async def toggle_availability(menu_id: int, is_available: bool, admin_store: Store = Depends(require_admin), session: AsyncSession = Depends(get_session)):
     menu = await session.get(Menu, menu_id)
     if not menu:
         raise HTTPException(status_code=404, detail="Menu not found")
-    
+    # 교차 매장 IDOR 방지
+    if menu.store_id != admin_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
+
     menu.is_available = is_available
     session.add(menu)
     await session.commit()
@@ -273,6 +351,9 @@ async def update_menu(menu_id: int, updates: dict, admin_store: Store = Depends(
     menu = await session.get(Menu, menu_id)
     if not menu:
         raise HTTPException(status_code=404, detail="Menu not found")
+    # 교차 매장 IDOR 방지
+    if menu.store_id != admin_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
 
     # 허용된 필드만 업데이트
     allowed_fields = {
@@ -298,7 +379,10 @@ async def delete_menu(menu_id: int, admin_store: Store = Depends(require_admin),
     menu = await session.get(Menu, menu_id)
     if not menu:
         raise HTTPException(status_code=404, detail="Menu not found")
-    
+    # 교차 매장 IDOR 방지
+    if menu.store_id != admin_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
+
     await session.delete(menu)
     await session.commit()
     return {"message": "Menu deleted successfully"}

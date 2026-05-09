@@ -830,28 +830,263 @@ async def emit_staff_call(session, store_id, table_number, message): ...
 
 ## 🟪 WS-02 — WebSocket Redis Pub/Sub 어댑터
 
-**Owner**: websocket-specialist
+**Owner**: websocket-specialist (구현)
 **Priority**: 🟠 P1
 **Depends on**: INF-01, WS-01
 **참고**: [`docs/websocket-rules.md`](../docs/websocket-rules.md) §2.1
 
+> **카드 상태**: opus의 architect가 정밀화 완료(2026-05-10). 아래 설계 결정/의사 코드를 따라 sonnet의 websocket-specialist가 바로 구현 가능.
+
+### 배경
+
+`utils/websocket.py`의 `ConnectionManager`는 인메모리 dict로만 연결을 관리한다. 다중 인스턴스 배포 시 인스턴스 A에 연결된 클라이언트는 B에서 발행한 이벤트를 받지 못한다. Redis Pub/Sub로 인스턴스 간 fan-out을 추가한다.
+
 ### 허용 파일
 
-- `backend/utils/websocket.py` (Pub/Sub 통합 — 시그니처 보존)
+- `backend/utils/websocket.py` (Pub/Sub 통합 — **공개 시그니처 보존 필수**)
 
-### 구현 요구사항
+> **File Fence 주의**: `main.py`, `routers/ws.py`, `utils/redis.py`, `utils/events.py` 일체 수정 금지. lazy start로 main.py 변경을 회피한다.
 
-1. `ConnectionManager.broadcast` 내부에서:
-   - 인스턴스 ID 포함 envelope을 Redis `PUBLISH ws:store:{store_id}` 발행
-   - 로컬 dict에는 직접 echo (자기 인스턴스가 SUBSCRIBE 콜백에서 수신 시 인스턴스 ID로 중복 필터)
-2. 서버 시작 시 SUBSCRIBE 콜백 백그라운드 task 시작 (`asyncio.create_task`)
-3. `connect()` 시 처음 보는 store_id면 SUBSCRIBE 채널에 추가 (또는 패턴 SUBSCRIBE `ws:store:*`)
+### 설계 결정 (architect 정밀화)
+
+#### 1. 채널 토폴로지 — 패턴 SUBSCRIBE 단일 구독
+- 채널 키: `ws:store:{store_id}` — 매장당 하나
+- 구독 방식: `psubscribe("ws:store:*")` — 한 번만 구독, 모든 매장 메시지 수신
+- 스태프/고객 broadcast는 **같은 채널을 공유**하고 envelope의 `target` 필드로 분기 (별도 채널 분리는 불필요한 복잡도)
+
+#### 2. Envelope 포맷
+```json
+{
+  "instance_id": "abc123def456",
+  "target": "staff" | "customer",
+  "store_id": 5,
+  "table_number": "3",   // target=customer일 때만 비어있지 않음
+  "payload": "<원본 메시지 JSON 문자열 그대로>"
+}
+```
+- `payload`는 `utils/events.py`가 만든 envelope JSON 문자열 그대로. **재직렬화 금지** (event_id/ts가 바뀌면 안 됨).
+
+#### 3. 인스턴스 ID
+- `INSTANCE_ID = os.getenv("INSTANCE_ID") or uuid.uuid4().hex[:12]` — 모듈 임포트 시 1회 결정
+- 환경변수로 오버라이드 가능 (디버깅/관제용)
+
+#### 4. 메시지 흐름
+```
+broadcast(msg, store_id) 호출
+  ├─→ [Step 1] _local_broadcast_staff(msg, store_id)
+  │     - self.active_connections[store_id] 의 모든 소켓에 send_text 즉시
+  │     - 단일 인스턴스/같은 인스턴스 사용자에게 추가 지연 0
+  └─→ [Step 2] _publish(store_id, "staff", None, msg)
+        - redis.publish("ws:store:{store_id}", envelope)
+        - 다른 인스턴스만 SUBSCRIBE에서 수신
+
+_pubsub_listener (백그라운드 task):
+  async for message in pubsub.listen():
+    if envelope["instance_id"] == INSTANCE_ID:
+        continue  # 자기 메시지 → 이미 Step 1에서 로컬 dispatch 완료
+    if target == "staff":
+        await _local_broadcast_staff(payload, store_id)
+    elif target == "customer":
+        await _local_broadcast_customer(payload, store_id, table_number)
+```
+
+**핵심**: 발행자 인스턴스는 로컬 dispatch를 즉시 수행하고, Pub/Sub은 **다른 인스턴스 전파용**으로만 사용. 자기 메시지를 Pub/Sub에서 받아도 instance_id 비교로 skip → 중복 전달 0.
+
+#### 5. Lazy 시작 (File Fence 준수)
+- `main.py` 수정 금지 → `init_redis()` 직후 `manager.start_pubsub()` 호출 불가
+- **해결**: `connect()` / `connect_customer()` / `broadcast()` / `broadcast_to_customer()` 첫 호출 시 `_ensure_pubsub_started()` 호출
+- `asyncio.Lock`으로 race condition 방지, `_pubsub_started: bool` 플래그로 1회만 시작
+
+#### 6. 리스너 복원력
+- 리스너 task는 무한 루프, Redis 연결 끊김/예외 시 backoff 재연결
+- Backoff 시퀀스: `(1, 2, 5, 10, 30)` 초 — 마지막 값 유지
+- `asyncio.CancelledError`는 그대로 전파 (graceful shutdown 시점)
+- 재연결 성공 시 backoff_idx 리셋
+
+#### 7. 발행 실패 격리
+- `_publish()` 의 `redis.publish()` 실패 → `logger.exception` + return (예외 전파 금지)
+- **로컬 dispatch는 절대 막지 않음** — Redis 장애가 단일 인스턴스 동작까지 마비시키면 안 됨
+
+#### 8. Redis 클라이언트
+- `from utils.redis import get_redis`로 싱글톤 사용
+- `redis.pubsub()` 호출 시 redis-py가 풀에서 별도 연결을 빌려옴 (publish는 메인 연결 사용)
+- `decode_responses=True` 로 초기화돼있으므로 `message["data"]`는 str로 도착 (bytes decode 불필요하지만 방어 코드는 유지 권장)
+
+### 의사 코드 (sonnet 구현 시작점)
+
+```python
+import asyncio
+import json
+import logging
+import os
+import uuid
+from typing import Dict, List, Optional, Tuple
+from fastapi import WebSocket
+
+logger = logging.getLogger(__name__)
+INSTANCE_ID = os.getenv("INSTANCE_ID") or uuid.uuid4().hex[:12]
+PUBSUB_PATTERN = "ws:store:*"
+RECONNECT_BACKOFF = (1, 2, 5, 10, 30)
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[int, List[WebSocket]] = {}
+        self.active_customer_connections: Dict[Tuple[int, str], List[WebSocket]] = {}
+        self._pubsub_task: Optional[asyncio.Task] = None
+        self._pubsub_started = False
+        self._start_lock = asyncio.Lock()
+
+    async def _ensure_pubsub_started(self):
+        if self._pubsub_started:
+            return
+        async with self._start_lock:
+            if self._pubsub_started:
+                return
+            self._pubsub_task = asyncio.create_task(self._pubsub_listener())
+            self._pubsub_started = True
+
+    async def connect(self, websocket: WebSocket, store_id: int):
+        await self._ensure_pubsub_started()
+        await websocket.accept()
+        self.active_connections.setdefault(store_id, []).append(websocket)
+
+    def disconnect(self, websocket: WebSocket, store_id: int):
+        conns = self.active_connections.get(store_id)
+        if conns and websocket in conns:
+            conns.remove(websocket)
+
+    async def broadcast(self, message: str, store_id: int):
+        await self._local_broadcast_staff(message, store_id)
+        await self._publish(store_id, "staff", None, message)
+
+    async def connect_customer(self, websocket: WebSocket, store_id: int, table_number: str):
+        await self._ensure_pubsub_started()
+        await websocket.accept()
+        key = (store_id, str(table_number))
+        self.active_customer_connections.setdefault(key, []).append(websocket)
+
+    def disconnect_customer(self, websocket: WebSocket, store_id: int, table_number: str):
+        key = (store_id, str(table_number))
+        conns = self.active_customer_connections.get(key)
+        if conns and websocket in conns:
+            conns.remove(websocket)
+
+    async def broadcast_to_customer(self, message: str, store_id: int, table_number: str):
+        await self._local_broadcast_customer(message, store_id, str(table_number))
+        await self._publish(store_id, "customer", str(table_number), message)
+
+    async def _local_broadcast_staff(self, message: str, store_id: int):
+        for connection in self.active_connections.get(store_id, []):
+            try:
+                await connection.send_text(message)
+            except Exception:
+                logger.exception("send_text failed (staff) store=%d", store_id)
+
+    async def _local_broadcast_customer(self, message: str, store_id: int, table_number: str):
+        key = (store_id, str(table_number))
+        for connection in self.active_customer_connections.get(key, []):
+            try:
+                await connection.send_text(message)
+            except Exception:
+                logger.exception("send_text failed (customer) store=%d table=%s", store_id, table_number)
+
+    async def _publish(self, store_id: int, target: str, table_number: Optional[str], payload: str):
+        try:
+            from utils.redis import get_redis
+            redis = get_redis()
+            envelope = json.dumps({
+                "instance_id": INSTANCE_ID,
+                "target": target,
+                "store_id": store_id,
+                "table_number": table_number,
+                "payload": payload,
+            })
+            await redis.publish(f"ws:store:{store_id}", envelope)
+        except Exception:
+            logger.exception("Redis publish failed store=%d target=%s", store_id, target)
+
+    async def _pubsub_listener(self):
+        backoff_idx = 0
+        while True:
+            try:
+                from utils.redis import get_redis
+                pubsub = get_redis().pubsub()
+                await pubsub.psubscribe(PUBSUB_PATTERN)
+                logger.info("WS pubsub listener started instance=%s", INSTANCE_ID)
+                backoff_idx = 0
+                async for message in pubsub.listen():
+                    if message.get("type") != "pmessage":
+                        continue
+                    try:
+                        data = message.get("data")
+                        if isinstance(data, bytes):
+                            data = data.decode("utf-8")
+                        envelope = json.loads(data)
+                    except Exception:
+                        logger.exception("Bad pubsub envelope")
+                        continue
+                    if envelope.get("instance_id") == INSTANCE_ID:
+                        continue
+                    target = envelope.get("target")
+                    store_id = envelope.get("store_id")
+                    payload = envelope.get("payload")
+                    if not (target and store_id is not None and payload):
+                        continue
+                    if target == "staff":
+                        await self._local_broadcast_staff(payload, store_id)
+                    elif target == "customer":
+                        tn = envelope.get("table_number")
+                        if tn:
+                            await self._local_broadcast_customer(payload, store_id, tn)
+            except asyncio.CancelledError:
+                logger.info("WS pubsub listener cancelled")
+                raise
+            except Exception:
+                wait = RECONNECT_BACKOFF[min(backoff_idx, len(RECONNECT_BACKOFF) - 1)]
+                logger.exception("WS pubsub listener crashed; reconnecting in %ds", wait)
+                backoff_idx += 1
+                await asyncio.sleep(wait)
+
+
+manager = ConnectionManager()
+```
+
+### 금지
+
+- `manager.broadcast(msg, store_id)` / `manager.broadcast_to_customer(msg, store_id, table_number)` 시그니처 변경 금지 — `utils/events.py`가 호출 중
+- `manager.connect()` / `connect_customer()` 시그니처 변경 금지 — `routers/ws.py`가 호출 중
+- `main.py` 어떤 줄도 수정 금지 (lazy start로 회피)
+- 다른 라우터 파일 수정 금지
 
 ### 수용 기준
 
-- [ ] docker-compose 2 replicas 환경에서 인스턴스 A에 연결한 클라이언트가 B에서 발행한 이벤트 수신
-- [ ] 단일 인스턴스에서는 추가 지연 < 50ms
-- [ ] 자기 인스턴스가 발행한 메시지를 SUBSCRIBE에서 수신해도 클라이언트에 중복 전달 안 됨
+- [ ] **다중 인스턴스**: docker-compose `replicas: 2` 환경에서 인스턴스 A에 연결한 클라이언트가 B에서 `manager.broadcast()` 호출한 이벤트 수신
+- [ ] **단일 인스턴스 지연**: 단일 인스턴스에서는 로컬 dispatch가 publish보다 먼저 → 추가 지연 < 50ms (사실상 0)
+- [ ] **자기 메시지 중복 차단**: 자기 인스턴스가 발행한 메시지를 SUBSCRIBE에서 수신해도 instance_id 비교로 클라이언트에 중복 전달 0건
+- [ ] **공개 시그니처 보존**: `broadcast`, `broadcast_to_customer`, `connect`, `connect_customer`, `disconnect`, `disconnect_customer` 6개 메서드 시그니처 동일
+- [ ] **Redis 장애 격리**: Redis 끊김 → 로컬 broadcast는 정상 동작, 리스너는 backoff 재연결
+- [ ] **File Fence**: `utils/websocket.py` 한 파일만 수정
+
+### 검증 방법
+
+```bash
+# 로컬 검증 (단일 인스턴스)
+1. uv run uvicorn backend.main:app --port 8003
+2. 브라우저에서 WS 연결 (예: /ws/admin/{store_id}?token=...)
+3. POST /api/orders/... 호출 → 즉시 NEW_ORDER 수신 확인 (지연 < 50ms)
+4. Redis CLI: SUBSCRIBE ws:store:* → publish 메시지 직접 확인
+5. logger 출력에 "WS pubsub listener started instance=..." 한 번만 보여야 함
+
+# 다중 인스턴스 검증 (OPS-01 docker-compose 완료 후)
+1. docker-compose up --scale backend=2
+2. 인스턴스 A에 WS 연결, 인스턴스 B에 HTTP POST → A에서 수신 확인
+```
+
+### 비고
+
+- **OPS-01 (docker-compose) 미완료**: 다중 인스턴스 정식 검증은 OPS-01 완료 후. 단일 인스턴스 동작은 이번 카드에서 검증.
+- **WS-04 (클라이언트 훅)와 별개**: 이 카드는 백엔드만. 클라이언트 코드 변경 없음.
 
 ---
 

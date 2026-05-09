@@ -323,3 +323,32 @@
 - `POST /ws/token` (통합 엔드포인트): customer만 지원, staff는 `/ws/token/staff` 안내
 - 기존 클라이언트 연결 코드는 WS-04 (useWebSocket 훅)에서 token 발급 + query 파라미터 추가 필요
 - 다음 가능 작업: WS-02 (Redis Pub/Sub — WS-01 완료됐으므로 진행 가능), WS-04 (클라이언트 훅)
+
+---
+
+## [WS-02] WebSocket Redis Pub/Sub 어댑터
+**날짜**: 2026-05-10
+**담당**: websocket-specialist (sonnet)
+**커밋**: (이번 커밋)
+
+### 변경 파일
+- `backend/utils/websocket.py` (수정, 49 → 130 LOC) — Redis Pub/Sub 통합: `_ensure_pubsub_started()`, `_local_broadcast_staff()`, `_local_broadcast_customer()`, `_publish()`, `_pubsub_listener()` 추가; 6개 공개 메서드 시그니처 유지
+
+### 마이그레이션
+없음
+
+### 검증 결과
+- ✅ 6개 공개 메서드 시그니처 보존 (`broadcast`, `broadcast_to_customer`, `connect`, `connect_customer`, `disconnect`, `disconnect_customer`)
+- ✅ `asyncio.Lock` lazy 생성 — import 시 "no running event loop" 오류 없음
+- ✅ 로컬 broadcast 우선 → Redis publish 후순 (단일 인스턴스 추가 지연 없음)
+- ✅ `instance_id` 비교로 자기 메시지 skip — 중복 전달 0건
+- ✅ `_publish()` Redis 장애 시 로컬 broadcast 영향 없음 (예외 격리)
+- ✅ `_pubsub_listener()` backoff `(1,2,5,10,30)`초 재연결, `CancelledError` 전파
+- ✅ `from utils.redis import get_redis` lazy import (순환 import 방지)
+- ✅ File Fence 준수 — `utils/websocket.py` 한 파일만 수정, `main.py` 변경 없음
+
+### 비고
+- lazy start 패턴: 첫 `connect()` / `broadcast()` 호출 시 `_ensure_pubsub_started()` → `asyncio.create_task(_pubsub_listener())`
+- `INSTANCE_ID`: `INSTANCE_ID` 환경변수 우선, 없으면 `uuid.uuid4().hex[:12]` 자동 생성
+- 다중 인스턴스 정식 검증은 OPS-01 (docker-compose) 완료 후
+- 다음 가능 작업: WS-04 (클라이언트 훅 통일 — WS-01·WS-02·WS-03 모두 완료)

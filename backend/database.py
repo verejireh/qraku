@@ -195,6 +195,9 @@ async def init_db():
         "CREATE INDEX IF NOT EXISTS idx_eventlog_store_action ON eventlog(store_id, action)",
         # [2026-05-09] INF-04: WebhookEvent 수신시각 복합 인덱스
         "CREATE INDEX IF NOT EXISTS idx_webhookevent_provider_received ON webhookevent(provider, received_at)",
+        # [2026-05-09] INF-03: Order 클라이언트 Idempotency-Key (중복 주문 차단)
+        "ALTER TABLE `order` ADD COLUMN idempotency_key VARCHAR(64) NULL",
+        "CREATE UNIQUE INDEX idx_order_idem_key ON `order`(idempotency_key)",
     ]
     async with engine.begin() as conn:
         for sql in migration_sqls:

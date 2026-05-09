@@ -386,6 +386,7 @@ class Order(SQLModel, table=True):
     discount_amount: float = Field(default=0.0)
     status: str = Field(default="pending_payment")
     needs_serving: bool = Field(default=True)  # 새 주문: True → 서빙 완료 시 False
+    idempotency_key: Optional[str] = Field(default=None, max_length=64, unique=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     items: List["OrderItem"] = Relationship(back_populates="order")

@@ -258,3 +258,38 @@
 - `square_oauth.py`의 `print()` 디버그 로그 1건만 `logger.exception()`으로 개선
 - `demo.py`, `menus.py`, `stores.py`의 `str(e)` 패턴은 이 카드의 File Fence 밖 — 별도 카드 필요
 - 다음 가능 작업: FE-01 (Display Toggle URL 가드), WS-01~04 (Phase 2)
+
+---
+
+## [WS-01] WebSocket 이벤트 헬퍼 (`utils/events.py`)
+**날짜**: 2026-05-10
+**담당**: websocket-specialist (sonnet)
+**커밋**: (이번 커밋)
+
+### 변경 파일
+- `backend/utils/events.py` (신규, 195 LOC) — `_emit()` 코어 + 명명 헬퍼 9개 + 범용 헬퍼 8개 + `emit()` generic
+- `backend/routers/orders.py` (수정) — 5개 broadcast → emit_* 교체
+- `backend/routers/pos.py` (수정) — 2개 broadcast → emit_payment_completed + emit_table_update
+- `backend/routers/admin.py` (수정) — 2개 broadcast → emit_config_update + emit_refund_issued
+- `backend/routers/tables.py` (수정) — 9개 broadcast → emit_table_update / emit_staff_call; top-level `manager`/`json` import 제거
+- `backend/routers/register.py` (수정) — 2개 broadcast → emit + emit_table_update
+- `backend/routers/qr.py` (수정) — 1개 broadcast → emit_checkout_request
+- `backend/routers/stores.py` (수정) — 1개 broadcast → emit_config_update
+- `backend/routers/takeout.py` (수정) — 1개 broadcast → emit_takeout_query_update
+- `backend/routers/webhooks.py` (수정) — 2개 broadcast → emit + emit_payment_completed
+
+### 마이그레이션
+없음
+
+### 검증 결과
+- ✅ `manager.broadcast`를 라우터에서 직접 호출하는 곳 0건 (grep 확인)
+- ✅ `manager.broadcast`는 `utils/events.py` 내부에만 존재
+- ✅ envelope 형식: `type`, `event_id`, `store_id`, `ts`, `priority`, `data` + legacy flat 필드
+- ✅ `**data` spread로 기존 클라이언트 하위 호환성 유지 (WS-04 이후 제거 예정)
+- ✅ 함수 시그니처 / 응답 형식 변경 없음
+
+### 비고
+- `priority="critical"` 이면 `_emit`이 `log_event()` 자동 호출 — 현재 모든 헬퍼는 `priority="normal"` (기존 라우터 log_event 중복 방지)
+- WS-04 (클라이언트 훅 통일) 완료 후 envelope의 legacy flat 필드 제거 가능
+- `emit()` generic 함수: 명명 헬퍼 미정의 이벤트 타입에 사용
+- 다음 가능 작업: WS-02 (Redis Pub/Sub), WS-03 (WS 인증 토큰), FE-01

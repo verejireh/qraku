@@ -228,16 +228,8 @@ async def checkout_table(table_id: int, session: AsyncSession = Depends(get_sess
     await session.commit()
     await session.refresh(table)
     
-    # Optional: Notify Admin/POS via WS
-    from utils.websocket import manager
-    import json
-    msg = json.dumps({
-        "type": "CHECKOUT_REQUEST",
-        "table_id": table.id,
-        "table_number": table.table_number,
-        "store_id": table.store_id
-    })
-    await manager.broadcast(msg, table.store_id)
+    from utils.events import emit_checkout_request
+    await emit_checkout_request(session, table.store_id, table)
     
     return {"message": "Checkout requested and token invalidated", "new_token": table.qr_token}
 

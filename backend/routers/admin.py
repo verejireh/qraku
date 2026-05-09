@@ -185,14 +185,8 @@ async def update_display_settings(store_id: int, settings: DisplaySettingsUpdate
     await session.commit()
     await session.refresh(display_settings)
     
-    # 설정 변경 브로드캐스팅 시도
-    try:
-        from utils.websocket import manager
-        import json
-        msg = json.dumps({"type": "CONFIG_UPDATE", "store_id": store.id})
-        await manager.broadcast(msg, store.id)
-    except Exception as e:
-        print(f"WS Broadcast failed: {e}")
+    from utils.events import emit_config_update
+    await emit_config_update(session, store.id)
     
     return {"status": "success", "display_settings": display_settings}
 
@@ -569,15 +563,8 @@ async def refund_order(
         )
         await session.commit()
 
-        try:
-            from utils.websocket import manager
-            import json as _json
-            await manager.broadcast(
-                _json.dumps({"type": "REFUND_ISSUED", "order_id": order.id}),
-                admin_store.id,
-            )
-        except Exception:
-            pass
+        from utils.events import emit_refund_issued
+        await emit_refund_issued(session, admin_store.id, order)
 
         return {"refund_id": result.get("refund_id"), "amount": body.amount, "status": "ok"}
 

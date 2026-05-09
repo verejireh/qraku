@@ -195,27 +195,14 @@ async def guest_confirm(query_id: int, body: GuestConfirm, session: AsyncSession
 
 # ── 내부: WebSocket 브로드캐스트 헬퍼 ────────────────────────────────────
 async def _broadcast(q: TakeoutTimeQuery, session: AsyncSession):
-    try:
-        from utils.websocket import manager
-        import json as _json
-        # store_id 조회
-        store_result = await session.execute(select(Store).where(Store.slug == q.shop_id))
-        store = store_result.scalar_one_or_none()
-        if not store:
-            try:
-                store_result = await session.execute(select(Store).where(Store.id == int(q.shop_id)))
-                store = store_result.scalar_one_or_none()
-            except Exception:
-                pass
-        if store:
-            msg = _json.dumps({
-                "type": "TAKEOUT_QUERY_UPDATE",
-                "query_id": q.id,
-                "guest_uuid": q.guest_uuid,
-                "status": q.status,
-                "agreed_time": q.agreed_time,
-                "staff_response": q.staff_response,
-            })
-            await manager.broadcast(msg, store.id)
-    except Exception as e:
-        print(f"[Takeout WS] broadcast failed: {e}")
+    from utils.events import emit_takeout_query_update
+    store_result = await session.execute(select(Store).where(Store.slug == q.shop_id))
+    store = store_result.scalar_one_or_none()
+    if not store:
+        try:
+            store_result = await session.execute(select(Store).where(Store.id == int(q.shop_id)))
+            store = store_result.scalar_one_or_none()
+        except Exception:
+            pass
+    if store:
+        await emit_takeout_query_update(session, store.id, q)

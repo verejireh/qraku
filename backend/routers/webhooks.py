@@ -95,20 +95,12 @@ async def fulfill_checkout(session_obj, db_session: AsyncSession):
     # Commit all changes atomically
     await db_session.commit()
     
-    # Broadcast to Kitchen and POS WebSocket
-    try:
-        if store:
-            from utils.websocket import manager
-            import json
-            msg = json.dumps({
-                "type": "NEW_ORDER", 
-                "order_id": order_id, 
-                "table_number": table_number_str
-            })
-            await manager.broadcast(msg, store.id)
-            print(f"WS Broadcast NEW_ORDER sent for Store {store.id}")
-    except Exception as e:
-        print("WS Broadcast exception in webhook:", e)
+    if store:
+        from utils.events import emit
+        await emit(db_session, store.id, "NEW_ORDER", {
+            "order_id": order_id,
+            "table_number": table_number_str,
+        })
 
 
 @router.post("/paypay")
@@ -206,14 +198,8 @@ async def paypay_webhook(
         event.processed = True
     await session.commit()
 
-    if state == "COMPLETED" and order:
-        try:
-            from utils.websocket import manager
-            await manager.broadcast(
-                json.dumps({"type": "PAYMENT_COMPLETED", "order_id": order.id}),
-                store_id_for_log or 0,
-            )
-        except Exception:
-            pass
+    if state == "COMPLETED" and order and store_id_for_log:
+        from utils.events import emit_payment_completed
+        await emit_payment_completed(session, store_id_for_log, order)
 
     return {"status": "ok"}

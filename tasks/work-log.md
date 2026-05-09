@@ -176,3 +176,34 @@
 - `perform_refund`가 내부적으로 `session.commit()` → order 상태/EventLog는 별도 commit으로 처리 (double-commit 패턴)
 - `with_idempotency` TTL: `IDEMPOTENCY_TTL_SECONDS` (기본 86400초)
 - 다음 가능 작업: INF-05(헬스체크), SEC-01(멀티테넌시 감사), PAY-03(에러 메시지 정제)
+
+---
+
+## [SEC-01] 멀티테넌시 감사
+**날짜**: 2026-05-10
+**담당**: backend-reliability (sonnet)
+**커밋**: (이번 커밋)
+
+### 변경 파일
+- `backend/routers/stats.py` (수정, +16 LOC) — `_assert_store_access()` 헬퍼 추가 + 9개 엔드포인트에 적용
+- `backend/routers/billing.py` (수정, +4 LOC) — `get_subscription_status`, `create_checkout_session`에 소유권 체크 추가
+- `backend/routers/loyalty_analytics.py` (수정, +4 LOC) — `require_admin` 의존성 추가 + 소유권 체크
+- `tasks/sec-audit-report.md` (신규) — 전체 감사 결과 보고서
+
+### 마이그레이션
+없음
+
+### 검증 결과
+- ✅ `stats.py` 9개 엔드포인트: 타 매장 shop_id로 접근 시 403
+- ✅ `billing.py` 2개 엔드포인트: 타 매장 store_id로 접근 시 403
+- ✅ `loyalty_analytics.py`: 미인증 접근 시 401, 타 매장 시 403
+- ✅ 응답 본문 형식 변경 0건
+- ✅ 민감 필드(password_hash, master_pin, API 키) 응답 누출 없음 확인
+- ✅ WebSocket 메시지 격리 (`store_id` 기반 broadcast) 확인
+- ✅ `tasks/sec-audit-report.md` 생성 — 전체 결과 기록
+
+### 비고
+- `takeout.py:staff_respond`, `list_pending_queries` 미수정 (프론트엔드 연동 필요 — WS-03 카드와 같이 처리 권고)
+- `ws.py` WebSocket 인증 누락 → WS-03 카드에서 처리 예정
+- `tables.py:transfer_table` 에서 오탐 확인 — 실제 IDOR 위험 없음
+- 모든 P0 카드(INF-01~04, PAY-01~02, SEC-01) 완료

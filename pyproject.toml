@@ -25,6 +25,7 @@ dependencies = [
     "Pillow",
     "google-cloud-storage",
     "paramiko",
+    "redis>=5.0",
 ]
 
 [tool.uv]

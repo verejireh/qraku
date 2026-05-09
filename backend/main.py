@@ -41,6 +41,13 @@ app.add_middleware(SecurityHeadersMiddleware)
 @app.on_event("startup")
 async def on_startup():
     await init_db()
+    from utils.redis import init_redis
+    await init_redis()
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    from utils.redis import close_redis
+    await close_redis()
 
 # ── 1) 모든 API 라우터를 /api prefix로 통합 ──────────────────────────
 # 프론트엔드에서 axios.get('/api/stores/...') 형태로 호출하므로

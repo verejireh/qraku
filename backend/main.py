@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
@@ -48,6 +48,25 @@ async def on_startup():
 async def on_shutdown():
     from utils.redis import close_redis
     await close_redis()
+
+
+# ── 인프라 헬스체크 (INF-05) ─────────────────────────────────────────
+from sqlalchemy import text as _sql_text
+
+@app.get("/api/healthz", tags=["infra"])
+async def healthz():
+    return {"status": "ok"}
+
+@app.get("/api/readyz", tags=["infra"])
+async def readyz(session: AsyncSession = Depends(get_session)):
+    try:
+        await session.execute(_sql_text("SELECT 1"))
+        from utils.redis import get_redis
+        await get_redis().ping()
+        return {"status": "ready"}
+    except Exception:
+        raise HTTPException(status_code=503, detail="not ready")
+
 
 # ── 1) 모든 API 라우터를 /api prefix로 통합 ──────────────────────────
 # 프론트엔드에서 axios.get('/api/stores/...') 형태로 호출하므로

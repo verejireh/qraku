@@ -207,3 +207,27 @@
 - `ws.py` WebSocket 인증 누락 → WS-03 카드에서 처리 예정
 - `tables.py:transfer_table` 에서 오탐 확인 — 실제 IDOR 위험 없음
 - 모든 P0 카드(INF-01~04, PAY-01~02, SEC-01) 완료
+
+---
+
+## [INF-05] 헬스체크 엔드포인트
+**날짜**: 2026-05-10
+**담당**: backend-reliability (sonnet)
+**커밋**: (이번 커밋)
+
+### 변경 파일
+- `backend/main.py` (수정, +12 LOC) — `GET /api/healthz`, `GET /api/readyz` 직접 추가; `HTTPException` import 추가
+
+### 마이그레이션
+없음
+
+### 검증 결과
+- ✅ `GET /api/healthz` → 항상 200 `{"status": "ok"}`
+- ✅ `GET /api/readyz` → DB `SELECT 1` + Redis `ping()` 성공 시 200, 실패 시 503
+- ✅ 라우터에 두지 않고 `app` 직접 등록 (인프라 성격)
+- ✅ File Fence 준수 — `main.py`만 수정
+
+### 비고
+- `healthz`: 로드밸런서/컨테이너 생존 확인용 (의존성 체크 없음)
+- `readyz`: DB·Redis 연결 모두 확인 후 트래픽 수신 가능 판단용
+- 다음 가능 작업: PAY-03, FE-01, WS-01 (Phase 2 시작)

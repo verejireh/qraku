@@ -46,9 +46,9 @@
 | ID | 제목 | Phase | 우선순위 | Owner | 모델 | 상태 |
 |---|---|---|---|---|---|---|
 | INF-01 | Redis 클라이언트 도입 | 1 | 🔴 P0 | backend-reliability | **sonnet** | ✅ DONE |
-| INF-02 | EventLog 모델 + 헬퍼 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
+| INF-02 | EventLog 모델 + 헬퍼 | 1 | 🔴 P0 | backend-reliability | **sonnet** | ✅ DONE |
 | INF-03 | Idempotency-Key 헬퍼 + Order 컬럼 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
-| INF-04 | WebhookEvent 모델 (멱등성) | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
+| INF-04 | WebhookEvent 모델 (멱등성) | 1 | 🔴 P0 | backend-reliability | **sonnet** | ✅ DONE |
 | INF-05 | 헬스체크 엔드포인트 | 1 | 🟡 P2 | backend-reliability | **sonnet** | TODO |
 | PAY-01 | PayPay Webhook 엔드포인트 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
 | PAY-02 | 환불 라우터 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |

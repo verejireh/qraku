@@ -11,27 +11,50 @@
 
 ## 진행 보드
 
-| ID | 제목 | Phase | 우선순위 | Owner | 상태 |
-|---|---|---|---|---|---|
-| INF-01 | Redis 클라이언트 도입 | 1 | 🔴 P0 | backend-reliability | TODO |
-| INF-02 | EventLog 모델 + 헬퍼 | 1 | 🔴 P0 | backend-reliability | TODO |
-| INF-03 | Idempotency-Key 헬퍼 + Order 컬럼 | 1 | 🔴 P0 | backend-reliability | TODO |
-| INF-04 | WebhookEvent 모델 (멱등성) | 1 | 🔴 P0 | backend-reliability | TODO |
-| INF-05 | 헬스체크 엔드포인트 | 1 | 🟡 P2 | backend-reliability | TODO |
-| PAY-01 | PayPay Webhook 엔드포인트 | 1 | 🔴 P0 | backend-reliability | TODO |
-| PAY-02 | 환불 라우터 | 1 | 🔴 P0 | backend-reliability | TODO |
-| PAY-03 | 결제 영역 에러 메시지 정제 | 1 | 🟡 P2 | backend-reliability | TODO |
-| SEC-01 | 멀티테넌시 감사 (모든 라우터 grep) | 1 | 🔴 P0 | backend-reliability | TODO |
-| FE-01 | Display Toggle URL 가드 | 1 | 🟡 P2 | (frontend) | TODO |
-| WS-01 | WebSocket 이벤트 헬퍼 (`utils/events.py`) | 2 | 🟠 P1 | websocket-specialist | TODO |
-| WS-02 | WebSocket Redis Pub/Sub 어댑터 | 2 | 🟠 P1 | websocket-specialist | TODO |
-| WS-03 | WebSocket 인증 토큰 | 2 | 🟠 P1 | websocket-specialist | TODO |
-| WS-04 | 클라이언트 훅 통일 (heartbeat/재연결) | 2 | 🟡 P2 | websocket-specialist | TODO |
-| OPS-01 | Dockerfile + docker-compose (개발용) | 3 | 🟡 P2 | architect → backend-reliability | TODO |
-| OPS-02 | Dramatiq + 첫 워커 (번역) | 3 | 🟡 P2 | backend-reliability | TODO |
-| OPS-03 | Alembic 도입 (신규 변경부터) | 3 | 🟡 P2 | architect → backend-reliability | TODO |
+| ID | 제목 | Phase | 우선순위 | Owner | 모델 | 상태 |
+|---|---|---|---|---|---|---|
+| INF-01 | Redis 클라이언트 도입 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
+| INF-02 | EventLog 모델 + 헬퍼 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
+| INF-03 | Idempotency-Key 헬퍼 + Order 컬럼 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
+| INF-04 | WebhookEvent 모델 (멱등성) | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
+| INF-05 | 헬스체크 엔드포인트 | 1 | 🟡 P2 | backend-reliability | **sonnet** | TODO |
+| PAY-01 | PayPay Webhook 엔드포인트 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
+| PAY-02 | 환불 라우터 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
+| PAY-03 | 결제 영역 에러 메시지 정제 | 1 | 🟡 P2 | backend-reliability | **sonnet** | TODO |
+| SEC-01 | 멀티테넌시 감사 (모든 라우터 grep) | 1 | 🔴 P0 | architect → backend-reliability | **opus → sonnet** | TODO |
+| FE-01 | Display Toggle URL 가드 | 1 | 🟡 P2 | (frontend) | **sonnet** | TODO |
+| WS-01 | WebSocket 이벤트 헬퍼 (`utils/events.py`) | 2 | 🟠 P1 | websocket-specialist | **sonnet** | TODO |
+| WS-02 | WebSocket Redis Pub/Sub 어댑터 | 2 | 🟠 P1 | architect → websocket-specialist | **opus → sonnet** | TODO |
+| WS-03 | WebSocket 인증 토큰 | 2 | 🟠 P1 | websocket-specialist | **sonnet** | TODO |
+| WS-04 | 클라이언트 훅 통일 (heartbeat/재연결) | 2 | 🟡 P2 | websocket-specialist | **sonnet** | TODO |
+| OPS-01 | Dockerfile + docker-compose (개발용) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | TODO |
+| OPS-02 | Dramatiq + 첫 워커 (번역) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | TODO |
+| OPS-03 | Alembic 도입 (신규 변경부터) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | TODO |
 
 > **우선순위 표기**: 🔴 P0 (출시 전 필수) / 🟠 P1 (이번 사이클 내) / 🟡 P2 (사이클 후반)
+
+### 모델 선택 규칙
+
+| 모델 | 언제 쓰나 |
+|---|---|
+| **opus** | ① 새 컴포넌트 도입 결정 (Redis Pub/Sub 어댑터 설계, Dramatiq vs Celery, Alembic 전략), ② 폭이 넓고 트레이드오프가 많은 분석 (멀티테넌시 감사처럼 30개 라우터 전체 스캔), ③ 카드 자체를 새로 작성/수정. **`architect` 에이전트는 항상 opus.** |
+| **sonnet** | 카드의 허용 파일이 명확하고 코드 스니펫까지 박혀있는 **순수 구현 작업**. 대부분의 INF/PAY/WS/FE/OPS 카드. **`backend-reliability` / `websocket-specialist` 에이전트는 sonnet**. |
+
+**`opus → sonnet` 표기 의미**: 먼저 opus가 카드 정밀화/설계 검토(작업 시작 전 카드 보강) → 그 다음 sonnet이 구현. 두 단계로 나눠 시키면 토큰 비용은 줄고 품질은 안정적.
+
+### 지시 예시
+
+```
+# 단순 구현
+INF-01 sonnet으로 backend-reliability 에이전트로 작업해줘.
+
+# 설계 검토 후 구현 (2단계)
+SEC-01 opus의 architect로 먼저 정밀화 → 그 다음 sonnet의 backend-reliability로 구현해줘.
+
+# 모델 전환
+/model claude-opus-4-7   ← 카드 정밀화/큰 설계 결정 시
+/model claude-sonnet-4-6  ← 실제 코드 작성 시
+```
 
 ---
 

@@ -231,3 +231,30 @@
 - `healthz`: 로드밸런서/컨테이너 생존 확인용 (의존성 체크 없음)
 - `readyz`: DB·Redis 연결 모두 확인 후 트래픽 수신 가능 판단용
 - 다음 가능 작업: PAY-03, FE-01, WS-01 (Phase 2 시작)
+
+---
+
+## [PAY-03] 결제 영역 에러 메시지 정제
+**날짜**: 2026-05-10
+**담당**: backend-reliability (sonnet)
+**커밋**: (이번 커밋)
+
+### 변경 파일
+- `backend/routers/square_oauth.py` (수정, +3 LOC) — `import logging` + `logger = logging.getLogger(__name__)` 추가; `print(f"... {str(e)}")` → `logger.exception(...)` 교체
+
+### 마이그레이션
+없음
+
+### 검증 결과
+- ✅ `paypay.py` — `str(e)` 없음 (grep 확인)
+- ✅ `orders.py` — `str(e)` 없음 (grep 확인)
+- ✅ `pos.py` — `str(e)` 없음 (grep 확인)
+- ✅ `square_oauth.py` — `print(str(e))` → `logger.exception()` 교체 완료
+- ✅ 허용 파일 4개 이외에 `str(e)` 잔존 없음 (File Fence 준수)
+- ✅ 함수 시그니처 변경 없음
+
+### 비고
+- 실제 `str(e)` in HTTPException detail 패턴은 허용 파일 4개에 존재하지 않았음
+- `square_oauth.py`의 `print()` 디버그 로그 1건만 `logger.exception()`으로 개선
+- `demo.py`, `menus.py`, `stores.py`의 `str(e)` 패턴은 이 카드의 File Fence 밖 — 별도 카드 필요
+- 다음 가능 작업: FE-01 (Display Toggle URL 가드), WS-01~04 (Phase 2)

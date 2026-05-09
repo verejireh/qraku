@@ -10,6 +10,7 @@ Square OAuth 2.0 Router
 """
 
 import os
+import logging
 import httpx
 import hmac
 import hashlib
@@ -19,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
 from models import Store
 from utils.jwt import require_admin
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/square", tags=["square-oauth"])
 
@@ -189,8 +192,8 @@ async def square_callback(request: Request, session: AsyncSession = Depends(get_
                         location_id = locations[0].get("id")
             else:
                 print(f"[Square OAuth] Location fetch error: {loc_res.status_code} - {loc_res.text}")
-    except Exception as e:
-        print(f"[Square OAuth] Exception during location fetch: {str(e)}")
+    except Exception:
+        logger.exception("[Square OAuth] Exception during location fetch")
         
     if location_id:
         payment_settings.square_location_id = location_id

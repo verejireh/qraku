@@ -52,7 +52,7 @@
 | INF-05 | 헬스체크 엔드포인트 | 1 | 🟡 P2 | backend-reliability | **sonnet** | ✅ DONE |
 | PAY-01 | PayPay Webhook 엔드포인트 | 1 | 🔴 P0 | backend-reliability | **sonnet** | ✅ DONE |
 | PAY-02 | 환불 라우터 | 1 | 🔴 P0 | backend-reliability | **sonnet** | ✅ DONE |
-| PAY-03 | 결제 영역 에러 메시지 정제 | 1 | 🟡 P2 | backend-reliability | **sonnet** | TODO |
+| PAY-03 | 결제 영역 에러 메시지 정제 | 1 | 🟡 P2 | backend-reliability | **sonnet** | ✅ DONE |
 | SEC-01 | 멀티테넌시 감사 (모든 라우터 grep) | 1 | 🔴 P0 | architect → backend-reliability | **opus → sonnet** | ✅ DONE |
 | FE-01 | Display Toggle URL 가드 | 1 | 🟡 P2 | (frontend) | **sonnet** | TODO |
 | WS-01 | WebSocket 이벤트 헬퍼 (`utils/events.py`) | 2 | 🟠 P1 | websocket-specialist | **sonnet** | TODO |

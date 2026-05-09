@@ -90,6 +90,7 @@ api_router.include_router(messaging.router)
 api_router.include_router(menu_groups.router)
 api_router.include_router(beta.router)
 api_router.include_router(tabehoudai.router)
+api_router.include_router(webhooks.router)
 
 app.include_router(api_router)
 

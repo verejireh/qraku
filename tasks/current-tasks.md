@@ -47,11 +47,11 @@
 |---|---|---|---|---|---|---|
 | INF-01 | Redis 클라이언트 도입 | 1 | 🔴 P0 | backend-reliability | **sonnet** | ✅ DONE |
 | INF-02 | EventLog 모델 + 헬퍼 | 1 | 🔴 P0 | backend-reliability | **sonnet** | ✅ DONE |
-| INF-03 | Idempotency-Key 헬퍼 + Order 컬럼 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
+| INF-03 | Idempotency-Key 헬퍼 + Order 컬럼 | 1 | 🔴 P0 | backend-reliability | **sonnet** | ✅ DONE |
 | INF-04 | WebhookEvent 모델 (멱등성) | 1 | 🔴 P0 | backend-reliability | **sonnet** | ✅ DONE |
 | INF-05 | 헬스체크 엔드포인트 | 1 | 🟡 P2 | backend-reliability | **sonnet** | TODO |
-| PAY-01 | PayPay Webhook 엔드포인트 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
-| PAY-02 | 환불 라우터 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
+| PAY-01 | PayPay Webhook 엔드포인트 | 1 | 🔴 P0 | backend-reliability | **sonnet** | ✅ DONE |
+| PAY-02 | 환불 라우터 | 1 | 🔴 P0 | backend-reliability | **sonnet** | ✅ DONE |
 | PAY-03 | 결제 영역 에러 메시지 정제 | 1 | 🟡 P2 | backend-reliability | **sonnet** | TODO |
 | SEC-01 | 멀티테넌시 감사 (모든 라우터 grep) | 1 | 🔴 P0 | architect → backend-reliability | **opus → sonnet** | TODO |
 | FE-01 | Display Toggle URL 가드 | 1 | 🟡 P2 | (frontend) | **sonnet** | TODO |

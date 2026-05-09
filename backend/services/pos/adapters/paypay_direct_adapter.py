@@ -1,3 +1,4 @@
+import os
 import uuid
 import hashlib
 import hmac
@@ -10,6 +11,19 @@ import httpx
 
 from models import Store, PaymentSettings
 from ..base import BasePaymentAdapter
+
+
+def verify_paypay_signature(raw: bytes, signature: str) -> bool:
+    """PayPay webhook HMAC-SHA256 서명 검증 (timing-safe compare)"""
+    secret = os.getenv("PAYPAY_WEBHOOK_SECRET", "")
+    if not secret:
+        return False
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        raw,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature.lower())
 
 # PayPay API endpoints
 PAYPAY_API_PROD = "https://api.paypay.ne.jp"

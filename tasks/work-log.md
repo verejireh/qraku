@@ -293,3 +293,33 @@
 - WS-04 (클라이언트 훅 통일) 완료 후 envelope의 legacy flat 필드 제거 가능
 - `emit()` generic 함수: 명명 헬퍼 미정의 이벤트 타입에 사용
 - 다음 가능 작업: WS-02 (Redis Pub/Sub), WS-03 (WS 인증 토큰), FE-01
+
+---
+
+## [WS-03] WebSocket 인증 토큰
+**날짜**: 2026-05-10
+**담당**: websocket-specialist (sonnet)
+**커밋**: (이번 커밋)
+
+### 변경 파일
+- `backend/routers/ws_token.py` (신규, 110 LOC) — `POST /ws/token/staff`, `POST /ws/token/customer`, `POST /ws/token`, `validate_ws_token()` 헬퍼
+- `backend/routers/ws.py` (수정, +12 LOC) — 3개 WS 엔드포인트에 `token: str = Query(...)` + `validate_ws_token()` 호출 추가
+- `backend/main.py` (수정, +2 LOC) — `ws_token` 라우터 import + include_router
+
+### 마이그레이션
+없음 (Redis `ws:token:{token}` 키, TTL 자동 만료)
+
+### 검증 결과
+- ✅ 토큰 없이 WS 연결 → 1008 close (token Query 필수)
+- ✅ 다른 store_id 토큰 → 1008 close
+- ✅ customer 토큰으로 kitchen/admin 채널 → 1008 (audience 불일치)
+- ✅ 만료 토큰 → Redis TTL 자동 삭제 → None → 1008
+- ✅ `POST /ws/token/customer` — 인증 없이 store/table 존재 확인 후 발급
+- ✅ `POST /ws/token/staff` — admin JWT(`require_admin`) + store_id 매칭 확인 후 발급
+- ✅ File Fence 준수 — ws_token.py, ws.py, main.py만 수정
+
+### 비고
+- `WS_AUTH_TOKEN_TTL_SECONDS` 환경변수, 기본 300초(5분)
+- `POST /ws/token` (통합 엔드포인트): customer만 지원, staff는 `/ws/token/staff` 안내
+- 기존 클라이언트 연결 코드는 WS-04 (useWebSocket 훅)에서 token 발급 + query 파라미터 추가 필요
+- 다음 가능 작업: WS-02 (Redis Pub/Sub — WS-01 완료됐으므로 진행 가능), WS-04 (클라이언트 훅)

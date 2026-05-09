@@ -32,7 +32,7 @@ engine = create_async_engine(
 
 async def init_db():
     """서버 시작 시 MySQL에 모든 테이블 생성 + 스키마 마이그레이션"""
-    from models import Store, Table, StaffAttendance, PhotoReview, RewardCoupon, RefundLog, BetaApplication  # 지연 import로 순환 방지
+    from models import Store, Table, StaffAttendance, PhotoReview, RewardCoupon, RefundLog, BetaApplication, EventLog, WebhookEvent  # 지연 import로 순환 방지
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 
@@ -190,6 +190,11 @@ async def init_db():
         "ALTER TABLE store ADD COLUMN food_rescue_mode VARCHAR(10) DEFAULT 'manual'",
         "ALTER TABLE store ADD COLUMN food_rescue_auto_minutes INT DEFAULT 60",
         "ALTER TABLE store ADD COLUMN food_rescue_manual_active BOOLEAN DEFAULT FALSE",
+        # [2026-05-09] INF-02: EventLog 검색 최적화 복합 인덱스
+        "CREATE INDEX IF NOT EXISTS idx_eventlog_store_time ON eventlog(store_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_eventlog_store_action ON eventlog(store_id, action)",
+        # [2026-05-09] INF-04: WebhookEvent 수신시각 복합 인덱스
+        "CREATE INDEX IF NOT EXISTS idx_webhookevent_provider_received ON webhookevent(provider, received_at)",
     ]
     async with engine.begin() as conn:
         for sql in migration_sqls:

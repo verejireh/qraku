@@ -13,7 +13,7 @@
 
 | ID | 제목 | Phase | 우선순위 | Owner | 모델 | 상태 |
 |---|---|---|---|---|---|---|
-| INF-01 | Redis 클라이언트 도입 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
+| INF-01 | Redis 클라이언트 도입 | 1 | 🔴 P0 | backend-reliability | **sonnet** | ✅ DONE |
 | INF-02 | EventLog 모델 + 헬퍼 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
 | INF-03 | Idempotency-Key 헬퍼 + Order 컬럼 | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |
 | INF-04 | WebhookEvent 모델 (멱등성) | 1 | 🔴 P0 | backend-reliability | **sonnet** | TODO |

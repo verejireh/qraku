@@ -1,7 +1,7 @@
 # SEC-01 멀티테넌시 감사 보고서
 **날짜**: 2026-05-10
-**감사자**: backend-reliability (sonnet)
-**커밋**: (sec-01 커밋)
+**감사자**: backend-reliability (sonnet) → architect (opus) 사후 검증
+**커밋**: 497bf12 (1차) + (이번 커밋, 2차 보강)
 
 ---
 
@@ -11,6 +11,12 @@
 admin, orders, pos, register, tables, menus, staff_auth, billing, reviews,
 guests, tabehoudai, menu_groups, sessions, takeout, messaging, loyalty_analytics,
 stats, stores, ws, translate, discover, webhooks, paypay, square_oauth
+
+**1차 감사 누락 (opus 사후 검토에서 발견)**: `qr.py`, `ai.py`, `beta.py`, `oauth.py`
+- `ai.py`: 의도된 공개(집계 리뷰), 이슈 없음
+- `beta.py`: 베타 신청만 받음, store_id 격리 무관
+- `oauth.py`: Google/LINE OAuth 가입·로그인 흐름, store-scoped 작업 아님
+- `qr.py`: **5건의 IDOR/무인증 취약점 발견 → 2차 커밋에서 수정**
 
 ---
 
@@ -26,6 +32,11 @@ stats, stores, ws, translate, discover, webhooks, paypay, square_oauth
 | `takeout.py` | `list_pending_queries` | 🟠 HIGH | ⚠️ 미수정 | 아래 비고 참조 |
 | `ws.py` | 전체 WS 엔드포인트 | 🟠 HIGH | ⚠️ WS-03 카드 | WS 인증 토큰 구현 예정 |
 | `tables.py` | `transfer_table` | 🟡 MEDIUM | ⚠️ 확인 필요 | 아래 비고 참조 |
+| `qr.py` | `refresh_table_token` | 🔴 CRITICAL | ✅ 수정 완료 (2차) | `require_admin` 있으나 table 소유 검증 누락 — admin A가 매장 B 토큰 무효화 가능 |
+| `qr.py` | `reset_table` | 🔴 CRITICAL | ✅ 수정 완료 (2차) | 동일 패턴 — admin A가 매장 B 테이블 리셋 가능 |
+| `qr.py` | `generate_batch_qr_signs` | 🔴 CRITICAL | ✅ 수정 완료 (2차) | store 소유 검증 누락 + 슬러그 분기 런타임 버그 (`await session.execute().scalar_one_or_none()` AttributeError) |
+| `qr.py` | `export_pdf` | 🟠 HIGH | ✅ 수정 완료 (2차) | 무인증 — 누구나 매장 전체 QR 토큰 PDF 다운로드 가능 + `Table.store_id == store_id(str)` 타입 비교 버그 |
+| `qr.py` | `generate_themed_qr` | 🟡 MEDIUM | ✅ 수정 완료 (2차) | 무인증 — 임의 table_id의 qr_token 누출 가능 |
 | 나머지 모든 파일 | - | ✅ PASS | - | store_id 필터 확인됨 |
 
 ---
@@ -54,6 +65,38 @@ stats, stores, ws, translate, discover, webhooks, paypay, square_oauth
 **취약점**: `require_admin` 의존성 없음 → 완전히 무인증 엔드포인트.
 
 **수정**: `admin_store: Store = Depends(require_admin)` 파라미터 추가 + `if store_id != admin_store.id: raise HTTPException(403)` 추가.
+
+---
+
+## 2차 수정 (qr.py — opus 사후 검토 후)
+
+### qr.py — 헬퍼 추가
+
+```python
+async def _resolve_owned_store(store_id: str, admin_store, session) -> Store:
+    """슬러그/숫자 ID 해석 + 소유권 검증 (404 → 403 순서)"""
+
+async def _resolve_owned_table(table_id: int, admin_store, session) -> Table:
+    """테이블 조회 + admin_store 소유권 검증"""
+```
+
+### qr.py — 수정 사이트 (5개)
+
+| 엔드포인트 | 수정 내용 |
+|---|---|
+| `GET /qr/generate/{table_id}` | `require_admin` 추가 + `_resolve_owned_table` 사용. 렌더 로직은 `_render_themed_qr_png(table, store, session) -> bytes` 헬퍼로 분리 (인증과 분리) |
+| `GET /qr/export-pdf/{store_id}` | `require_admin` 추가 + `_resolve_owned_store` 사용. `Table.store_id == store_id(str)` → `Table.store_id == store.id(int)` 타입 비교 버그 수정. 내부 호출 `generate_themed_qr(...).body` → `_render_themed_qr_png(...)` (직접 호출 우회) |
+| `POST /qr/refresh/{table_id}` | `_resolve_owned_table` 사용 (`require_admin` 이미 있었음) |
+| `POST /qr/reset/{table_id}` | `_resolve_owned_table` 사용 |
+| `POST /qr/generate-batch/{store_id}` | `_resolve_owned_store` 사용 — 슬러그 분기의 `await session.execute().scalar_one_or_none()` 런타임 버그도 함께 해결 |
+
+### qr.py — 의도된 미수정
+
+- `POST /qr/checkout/{table_id}`: 손님이 누르는 "회계 요청" 버튼 (frontend `CheckoutView.jsx:120`). 손님 인증 토큰 체계가 별도로 필요한 별도 카드 영역. 본 카드 범위 외.
+
+### 프론트엔드 영향
+
+`grep /api/qr/` 결과 — 프론트엔드는 `qr/checkout`만 호출 중. `generate`/`refresh`/`reset`/`export-pdf`/`generate-batch`는 미사용 → 인증 추가로 인한 회귀 없음.
 
 ---
 

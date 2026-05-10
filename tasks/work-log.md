@@ -386,3 +386,40 @@
 - 토큰 갱신: 만료 30초 전에 자동 재발급
 - WS-03 bug fix: WS-03 구현 시 `require_admin`만 사용 → 마스터PIN 로그인 스태프가 WS 토큰 발급 불가했던 문제 수정
 - 다음 가능 작업: FE-01 (Display Toggle URL 가드), OPS-01 (docker-compose)
+
+---
+
+## [SEC-01-FOLLOWUP] qr.py 누락 취약점 사후 보강
+**날짜**: 2026-05-10
+**담당**: architect (opus) 사후 검토
+**커밋**: (이번 커밋)
+
+### 배경
+SEC-01(497bf12)은 `qr.py`를 감사 대상에서 누락. 사후 검토에서 5건의 IDOR/무인증 취약점 + 2건의 런타임/타입 버그 발견.
+
+### 변경 파일
+- `backend/routers/qr.py` (수정) — `_resolve_owned_store`, `_resolve_owned_table` 헬퍼 추가; `_render_themed_qr_png` 분리; 5개 엔드포인트에 인증·소유권 가드 적용; 2건의 런타임/타입 버그 수정
+- `tasks/sec-audit-report.md` (갱신) — 1차 누락 항목·2차 수정 내역 기록
+
+### 수정된 취약점
+
+| 엔드포인트 | 1차 상태 | 2차 수정 |
+|---|---|---|
+| `POST /qr/refresh/{table_id}` | 🔴 IDOR (admin A→B 토큰 무효화) | `_resolve_owned_table` |
+| `POST /qr/reset/{table_id}` | 🔴 IDOR (admin A→B 테이블 리셋) | `_resolve_owned_table` |
+| `POST /qr/generate-batch/{store_id}` | 🔴 IDOR + 런타임 버그(슬러그 분기) | `_resolve_owned_store` |
+| `GET /qr/export-pdf/{store_id}` | 🟠 무인증 + 타입 비교 버그 | `require_admin` + `_resolve_owned_store` + `Table.store_id == store.id` |
+| `GET /qr/generate/{table_id}` | 🟡 무인증(qr_token 누출) | `require_admin` + `_resolve_owned_table` + `_render_themed_qr_png` 헬퍼 분리 |
+
+### 의도적 미수정
+- `POST /qr/checkout/{table_id}` — 손님 "회계 요청" 흐름(`CheckoutView.jsx:120`). 손님 인증 토큰 체계가 별도로 필요한 별도 카드.
+
+### 검증 결과
+- ✅ `python -m ast.parse` syntax check — qr.py + 동시 수정 파일 4개 모두 OK
+- ✅ 프론트엔드 grep `/api/qr/` — 영향 받는 호출 없음 (`qr/checkout`만 사용 중)
+- ✅ 함수 시그니처는 `admin_store` 파라미터 추가만 — 기존 응답 형식 유지
+
+### 비고
+- 1차 SEC-01 카드는 `architect → backend-reliability` 두 단계로 진행 의도였으나, sonnet이 단독 처리하면서 30개 라우터 중 4개(`qr.py`, `ai.py`, `beta.py`, `oauth.py`)가 감사 목록에 포함되지 않음. `qr.py`만 실제 취약 — 나머지 3개는 의도된 공개/auth flow.
+- WS-04 함께 적용된 `ws_token.py`의 `require_admin → require_staff_or_admin` 변경도 동일한 사후 보강 성격(스태프 JWT 미지원).
+- 다음 가능 작업: FE-01, OPS-01 (Phase 3)

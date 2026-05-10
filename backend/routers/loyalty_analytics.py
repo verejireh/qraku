@@ -4,14 +4,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
 from models import PointHistory, PointTransactionType, Order, Store
 from datetime import datetime, timedelta
+from utils.jwt import require_admin
 
 router = APIRouter(prefix="/loyalty-analytics", tags=["loyalty-analytics"])
 
 @router.get("/roi/{store_id}")
-async def get_loyalty_roi(store_id: int, session: AsyncSession = Depends(get_session)):
+async def get_loyalty_roi(
+    store_id: int,
+    admin_store: Store = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
     """
     Returns Investment (Discounts) vs Revenue (Orders with points).
     """
+    if store_id != admin_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
     now = datetime.utcnow()
     month_start = datetime(now.year, now.month, 1)
     

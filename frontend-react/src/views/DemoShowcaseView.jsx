@@ -12,9 +12,9 @@ function buildUrl(slug, tableNumber, sessionToken, panelKey) {
     const base = `/${slug}`
     switch (panelKey) {
         case 'order':    return `${base}/table/${tableNumber}/home?session_token=${sessionToken}`
-        case 'kitchen':  return `${base}/kitchen?hidenav=1`
-        case 'staff':    return `${base}/staff`
-        case 'register': return `${base}/register`
+        case 'kitchen':  return `${base}/kitchen?hidenav=1&demo=1`
+        case 'staff':    return `${base}/staff?demo=1`
+        case 'register': return `${base}/register?demo=1`
         default:         return base
     }
 }
@@ -65,10 +65,10 @@ function TabletWithSidebar({ slug, activeTab, onTabChange }) {
     ]
 
     const iframeSrc = activeTab === 'register'
-        ? `/${slug}/register?hidenav=1`
+        ? `/${slug}/register?hidenav=1&demo=1`
         : activeTab === 'settings'
             ? `/${slug}/admin`
-            : `/${slug}/staff?hidenav=1`
+            : `/${slug}/staff?hidenav=1&demo=1`
 
     return (
         <div className="dsc-tablet-land">
@@ -211,10 +211,10 @@ export default function DemoShowcaseView() {
     /* ── Phone frame for Staff/Register with bottom nav ── */
     const renderStaffPhone = () => {
         const phoneUrl = phoneStaffTab === 'register'
-            ? `/${slug}/register`
+            ? `/${slug}/register?demo=1`
             : phoneStaffTab === 'settings'
                 ? `/${slug}/admin`
-                : `/${slug}/staff`
+                : `/${slug}/staff?demo=1`
 
         const tabs = [
             { key: 'register', icon: '💰', label: 'Register' },
@@ -266,10 +266,10 @@ export default function DemoShowcaseView() {
     const renderStaffTablet = () => {
         if (device === 'mobile') {
             const tabletUrl = tabletStaffTab === 'register'
-                ? `/${slug}/register`
+                ? `/${slug}/register?demo=1`
                 : tabletStaffTab === 'settings'
                     ? `/${slug}/admin`
-                    : `/${slug}/staff`
+                    : `/${slug}/staff?demo=1`
             const tabs = [
                 { key: 'register', icon: '💰', label: 'Register' },
                 { key: 'staff',    icon: '👥', label: 'Staff' },

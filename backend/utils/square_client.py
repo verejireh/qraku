@@ -14,7 +14,30 @@ import httpx
 import uuid
 from typing import Optional, List, Dict
 
+from utils.crypto import decrypt_secret
+
 SQUARE_ENVIRONMENT = os.getenv("SQUARE_ENVIRONMENT", "sandbox")
+
+
+def _resolve_square_token(store) -> str:
+    """
+    Store 와 PaymentSettings 양쪽에서 Square Access Token 을 찾고 자동 복호화.
+    PaymentSettings(신규) 우선 → Store 컬럼(레거시) 폴백.
+    """
+    ps = getattr(store, "payment_settings", None)
+    raw = None
+    if ps and getattr(ps, "square_access_token", None):
+        raw = ps.square_access_token
+    elif getattr(store, "square_access_token", None):
+        raw = store.square_access_token
+    return decrypt_secret(raw) or ""
+
+
+def _resolve_square_location(store) -> str:
+    ps = getattr(store, "payment_settings", None)
+    if ps and getattr(ps, "square_location_id", None):
+        return ps.square_location_id
+    return getattr(store, "square_location_id", "") or ""
 
 
 def get_square_api_base() -> str:
@@ -44,11 +67,12 @@ async def create_square_order(store, order, line_items: List[Dict]) -> dict:
     Returns:
         Square API 응답 dict  or  {"status": "error", "message": ...}
     """
-    if not store.square_access_token:
+    access_token = _resolve_square_token(store)
+    if not access_token:
         print(f"[Square] Error: Store {store.id} has no square_access_token.")
         return {"status": "error", "message": "unauthorized"}
 
-    location_id = getattr(store, "square_location_id", "") or ""
+    location_id = _resolve_square_location(store)
     if not location_id:
         print(f"[Square] Error: Store {store.id} has no square_location_id.")
         return {"status": "error", "message": "square_location_id not configured"}
@@ -82,7 +106,7 @@ async def create_square_order(store, order, line_items: List[Dict]) -> dict:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             res = await client.post(
-                url, headers=_auth_headers(store.square_access_token), json=payload
+                url, headers=_auth_headers(access_token), json=payload
             )
             if res.status_code in (200, 201):
                 data = res.json()
@@ -120,10 +144,11 @@ async def process_square_payment(
         {"status": "ok", "payment_id": str, "square_order_id": str | None}
         or {"status": "error", "message": str}
     """
-    if not store.square_access_token:
+    access_token = _resolve_square_token(store)
+    if not access_token:
         return {"status": "error", "message": "unauthorized"}
 
-    location_id = getattr(store, "square_location_id", "") or ""
+    location_id = _resolve_square_location(store)
     if not location_id:
         return {"status": "error", "message": "square_location_id not configured"}
 
@@ -146,7 +171,7 @@ async def process_square_payment(
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             res = await client.post(
-                url, headers=_auth_headers(store.square_access_token), json=payload
+                url, headers=_auth_headers(access_token), json=payload
             )
             data = res.json()
             if res.status_code in (200, 201):

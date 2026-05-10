@@ -9,7 +9,7 @@
  * sessionStorage에 인증 상태 저장 (탭 닫으면 초기화)
  */
 import { useState, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import { Lock, User, ShieldCheck } from 'lucide-react'
 
@@ -49,6 +49,7 @@ export function useStaffAuth() {
 
 export default function StaffLoginGate({ children, requiredRole = 'any' }) {
     const { shop_id } = useParams()
+    const [searchParams] = useSearchParams()
     const { auth, setAuth, isMaster, isStaff, isAuthenticated } = useStaffAuth()
 
     const [mode, setMode] = useState('choose') // 'choose' | 'master' | 'staff'
@@ -73,8 +74,14 @@ export default function StaffLoginGate({ children, requiredRole = 'any' }) {
     }, [shop_id])
 
     // デモモードの場合は認証スキップ
-    const isDemoMode = sessionStorage.getItem('demo_mode') === 'true'
+    // ⚠️ 보안: ?demo=1 URL 파라미터는 "demo_tmp_" 접두사 임시 스토어에서만 허용
+    //   (일반 매장에 ?demo=1 붙여 인증 우회하는 공격 차단)
+    const isTempDemoStore = typeof shop_id === 'string' && shop_id.startsWith('demo_tmp_')
+    const sessionDemoMode = sessionStorage.getItem('demo_mode') === 'true'
+    const urlDemoMode = searchParams.get('demo') === '1' && isTempDemoStore
+    const isDemoMode = sessionDemoMode || urlDemoMode
     if (isDemoMode) return children
+
 
     // Check if already authenticated with correct role
     if (isAuthenticated) {
@@ -106,6 +113,9 @@ export default function StaffLoginGate({ children, requiredRole = 'any' }) {
         setLoading(true)
         try {
             const res = await axios.post(`/api/staff-auth/master/${shop_id}`, { pin })
+            if (res.data.token) {
+                localStorage.setItem('staffToken', res.data.token)
+            }
             setAuth(res.data)
         } catch (e) {
             setError(e.response?.data?.detail || 'ログインに失敗しました。')

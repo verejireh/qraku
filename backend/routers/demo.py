@@ -264,6 +264,74 @@ async def _cleanup_expired_temp_stores(session: AsyncSession, now: datetime):
             pass
 
 
+@router.get("/orders/{store_slug}")
+async def get_demo_orders(store_slug: str, session: AsyncSession = Depends(get_session)):
+    """
+    데모 쇼케이스용 공개 orders 엔드포인트 (인증 불필요).
+    demo_tmp_ 접두사가 붙은 임시 스토어만 허용 — 일반 매장 주문 노출 불가.
+    """
+    from sqlalchemy.orm import selectinload as _selectinload
+    from sqlmodel import select as _select
+    from models import Order, OrderItem
+
+    # 보안: demo_tmp_ 접두사 스토어만 허용
+    if not store_slug.startswith(TEMP_STORE_PREFIX):
+        raise HTTPException(status_code=403, detail="Demo-only endpoint. Not available for regular stores.")
+
+    store_result = await session.execute(
+        _select(Store).where(Store.slug == store_slug)
+    )
+    store = store_result.scalar_one_or_none()
+    if not store:
+        raise HTTPException(status_code=404, detail="Demo store not found.")
+
+    # 해당 스토어의 최근 주문 (최대 200개)
+    orders_result = await session.execute(
+        _select(Order)
+        .where(Order.shop_id == store_slug)
+        .options(_selectinload(Order.items))
+        .order_by(Order.created_at.desc())
+        .limit(200)
+    )
+    orders = orders_result.scalars().all()
+    return orders
+
+
+@router.get("/tables/{store_slug}")
+async def get_demo_tables(store_slug: str, session: AsyncSession = Depends(get_session)):
+    """
+    데모 쇼케이스용 공개 tables 엔드포인트 (인증 불필요).
+    demo_tmp_ 접두사가 붙은 임시 스토어만 허용.
+    """
+    from sqlmodel import select as _select
+
+    if not store_slug.startswith(TEMP_STORE_PREFIX):
+        raise HTTPException(status_code=403, detail="Demo-only endpoint. Not available for regular stores.")
+
+    store_result = await session.execute(
+        _select(Store).where(Store.slug == store_slug)
+    )
+    store = store_result.scalar_one_or_none()
+    if not store:
+        raise HTTPException(status_code=404, detail="Demo store not found.")
+
+    tables_result = await session.execute(
+        _select(Table).where(Table.store_id == store.id)
+    )
+    tables = tables_result.scalars().all()
+    return [
+        {
+            "id": t.id,
+            "table_number": t.table_number,
+            "status": (t.status.value if hasattr(t.status, 'value') else str(t.status)).lower(),
+            "session_token": t.session_token,
+            "guest_count": t.guest_count,
+            "join_window_end": t.join_window_end.isoformat() if t.join_window_end else None,
+        }
+        for t in tables
+    ]
+
+
 @router.get("/info")
 async def get_demo_info(session: AsyncSession = Depends(get_session)):
     """ランディングページが QR コードを生成するための情報を返す（公開情報のみ）"""

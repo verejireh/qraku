@@ -17,7 +17,8 @@ export default function SakuraThemeView({
     totalQuantity,
     totalAmount,
     onAddToCart,
-    onCheckout
+    onCheckout,
+    tabehoudaiMenuIds = new Set()
 }) {
     const { getMenuName, getMenuDescription } = useLanguage()
 
@@ -112,6 +113,12 @@ export default function SakuraThemeView({
                                                 )}
                                                 <div className="flex-1 flex flex-col justify-between">
                                                     <div>
+                                                        {tabehoudaiMenuIds?.has(item.id) && (
+                                                            <span className="inline-flex items-center gap-1 bg-rose-500 text-white px-2 py-0.5 rounded-full text-[10px] font-black tracking-wider mb-1">
+                                                                <span className="material-symbols-outlined text-[11px]">restaurant</span>
+                                                                食べ放題対象
+                                                            </span>
+                                                        )}
                                                         <p className="text-primary font-bold text-lg">¥{item.price.toLocaleString()}</p>
                                                         <h3 className="text-base font-bold text-slate-800 mt-1">{getMenuName(item)}</h3>
                                                         {item.name_jp && item.name_jp !== getMenuName(item) && (

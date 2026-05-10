@@ -21,6 +21,7 @@ export function AdminNavBar({ storeData, shop_id }) {
 
     const tabs = [
         { key: 'home', label: t?.('admin.nav.dashboard') || 'Home', path: `/${shop_id}/admin`, exact: true, icon: 'dashboard' },
+        { key: 'mypage', label: 'My Page', path: `/${shop_id}/admin/homepage`, icon: 'home' },
         { key: 'menu', label: t?.('admin.nav.menu_manage') || 'Menu', path: `/${shop_id}/admin/menu`, icon: 'restaurant_menu' },
         { key: 'operation', label: t?.('admin.nav.operation') || 'Operation', path: `/${shop_id}/admin/operation`, icon: 'settings_suggest' },
         { key: 'staff', label: t?.('admin.nav.staff') || 'Staff', path: `/${shop_id}/admin/staff-manage`, icon: 'badge' },
@@ -91,6 +92,7 @@ export default function AdminView() {
     const { shop_id } = useParams()
     const navigate = useNavigate()
     const { t } = useLanguage()
+    const { themes } = useTheme()
 
     const [storeData, setStoreData] = useState(null)
     const [loading, setLoading] = useState(true)
@@ -110,9 +112,7 @@ export default function AdminView() {
     const [chartView, setChartView] = useState('daily') // daily | hourly | monthly | weekly
     const [statDays, setStatDays] = useState(7)
 
-    // Business hours
-    const [businessHours, setBusinessHours] = useState({})
-    const [editingHours, setEditingHours] = useState(false)
+    // Chart View mode
 
     // Data Fetching
     useEffect(() => {
@@ -125,9 +125,6 @@ export default function AdminView() {
                 const store = storeRes.data?.data || storeRes.data
                 setStoreData(store)
                 if (subRes?.data) setSubStatus(subRes.data)
-                if (store.business_hours) {
-                    try { setBusinessHours(JSON.parse(store.business_hours)) } catch {}
-                }
             } catch (e) { console.error(e) }
             setLoading(false)
         }
@@ -172,12 +169,7 @@ export default function AdminView() {
         } catch {}
     }
 
-    const saveBusinessHours = async (newHours) => {
-        setBusinessHours(newHours)
-        try {
-            await axios.patch(`/api/stores/${shop_id}`, { business_hours: JSON.stringify(newHours) })
-        } catch (e) { console.error(e) }
-    }
+
 
     const handleStoreUpdate = async (field, value) => {
         try {
@@ -429,50 +421,7 @@ export default function AdminView() {
                     </div>
                 </section>
 
-                {/* ════════ 営業時間設定 ════════ */}
-                <section className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2">
-                            <span className="material-symbols-outlined text-adminprimary">schedule</span>
-                            <h3 className="font-bold text-lg">{t('admin.business_hours')}</h3>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <span className="text-xs font-bold text-slate-400">{t('admin.status.open')}</span>
-                            <Toggle value={storeData?.is_open !== false} onChange={v => handleStoreUpdate('is_open', v)} />
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-                        {DAY_KEYS.map((key, i) => {
-                            const day = businessHours[key] || { open: '11:00', close: '22:00', closed: false }
-                            return (
-                                <div key={key} className={`p-3 rounded-xl border transition-all ${day.closed ? 'bg-slate-50 border-slate-200 opacity-60' : 'bg-adminprimary/5 border-adminprimary/20'}`}>
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className="text-sm font-black text-slate-700">{t(`admin.days.${key}`)}</span>
-                                        <button onClick={() => {
-                                            const newH = { ...businessHours, [key]: { ...day, closed: !day.closed } }
-                                            saveBusinessHours(newH)
-                                        }}
-                                            className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${day.closed ? 'bg-red-100 text-red-500' : 'bg-emerald-100 text-emerald-600'}`}>
-                                            {day.closed ? t('admin.status.closed') : t('admin.status.open')}
-                                        </button>
-                                    </div>
-                                    {!day.closed && (
-                                        <div className="space-y-1">
-                                            <input type="time" value={day.open} onChange={e => {
-                                                const newH = { ...businessHours, [key]: { ...day, open: e.target.value } }
-                                                saveBusinessHours(newH)
-                                            }} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:border-adminprimary/50" />
-                                            <input type="time" value={day.close} onChange={e => {
-                                                const newH = { ...businessHours, [key]: { ...day, close: e.target.value } }
-                                                saveBusinessHours(newH)
-                                            }} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:border-adminprimary/50" />
-                                        </div>
-                                    )}
-                                </div>
-                            )
-                        })}
-                    </div>
-                </section>
+
 
                 {/* ════════ 2-Column Grid: 人気メニュー + ポイント設定 ════════ */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -573,10 +522,18 @@ export default function AdminView() {
                             { label: '住所', key: 'address', placeholder: '例: 東京都渋谷区○○ 1-2-3', required: true },
                             { label: '電話番号', key: 'phone', placeholder: '例: 03-1234-5678', required: true, type: 'tel' },
                             { label: '代表者名', key: 'owner_name', placeholder: '例: 田中 太郎' },
+                            { label: 'LINE 友だち追加 URL', key: 'line_friend_url', placeholder: '例: https://lin.ee/xxxxxxx', type: 'url' },
                         ].map(f => (
                             <div key={f.key}>
-                                <label className="text-xs font-bold text-slate-500 block mb-1">
-                                    {f.label}{f.required && <span className="text-adminprimary ml-1">*</span>}
+                                <label className="text-xs font-bold text-slate-500 block mb-1 flex items-center gap-2">
+                                    <span>{f.label}{f.required && <span className="text-adminprimary ml-1">*</span>}</span>
+                                    {f.key === 'line_friend_url' && (
+                                        <a href="/guide/line-friend" target="_blank" rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-full bg-[#06C755]/10 text-[#06C755] hover:bg-[#06C755]/20 transition-colors no-underline">
+                                            <span className="material-symbols-outlined text-[12px] leading-none">help</span>
+                                            設定方法
+                                        </a>
+                                    )}
                                 </label>
                                 <input type={f.type || 'text'} defaultValue={storeData?.[f.key] || ''}
                                     onBlur={e => {
@@ -590,40 +547,66 @@ export default function AdminView() {
                     </div>
                 </section>
 
-                {/* ════════ 0.5 QRaku 掲載設定 ════════ */}
+                {/* ════════ 0.45 テーマ選択 ════════ */}
                 <section className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
                     <h4 className="font-bold mb-1 flex items-center gap-2">
-                        <span className="material-symbols-outlined text-adminprimary">campaign</span>
-                        QRaku 掲載設定
+                        <span className="material-symbols-outlined text-adminprimary">palette</span>
+                        テーマ
                     </h4>
-                    <p className="text-xs text-slate-400 mb-4">同意いただくと、メニューや店舗情報がQRakuの公開ランキングページに掲載され、集客効果が期待できます。</p>
-                    <div className="flex items-center justify-between p-4 bg-adminprimary/5 rounded-xl border border-adminprimary/20">
-                        <div className="flex items-center gap-3">
-                            <span className="material-symbols-outlined text-adminprimary">public</span>
-                            <div>
-                                <span className="text-sm font-bold">掲載ページに表示</span>
-                                <p className="text-[10px] text-slate-400">メニュー写真・説明が公開ランキングページに表示されます。</p>
-                            </div>
-                        </div>
-                        <Toggle value={storeData?.allow_public_listing}
-                            onChange={v => handleStoreUpdate('allow_public_listing', v)} />
+                    <p className="text-xs text-slate-400 mb-4">お客様の注文画面の雰囲気を選んでください。</p>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                        {Object.entries(themes).map(([key, t]) => {
+                            const selected = storeData?.theme === key
+                            return (
+                                <button
+                                    key={key}
+                                    onClick={() => handleStoreUpdate('theme', key)}
+                                    className={`relative flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all hover:scale-[1.03] ${
+                                        selected
+                                            ? 'border-adminprimary bg-adminprimary/5 shadow-md'
+                                            : 'border-slate-200 hover:border-slate-300'
+                                    }`}
+                                >
+                                    <div
+                                        className="w-12 h-12 rounded-full shadow-inner ring-2 ring-white"
+                                        style={{ backgroundColor: t.color }}
+                                    />
+                                    <span className={`text-xs font-bold ${selected ? 'text-adminprimary' : 'text-slate-600'}`}>
+                                        {t.name}
+                                    </span>
+                                    {selected && (
+                                        <span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-adminprimary flex items-center justify-center">
+                                            <span className="material-symbols-outlined text-white text-[14px]">check</span>
+                                        </span>
+                                    )}
+                                </button>
+                            )
+                        })}
                     </div>
-                    {storeData?.allow_public_listing && (
-                        <div className="grid grid-cols-2 gap-3 mt-4">
-                            <div>
-                                <label className="text-xs font-bold text-slate-600 block mb-1">都道府県</label>
-                                <input type="text" placeholder="例: 東京都" defaultValue={storeData?.prefecture || ''}
-                                    onBlur={e => handleStoreUpdate('prefecture', e.target.value.trim())}
-                                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-adminprimary/50" />
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-slate-600 block mb-1">市区町村</label>
-                                <input type="text" placeholder="例: 渋谷区" defaultValue={storeData?.city || ''}
-                                    onBlur={e => handleStoreUpdate('city', e.target.value.trim())}
-                                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-adminprimary/50" />
-                            </div>
+                </section>
+
+                {/* ════════ 0.5 My Home Page (간단 안내 + 이동 버튼) ════════ */}
+                <section className="bg-gradient-to-br from-rose-50 to-amber-50 rounded-2xl border border-rose-200 p-6">
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="flex-1">
+                            <h4 className="font-bold mb-1 flex items-center gap-2">
+                                <span className="material-symbols-outlined text-rose-500">home</span>
+                                My Home Page
+                            </h4>
+                            <p className="text-xs text-slate-500 leading-relaxed">
+                                {storeData?.allow_public_listing
+                                    ? <>公開ホームページが <a href={`/${shop_id}`} target="_blank" rel="noopener noreferrer" className="font-mono text-rose-500 underline">qraku.com/{shop_id}</a> で公開中です。内装・外観・周辺情報を充実させて集客アップ。</>
+                                    : <>無料の公開ホームページを有効にすると、お客様が訪れる専用ページが作成されます。月額¥1,000割引も適用されます。</>
+                                }
+                            </p>
                         </div>
-                    )}
+                        <button
+                            onClick={() => navigate(`/${shop_id}/admin/homepage`)}
+                            className="bg-rose-500 hover:bg-rose-600 text-white font-bold px-5 py-2.5 rounded-xl shadow-md transition-all uppercase text-xs tracking-widest flex items-center gap-1 shrink-0"
+                        >
+                            設定 <span className="material-symbols-outlined text-base">arrow_forward</span>
+                        </button>
+                    </div>
                 </section>
 
                 {/* ════════ 0.6 Generate Table QRs ════════ */}

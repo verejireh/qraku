@@ -29,16 +29,24 @@ export function ThemeProvider({ children }) {
         localStorage.setItem('theme-flower', currentTheme)
     }, [currentTheme])
 
-    // Mark as user-selected so StoreLayout doesn't override it
+    // 사용자가 헤더에서 직접 선택할 때만 호출 — 이후 자동 덮어쓰기 차단
     const setCurrentTheme = (theme) => {
         localStorage.setItem('theme-user-selected', '1')
         setCurrentThemeState(theme)
+    }
+
+    // StoreLayout/OrderView에서 서버 기본 테마를 자동 적용할 때 호출 — 플래그 건드리지 않음
+    const applyStoreTheme = (theme) => {
+        if (theme && FLOWER_THEMES[theme]) {
+            setCurrentThemeState(theme)
+        }
     }
 
     return (
         <ThemeContext.Provider value={{
             currentTheme,
             setCurrentTheme,
+            applyStoreTheme,
             themes: FLOWER_THEMES,
         }}>
             {children}

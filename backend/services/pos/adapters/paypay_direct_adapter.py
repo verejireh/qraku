@@ -1,3 +1,4 @@
+import os
 import uuid
 import hashlib
 import hmac
@@ -11,6 +12,19 @@ import httpx
 from models import Store, PaymentSettings
 from ..base import BasePaymentAdapter
 
+
+def verify_paypay_signature(raw: bytes, signature: str) -> bool:
+    """PayPay webhook HMAC-SHA256 서명 검증 (timing-safe compare)"""
+    secret = os.getenv("PAYPAY_WEBHOOK_SECRET", "")
+    if not secret:
+        return False
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        raw,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature.lower())
+
 # PayPay API endpoints
 PAYPAY_API_PROD = "https://api.paypay.ne.jp"
 PAYPAY_API_STAGING = "https://stg-api.paypay.ne.jp"
@@ -19,8 +33,10 @@ PAYPAY_API_STAGING = "https://stg-api.paypay.ne.jp"
 class PayPayDirectAdapter(BasePaymentAdapter):
     def __init__(self, store: Store, settings: PaymentSettings):
         super().__init__(store, settings)
-        self.api_key = settings.paypay_api_key or ""
-        self.api_secret = settings.paypay_api_secret or ""
+        # DB 에 저장된 시크릿은 암호화될 수 있음 — 사용 시점에 복호화
+        from utils.crypto import decrypt_secret
+        self.api_key = decrypt_secret(settings.paypay_api_key) or ""
+        self.api_secret = decrypt_secret(settings.paypay_api_secret) or ""
         self.merchant_id = settings.paypay_merchant_id or ""
         # 本番 / ステージング判定
         self.base_url = PAYPAY_API_PROD if self.api_key and not self.api_key.startswith("stg_") else PAYPAY_API_STAGING

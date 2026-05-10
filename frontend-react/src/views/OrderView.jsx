@@ -7,6 +7,8 @@ import MagnoliaMenuCard from '../components/magnolia/MagnoliaMenuCard'
 import MagnoliaFloatingCart from '../components/magnolia/MagnoliaFloatingCart'
 import MagnoliaCartModal from '../components/magnolia/MagnoliaCartModal'
 import { useCart } from '../hooks/useCart'
+import { useLiff } from '../hooks/useLiff'
+import { computeStoreStatus } from '../utils/businessHours'
 import { useLanguage } from '../context/LanguageContext'
 import { useTheme } from '../context/ThemeContext'
 import { useSession } from '../context/SessionContext'
@@ -19,6 +21,8 @@ import AjisaiThemeView from './themes/AjisaiThemeView'
 import CamelliaThemeView from './themes/CamelliaThemeView'
 import BambooThemeView from './themes/BambooThemeView'
 import TakeoutTimeQueryView from './TakeoutTimeQueryView'
+import TabehoudaiBanner from '../components/TabehoudaiBanner'
+import { useWebSocket } from '../hooks/useWebSocket'
 
 const TAKEOUT_CAT = '🥡 テイクアウト'
 
@@ -35,7 +39,7 @@ export default function OrderView({ orderType: propOrderType } = {}) {
 
     const navigate = useNavigate()
     const { t } = useLanguage()
-    const { currentTheme: contextTheme, setCurrentTheme } = useTheme()
+    const { currentTheme: contextTheme, setCurrentTheme, applyStoreTheme } = useTheme()
 
     // storeData is provided by StoreLayout via Outlet context
     // All OrderView routes are inside <StoreLayout />, so this is always available
@@ -59,15 +63,16 @@ export default function OrderView({ orderType: propOrderType } = {}) {
     const themeParam = query.get('theme')
     useEffect(() => {
         if (themeParam) {
-            setCurrentTheme(themeParam)
+            applyStoreTheme(themeParam)
         } else if (storeData?.theme && !localStorage.getItem('theme-user-selected')) {
             // 유저가 직접 테마를 선택하지 않은 경우에만 스토어 기본 테마 적용
-            setCurrentTheme(storeData.theme)
+            applyStoreTheme(storeData.theme)
         }
-    }, [themeParam, storeData?.theme, setCurrentTheme])
+    }, [themeParam, storeData?.theme, applyStoreTheme])
 
     const [menus, setMenus] = useState([])
     const [categories, setCategories] = useState([])
+    const [tabehoudaiSession, setTabehoudaiSession] = useState(null)
     const [activeCategory, setActiveCategory] = useState(() => {
         return sessionStorage.getItem(`category_${storeId}`) || 'All'
     })
@@ -84,9 +89,40 @@ export default function OrderView({ orderType: propOrderType } = {}) {
     const [showTimeQuery, setShowTimeQuery] = useState(false)   // 조리시간 문의 모달
     const [agreedPickupTime, setAgreedPickupTime] = useState(null) // 합의된 픽업 시간
 
+    // LINE Digital Stamp
+    const [stampStatus, setStampStatus] = useState(null)
+    const [useStampReward, setUseStampReward] = useState(false)
+
+    // Photo Review Contest Coupons
+    const [guestCoupons, setGuestCoupons] = useState([])
+    const [useCouponId, setUseCouponId] = useState(null)
+
+    // 食べ放題 대상 메뉴 ID Set — 모든 early return 위에 위치해야 함 (Hook 순서 일관성)
+    const tabehoudaiMenuIds = useMemo(() => {
+        if (!tabehoudaiSession || tabehoudaiSession.status !== 'active') return new Set()
+        return new Set(tabehoudaiSession.menu_ids || [])
+    // 의도적으로 의존성 누락 — tabehoudaiSession state 객체로 계산
+    }, [tabehoudaiSession])
+
+    // LIFF (LINE) — 로그인된 사용자라면 guest_uuid 를 line:{userId} 로 덮어써서
+    // 백엔드의 stamp 적립 로직(orders.py)에 진입할 수 있도록 한다.
+    const { liff, isInitialized: liffReady } = useLiff(import.meta.env.VITE_LINE_LIFF_ID)
+    useEffect(() => {
+        if (!liffReady || !liff || !storeId) return
+        try {
+            if (liff.isInClient() || liff.isLoggedIn()) {
+                liff.getProfile().then(profile => {
+                    const lineUuid = `line:${profile.userId}`
+                    localStorage.setItem(`guest_uuid_${storeId}`, lineUuid)
+                }).catch(err => console.error('LIFF getProfile failed', err))
+            }
+        } catch (err) {
+            console.error('LIFF check failed', err)
+        }
+    }, [liffReady, liff, storeId])
+
     // 요리완료 모달 상태
     const [completedModal, setCompletedModal] = useState(null) // { items: [...] }
-    const wsCustomerRef = useRef(null)
 
     const { cart, addToCart, removeFromCart, updateQuantity, clearCart, totalQuantity, totalAmount } = useCart()
 
@@ -210,7 +246,7 @@ export default function OrderView({ orderType: propOrderType } = {}) {
     // 3. Fetch Menus
     const fetchMenus = async () => {
         try {
-            const res = await axios.get(`/api/menus/${storeId}`)
+            const res = await axios.get(`/api/menus/${storeId}?filter_groups=true`)
             const extractArray = (data) => Array.isArray(data) ? data : (data?.data || data?.items || [])
             const menuArray = extractArray(res.data)
 
@@ -243,6 +279,25 @@ export default function OrderView({ orderType: propOrderType } = {}) {
         }
     }
 
+    // 4. Fetch Stamp & Coupon Status
+    useEffect(() => {
+        const fetchUserData = async () => {
+            const guestUuid = localStorage.getItem(`guest_uuid_${storeId}`)
+            if (!guestUuid || !storeData?.id) return
+            try {
+                const [stampRes, couponRes] = await Promise.all([
+                    axios.get(`/api/guests/${guestUuid}/stamps/${storeData.id}`).catch(() => ({ data: null })),
+                    axios.get(`/api/guests/${guestUuid}/coupons/${storeData.id}`).catch(() => ({ data: [] }))
+                ])
+                if (stampRes.data) setStampStatus(stampRes.data)
+                if (couponRes.data) setGuestCoupons(couponRes.data)
+            } catch (e) {
+                console.error("Failed to fetch user data", e)
+            }
+        }
+        fetchUserData()
+    }, [storeData?.id, storeId])
+
     // handlePlaceOrder(selectedPayment, sourceId, pickupTime)
     // - eat_in : handlePlaceOrder('cash_at_counter')
     // - take_out: handlePlaceOrder('square', squareNonce, '12:30')
@@ -262,11 +317,13 @@ export default function OrderView({ orderType: propOrderType } = {}) {
                 shop_id: String(storeId),
                 table_number: isTakeOut ? '0' : String(tableNumber || tableData?.table_number || '1'),
                 session_token: isTakeOut ? 'takeout' : sessionToken,
-                guest_uuid: localStorage.getItem('guest_uuid'),
-                order_type: isTakeOut ? 'take_out' : 'eat_in',
+                order_type: isTakeOut ? "take_out" : "eat_in",
                 payment_method: selectedPayment,
-                source_id: sourceId || null,
-                pickup_time: pickupTime || null,
+                source_id: sourceId,
+                pickup_time: pickupTime,
+                guest_uuid: localStorage.getItem(`guest_uuid_${storeId}`) || null,
+                use_stamp_reward: useStampReward,
+                use_coupon_id: useCouponId,
                 items: cart.map(item => ({
                     menu_item_id: String(item.menuId),
                     quantity: item.quantity,
@@ -308,50 +365,40 @@ export default function OrderView({ orderType: propOrderType } = {}) {
         verifySessionOrJoin()
     }, [storeId, tableNumber, qrToken])
 
-    // 손님 WebSocket 연결 (요리완료 알림 수신용) — audioUnlocked 이후에만 연결
+    // 食べ放題 활성 세션 폴링 (배너 + 메뉴 뱃지용)
     useEffect(() => {
-        if (!storeId || !tableNumber || !audioUnlocked) return
-
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const host = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? `${window.location.hostname}:8003`
-            : window.location.host
-
-        let ws = null
-        const connectCustomerWS = async () => {
+        if (!tableData?.id || isTakeOut) {
+            setTabehoudaiSession(null)
+            return
+        }
+        let cancelled = false
+        const fetchSession = async () => {
             try {
-                const storeRes = await import('axios').then(m => m.default.get(`/api/stores/${storeId}`))
-                const numericId = storeRes.data.id
-                const wsUrl = `${protocol}//${host}/api/ws/customer/${numericId}/${tableNumber}`
-                ws = new WebSocket(wsUrl)
-                wsCustomerRef.current = ws
-
-                ws.onmessage = (event) => {
-                    try {
-                        const data = JSON.parse(event.data)
-                        if (data.type === 'order_completed') {
-                            // audioCtxRef 재사용 — 브라우저 정책 우회
-                            playDingDong()
-                            // 모달 표시 후 5초 뒤 자동 닫힘
-                            setCompletedModal({ items: data.items || [] })
-                            setTimeout(() => setCompletedModal(null), 5000)
-                        }
-                    } catch (e) { console.error('Customer WS msg error', e) }
-                }
-
-                ws.onerror = (e) => console.error('Customer WS error', e)
-                ws.onclose = () => {
-                    // 연결 끊기면 5초 후 자동 재연결
-                    setTimeout(() => connectCustomerWS(), 5000)
-                }
-            } catch (e) {
-                console.error('Customer WS connect failed', e)
+                const res = await axios.get(`/api/tabehoudai/sessions/active/by-table/${tableData.id}`)
+                if (!cancelled) setTabehoudaiSession(res.data || null)
+            } catch {
+                if (!cancelled) setTabehoudaiSession(null)
             }
         }
+        fetchSession()
+        const interval = setInterval(fetchSession, 30000)
+        return () => { cancelled = true; clearInterval(interval) }
+    }, [tableData?.id, isTakeOut])
 
-        connectCustomerWS()
-        return () => { if (wsCustomerRef.current) wsCustomerRef.current.close() }
-    }, [storeId, tableNumber, audioUnlocked, playDingDong])
+    // 손님 WebSocket 연결 (요리완료 알림 수신용) — audioUnlocked 이후에만 연결
+    // storeData.id (numeric) comes from StoreLayout outlet context
+    useWebSocket({
+        audience: 'customer',
+        storeId: audioUnlocked ? storeData?.id : null,
+        tableNumber,
+        onEvent: useCallback((event) => {
+            if (event.type === 'order_completed') {
+                playDingDong()
+                setCompletedModal({ items: event.items || event.data?.items || [] })
+                setTimeout(() => setCompletedModal(null), 5000)
+            }
+        }, [playDingDong]),
+    })
 
     // Duplicate theme param code here is removed.
 
@@ -373,6 +420,17 @@ export default function OrderView({ orderType: propOrderType } = {}) {
     }, [menus, activeCategory, searchQuery])
 
     const handleAddToCart = (e, item, quantity = 1, options = {}) => {
+        // ── 영업시간 외 / 임시 휴업 차단 ───────────────────────────────
+        const status = computeStoreStatus(storeData)
+        if (!status.open) {
+            const msgMap = {
+                manual_off: '現在準備中のため、ご注文いただけません。',
+                before_open: '営業時間前のため、ご注文いただけません。',
+                after_close: '本日の営業時間が終了しました。',
+            }
+            alert(msgMap[status.reason] || '営業時間外のため、ご注文いただけません。')
+            return
+        }
         const asTakeout = isTakeOut || isTakeoutCategory
         addToCart(item, quantity, options, asTakeout)
     }
@@ -544,6 +602,12 @@ export default function OrderView({ orderType: propOrderType } = {}) {
         }
     }
 
+    // 食べ放題 대상 메뉴 ID Set — early return 위쪽에서 이미 정의됨
+
+    // 영업 상태 (영업시간 + is_open 토글 종합)
+    const storeStatus = computeStoreStatus(storeData)
+    const storeOpen = storeStatus.open
+
     // Dynamic Theme Rendering
     const themeProps = {
         storeId,
@@ -559,6 +623,8 @@ export default function OrderView({ orderType: propOrderType } = {}) {
         cart,
         totalQuantity,
         totalAmount,
+        tabehoudaiMenuIds,
+        storeOpen,
         onAddToCart: handleAddToCart,
         onCheckout: handleCartCheckout,
     }
@@ -581,6 +647,12 @@ export default function OrderView({ orderType: propOrderType } = {}) {
         paymentMethodType: storeData?.payment_settings?.payment_method_type || null,
         shopId: storeData?.id || storeId,
         defaultWaitMinutes: storeData?.takeout_default_wait_minutes || 15,
+        stampStatus,
+        useStampReward,
+        setUseStampReward,
+        guestCoupons,
+        useCouponId,
+        setUseCouponId,
     }
 
     // 유저가 선택한 테마(contextTheme)를 storeData.theme보다 우선 적용
@@ -604,63 +676,39 @@ export default function OrderView({ orderType: propOrderType } = {}) {
             case 'sunflower': return <SunflowerThemeView {...themeProps} />
             case 'lavender': return <LavenderThemeView {...themeProps} />
             case 'ajisai': return <AjisaiThemeView {...themeProps} />
-            case 'tsubaki': return <CamelliaThemeView {...themeProps} />
             case 'bamboo': return <BambooThemeView {...themeProps} />
-            default: // Magnolia
-                return (
-                    <>
-                        <main className="px-5 py-6 space-y-8 relative z-0">
-                            {!loading && categories.length > 0 && (
-                                <MagnoliaCategoryTabs
-                                    categories={categories.map(c => ({ id: c, name: c }))}
-                                    activeId={activeCategory}
-                                    onSelect={(cat) => {
-                                        setActiveCategory(cat)
-                                        sessionStorage.setItem(`category_${storeId}`, cat)
-                                    }}
-                                />
-                            )}
-                            {loading ? (
-                                <div className="animate-pulse space-y-4">
-                                    {[1, 2, 3].map(i => (
-                                        <div key={i} className="h-32 bg-card-dark rounded-3xl opacity-50" />
-                                    ))}
-                                </div>
-                            ) : (
-                                <section className="space-y-4">
-                                    <div className="flex items-end justify-between px-1">
-                                        <h2 className="font-serif text-2xl text-white">
-                                            {activeCategory} Collection
-                                        </h2>
-                                        <span className="text-xs text-primary font-medium tracking-tighter uppercase mb-1">View All</span>
-                                    </div>
-
-                                    <div className="space-y-4">
-                                        {filteredMenus.map((item, idx) => (
-                                            <MagnoliaMenuCard
-                                                key={item.id || `magnolia-${idx}`}
-                                                item={item}
-                                                onAdd={handleAddToCart}
-                                                variant={(isTakeOut || isTakeoutCategory) ? 'takeout' : 'default'}
-                                            />
-                                        ))}
-                                        {filteredMenus.length === 0 && (
-                                            <div className="py-20 text-center text-slate-500 italic">
-                                                {t('no_menus') || 'No items available in this category'}
-                                            </div>
-                                        )}
-                                    </div>
-                                </section>
-                            )}
-                        </main>
-                        <MagnoliaFloatingCart count={totalQuantity} onClick={handleCartCheckout} />
-                    </>
-                )
+            case 'tsubaki':
+            default:
+                return <CamelliaThemeView {...themeProps} />
         }
     }
 
+    // 영업시간 외 안내 메시지
+    const closedMessage = (() => {
+        switch (storeStatus.reason) {
+            case 'manual_off': return '現在準備中です'
+            case 'before_open': return '営業時間前です — 開店までお待ちください'
+            case 'after_close': return '本日の営業は終了しました'
+            default: return '営業時間外のため、ご注文いただけません'
+        }
+    })()
+
     return (
         <div className="relative">
+            {/* 영업시간 외 빨간 배너 (sticky top) */}
+            {!storeOpen && storeStatus.reason !== 'no_data' && (
+                <div className="sticky top-0 z-[60] bg-red-600 text-white text-center py-2.5 px-4 shadow-lg">
+                    <p className="text-sm font-bold flex items-center justify-center gap-2">
+                        <span className="text-base">⚠️</span>
+                        <span>{closedMessage}</span>
+                    </p>
+                    <p className="text-[10px] opacity-90 mt-0.5">注文は受け付けておりません</p>
+                </div>
+            )}
+
+            {/* 食べ放題セッション バナー (table별) */}
+            {!isTakeOut && tableData?.id && <TabehoudaiBanner session={tabehoudaiSession} />}
+
             {/* Theme Content */}
             <div className="relative z-0 pb-32">
                 {renderThemeContent()}

@@ -17,7 +17,8 @@ export default function BambooThemeView({
     totalQuantity,
     totalAmount,
     onAddToCart,
-    onCheckout
+    onCheckout,
+    tabehoudaiMenuIds = new Set()
 }) {
     const { getMenuName, getMenuDescription } = useLanguage()
 
@@ -128,6 +129,12 @@ export default function BambooThemeView({
                                                             src={item.image_url || 'https://via.placeholder.com/600x400'} 
                                                             alt={getMenuName(item)}
                                                         />
+                                                        {tabehoudaiMenuIds?.has(item.id) && (
+                                                            <div className="absolute top-3 left-3 z-10 bg-rose-500 text-white px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1">
+                                                                <span className="material-symbols-outlined text-[12px]">restaurant</span>
+                                                                <span className="text-[10px] font-black tracking-wider">食べ放題対象</span>
+                                                            </div>
+                                                        )}
                                                         <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full border border-white/20">
                                                             <p className="text-primary font-bold text-sm">¥{item.price.toLocaleString()}</p>
                                                         </div>

@@ -32,7 +32,7 @@ engine = create_async_engine(
 
 async def init_db():
     """서버 시작 시 MySQL에 모든 테이블 생성 + 스키마 마이그레이션"""
-    from models import Store, Table  # 지연 import로 순환 방지
+    from models import Store, Table, StaffAttendance, PhotoReview, RewardCoupon, RefundLog, BetaApplication, EventLog, WebhookEvent  # 지연 import로 순환 방지
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 
@@ -122,6 +122,7 @@ async def init_db():
         # Store: basic info fields
         "ALTER TABLE store ADD COLUMN address VARCHAR(500) NULL",
         "ALTER TABLE store ADD COLUMN phone VARCHAR(50) NULL",
+        "ALTER TABLE store ADD COLUMN line_friend_url VARCHAR(500) NULL",
         # Business Hours & Open status
         "ALTER TABLE store ADD COLUMN business_hours TEXT NULL",
         "ALTER TABLE store ADD COLUMN is_open BOOLEAN DEFAULT TRUE",
@@ -148,6 +149,55 @@ async def init_db():
         "ALTER TABLE guestprofile ADD COLUMN prev_last_visit DATETIME NULL",
         # Store: 데이터 공개 동의 (월 ¥1,000 할인 플랜)
         "ALTER TABLE store ADD COLUMN data_open_consent BOOLEAN DEFAULT FALSE",
+        # OrderItem: 食べ放題 대상 마킹
+        "ALTER TABLE orderitem ADD COLUMN is_tabehoudai BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE orderitem ADD COLUMN tabehoudai_session_id INT NULL",
+        # StaffAttendance 테이블은 SQLModel.metadata.create_all로 자동 생성됨 (신규 테이블)
+        # staffmember.clock_in_at 컬럼이 없는 경우 대비 safeguard
+        "ALTER TABLE staffmember ADD COLUMN clock_in_at DATETIME NULL",
+        # [2026-05-02] My Home Page — qraku.com/{shop_id} 매장 공개 페이지 컨텐츠
+        "ALTER TABLE store ADD COLUMN about_description TEXT NULL",
+        "ALTER TABLE store ADD COLUMN specialty VARCHAR(1000) NULL",
+        "ALTER TABLE store ADD COLUMN interior_photos TEXT NULL",
+        "ALTER TABLE store ADD COLUMN exterior_photos TEXT NULL",
+        "ALTER TABLE store ADD COLUMN nearby_attractions TEXT NULL",
+        # [2026-05-03] Micro Job Board & Food Rescue
+        "ALTER TABLE store ADD COLUMN job_board_active BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE store ADD COLUMN job_board_text TEXT NULL",
+        "ALTER TABLE store ADD COLUMN food_rescue_active BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE store ADD COLUMN food_rescue_msg TEXT NULL",
+        # [2026-05-03] LINE Digital Stamp
+        "ALTER TABLE store ADD COLUMN stamp_active BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE store ADD COLUMN stamp_target INT DEFAULT 10",
+        "ALTER TABLE store ADD COLUMN stamp_reward_msg TEXT NULL",
+        "ALTER TABLE store ADD COLUMN stamp_reward_discount INT DEFAULT 0",
+        "ALTER TABLE `order` ADD COLUMN stamp_reward_used BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE `order` ADD COLUMN discount_amount FLOAT DEFAULT 0.0",
+        # [2026-05-04] Photo Review Contest
+        "ALTER TABLE store ADD COLUMN photo_contest_active BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE store ADD COLUMN photo_contest_reward_amount INT DEFAULT 500",
+        "ALTER TABLE `order` ADD COLUMN used_coupon_id INT NULL",
+        # photoreview / rewardcoupon 테이블은 SQLModel.metadata.create_all 가 자동 생성
+        # [2026-05-04] RewardCoupon 보강: 만료일·사용시각·발급출처
+        "ALTER TABLE rewardcoupon ADD COLUMN used_at DATETIME NULL",
+        "ALTER TABLE rewardcoupon ADD COLUMN expires_at DATETIME NULL",
+        "ALTER TABLE rewardcoupon ADD COLUMN source VARCHAR(50) DEFAULT 'photo_contest'",
+        # [2026-05-04] 멱등성: 결제 ID 중복 주문 방지 (NULL 은 다중 허용)
+        "ALTER TABLE `order` ADD UNIQUE INDEX uq_order_square_payment_id (square_payment_id)",
+        # [2026-05-04] guestprofile.created_at 기본값 — INSERT 실패 방지
+        "ALTER TABLE guestprofile MODIFY COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        # [2026-05-06] Food Rescue 자동/수동 모드 분리
+        "ALTER TABLE store ADD COLUMN food_rescue_mode VARCHAR(10) DEFAULT 'manual'",
+        "ALTER TABLE store ADD COLUMN food_rescue_auto_minutes INT DEFAULT 60",
+        "ALTER TABLE store ADD COLUMN food_rescue_manual_active BOOLEAN DEFAULT FALSE",
+        # [2026-05-09] INF-02: EventLog 검색 최적화 복합 인덱스
+        "CREATE INDEX IF NOT EXISTS idx_eventlog_store_time ON eventlog(store_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_eventlog_store_action ON eventlog(store_id, action)",
+        # [2026-05-09] INF-04: WebhookEvent 수신시각 복합 인덱스
+        "CREATE INDEX IF NOT EXISTS idx_webhookevent_provider_received ON webhookevent(provider, received_at)",
+        # [2026-05-09] INF-03: Order 클라이언트 Idempotency-Key (중복 주문 차단)
+        "ALTER TABLE `order` ADD COLUMN idempotency_key VARCHAR(64) NULL",
+        "CREATE UNIQUE INDEX idx_order_idem_key ON `order`(idempotency_key)",
     ]
     async with engine.begin() as conn:
         for sql in migration_sqls:

@@ -165,34 +165,34 @@ export default function TakeoutTimeQueryView({
                     <motion.div key="choose" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
                         <p className="text-white/70 text-sm text-center">どのように問い合わせますか？</p>
                         <button
-                            onClick={() => setQueryType(qt => qt === 'ask_available' ? null : 'ask_available')}
-                            className={`w-full p-4 rounded-2xl border-2 text-left transition-all ${queryType === 'ask_available' ? 'border-amber-400 bg-amber-400/10' : 'border-white/10 bg-white/5'}`}
-                        >
-                            <div className="flex items-center gap-3">
-                                <Clock className="text-amber-400 w-5 h-5 shrink-0" />
-                                <div>
-                                    <p className="text-white font-bold text-sm">いつ頃できますか？</p>
-                                    <p className="text-slate-400 text-xs mt-0.5">お店が準備できる時間を教えてもらいます</p>
-                                </div>
-                            </div>
-                        </button>
-
-                        <button
                             onClick={() => setQueryType(qt => qt === 'ask_specific' ? null : 'ask_specific')}
                             className={`w-full p-4 rounded-2xl border-2 text-left transition-all ${queryType === 'ask_specific' ? 'border-amber-400 bg-amber-400/10' : 'border-white/10 bg-white/5'}`}
                         >
                             <div className="flex items-center gap-3">
                                 <MessageCircle className="text-amber-400 w-5 h-5 shrink-0" />
                                 <div>
-                                    <p className="text-white font-bold text-sm">○○時に可能ですか？</p>
-                                    <p className="text-slate-400 text-xs mt-0.5">指定した時間に受け取れるか確認します</p>
+                                    <p className="text-white font-bold text-sm">특별 시간으로 지정하기</p>
+                                    <p className="text-slate-400 text-xs mt-0.5">원하시는 수령 시간을 직접 지정합니다</p>
+                                </div>
+                            </div>
+                        </button>
+
+                        <button
+                            onClick={() => setQueryType(qt => qt === 'ask_asap' ? null : 'ask_asap')}
+                            className={`w-full p-4 rounded-2xl border-2 text-left transition-all ${queryType === 'ask_asap' ? 'border-amber-400 bg-amber-400/10' : 'border-white/10 bg-white/5'}`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <Clock className="text-amber-400 w-5 h-5 shrink-0" />
+                                <div>
+                                    <p className="text-white font-bold text-sm">지금부터 최대한 빨리 지정하기</p>
+                                    <p className="text-slate-400 text-xs mt-0.5">가장 빠른 조리 완료 시간을 안내받습니다</p>
                                 </div>
                             </div>
                         </button>
 
                         {queryType === 'ask_specific' && (
                             <div className="pt-1">
-                                <label className="text-xs text-slate-400 uppercase tracking-widest font-bold block mb-1.5">希望時間</label>
+                                <label className="text-xs text-slate-400 uppercase tracking-widest font-bold block mb-1.5">희망 수령 시간 (Time)</label>
                                 <input
                                     type="time"
                                     value={specificTime}
@@ -207,7 +207,7 @@ export default function TakeoutTimeQueryView({
                             disabled={!queryType || submitting || (queryType === 'ask_specific' && !specificTime)}
                             className="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-white rounded-2xl font-bold text-base transition-all mt-2"
                         >
-                            {submitting ? '送信中...' : 'お店に問い合わせる'}
+                            {submitting ? '送信中...' : '시간 문의하기'}
                         </button>
                     </motion.div>
                 )}
@@ -259,7 +259,7 @@ export default function TakeoutTimeQueryView({
                 {/* Step: counter — 손님이 대안 시간 제시 */}
                 {step === 'counter' && (
                     <motion.div key="counter" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
-                        <p className="text-white/70 text-sm text-center">ご希望の時間を入力してください</p>
+                        <p className="text-white/70 text-sm text-center">원하시는 시간을 다시 제안해주세요</p>
                         <input
                             type="time"
                             value={counterTime}

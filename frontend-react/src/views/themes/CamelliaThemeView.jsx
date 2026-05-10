@@ -17,7 +17,9 @@ export default function CamelliaThemeView({
     totalQuantity,
     totalAmount,
     onAddToCart,
-    onCheckout
+    onCheckout,
+    tabehoudaiMenuIds = new Set(),
+    storeOpen = true,
 }) {
     const { getMenuName, getMenuDescription } = useLanguage()
 
@@ -127,6 +129,12 @@ export default function CamelliaThemeView({
                                                             src={item.image_url || 'https://via.placeholder.com/600x400'} 
                                                             alt={getMenuName(item)}
                                                         />
+                                                        {tabehoudaiMenuIds?.has(item.id) && (
+                                                            <div className="absolute top-3 left-3 z-10 bg-rose-500 text-white px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1">
+                                                                <span className="material-symbols-outlined text-[12px]">restaurant</span>
+                                                                <span className="text-[10px] font-black tracking-wider">食べ放題対象</span>
+                                                            </div>
+                                                        )}
                                                         <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full border border-white/20">
                                                             <p className="text-primary font-bold text-sm">¥{item.price.toLocaleString()}</p>
                                                         </div>
@@ -145,12 +153,16 @@ export default function CamelliaThemeView({
                                                             {getMenuDescription(item) || "Experience the unique style of Camellia."}
                                                         </p>
                                                         <button
-                                                            onClick={(e) => item.is_available && onAddToCart(e, item)}
-                                                            disabled={!item.is_available}
-                                                            className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-lg transition-all active:scale-95 shadow-lg shadow-primary/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            onClick={(e) => item.is_available && storeOpen && onAddToCart(e, item)}
+                                                            disabled={!item.is_available || !storeOpen}
+                                                            className={`w-full flex items-center justify-center gap-2 font-bold py-3 rounded-lg transition-all active:scale-95 ${
+                                                                !item.is_available || !storeOpen
+                                                                    ? 'bg-slate-400 text-white/70 cursor-not-allowed shadow-none'
+                                                                    : 'bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/25'
+                                                            }`}
                                                         >
                                                             <PlusCircle className="w-5 h-5" />
-                                                            <span>{t('add_to_cart') || 'Add to Order'}</span>
+                                                            <span>{!storeOpen ? '営業時間外' : (t('add_to_cart') || 'Add to Order')}</span>
                                                         </button>
                                                     </div>
                                                 </motion.div>

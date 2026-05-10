@@ -1,4 +1,6 @@
+import os
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlmodel import select, func, col
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
@@ -9,13 +11,37 @@ from models import (
 from datetime import datetime, timedelta
 import json
 from typing import Optional
+from utils.auth import verify_password
+from utils.jwt import create_super_admin_token, require_super_admin
 
 router = APIRouter(prefix="/super-admin", tags=["super-admin"])
 
 
+# ─── 로그인 (인증 불필요) ──────────────────────────────────────────
+class SuperAdminLoginRequest(BaseModel):
+    password: str
+
+
+@router.post("/login")
+async def super_admin_login(body: SuperAdminLoginRequest):
+    """Super Admin 로그인. SUPER_ADMIN_PASSWORD_HASH 환경변수와 비교 후 JWT 발급."""
+    expected_hash = os.getenv("SUPER_ADMIN_PASSWORD_HASH", "")
+    if not expected_hash:
+        raise HTTPException(
+            status_code=503,
+            detail="SUPER_ADMIN_PASSWORD_HASH not configured. Set it in backend/.env"
+        )
+    if not verify_password(body.password, expected_hash):
+        raise HTTPException(status_code=401, detail="Invalid password")
+    return {"token": create_super_admin_token()}
+
+
 # ─── Dashboard Stats ─────────────────────────────────────────────
 @router.get("/stats")
-async def get_system_stats(session: AsyncSession = Depends(get_session)):
+async def get_system_stats(
+    session: AsyncSession = Depends(get_session),
+    _: dict = Depends(require_super_admin),
+):
     """Global platform statistics."""
     store_count = (await session.execute(select(func.count(Store.id)))).scalar() or 0
     order_count = (await session.execute(select(func.count(Order.id)))).scalar() or 0
@@ -70,7 +96,11 @@ async def get_system_stats(session: AsyncSession = Depends(get_session)):
 
 # ─── Store Detail Stats (per-store deep info) ───────────────────
 @router.get("/stores/{store_id}/detail")
-async def get_store_detail(store_id: int, session: AsyncSession = Depends(get_session)):
+async def get_store_detail(
+    store_id: int,
+    session: AsyncSession = Depends(get_session),
+    _: dict = Depends(require_super_admin),
+):
     """Detailed stats for a specific store."""
     store = await session.get(Store, store_id)
     if not store:
@@ -169,7 +199,8 @@ async def get_store_detail(store_id: int, session: AsyncSession = Depends(get_se
 async def list_all_stores(
     status: Optional[str] = None,
     search: Optional[str] = None,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    _: dict = Depends(require_super_admin),
 ):
     """List all stores with subscription details and basic stats."""
     statement = select(Store).order_by(Store.created_at.desc())
@@ -258,7 +289,8 @@ async def update_store_status(
     sub_type: Optional[str] = None,
     expires_at: Optional[str] = None,
     extend_days: Optional[int] = None,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    _: dict = Depends(require_super_admin),
 ):
     """Admin override for store subscription/status."""
     store = await session.get(Store, store_id)
@@ -287,7 +319,10 @@ async def update_store_status(
 
 # ─── Subscription Summary ────────────────────────────────────────
 @router.get("/subscription-summary")
-async def subscription_summary(session: AsyncSession = Depends(get_session)):
+async def subscription_summary(
+    session: AsyncSession = Depends(get_session),
+    _: dict = Depends(require_super_admin),
+):
     """Overview of all subscriptions for billing management."""
     stores_q = await session.execute(select(Store).order_by(Store.created_at.desc()))
     stores = stores_q.scalars().all()
@@ -350,7 +385,8 @@ async def subscription_summary(session: AsyncSession = Depends(get_session)):
 @router.get("/analytics/revenue")
 async def revenue_analytics(
     days: int = Query(default=30, ge=1, le=365),
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    _: dict = Depends(require_super_admin),
 ):
     """Platform-wide daily revenue for charts."""
     since = datetime.utcnow() - timedelta(days=days)
@@ -370,7 +406,8 @@ async def revenue_analytics(
 @router.get("/analytics/store-ranking")
 async def store_ranking(
     days: int = Query(default=30, ge=1, le=365),
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    _: dict = Depends(require_super_admin),
 ):
     """Top stores by revenue."""
     since = datetime.utcnow() - timedelta(days=days)
@@ -402,14 +439,22 @@ async def store_ranking(
 
 # ─── Config ──────────────────────────────────────────────────────
 @router.get("/config")
-async def get_configs(session: AsyncSession = Depends(get_session)):
+async def get_configs(
+    session: AsyncSession = Depends(get_session),
+    _: dict = Depends(require_super_admin),
+):
     results = await session.execute(select(SystemConfig))
     configs = results.scalars().all()
     return {cfg.key: cfg.value for cfg in configs}
 
 
 @router.post("/config")
-async def save_config(key: str, value: str, session: AsyncSession = Depends(get_session)):
+async def save_config(
+    key: str,
+    value: str,
+    session: AsyncSession = Depends(get_session),
+    _: dict = Depends(require_super_admin),
+):
     config = await session.get(SystemConfig, key)
     if config:
         config.value = value
@@ -423,7 +468,10 @@ async def save_config(key: str, value: str, session: AsyncSession = Depends(get_
 
 # ─── Global Reviews ──────────────────────────────────────────────
 @router.get("/global-reviews")
-async def get_all_reviews(session: AsyncSession = Depends(get_session)):
+async def get_all_reviews(
+    session: AsyncSession = Depends(get_session),
+    _: dict = Depends(require_super_admin),
+):
     statement = select(GlobalReview, Store.name, Store.category).join(Store, GlobalReview.store_id == Store.id)
     results = await session.execute(statement)
     records = results.all()

@@ -231,6 +231,8 @@ class OAuthSignupComplete(BaseModel):
 async def complete_oauth_signup(
     body: OAuthSignupComplete, session: AsyncSession = Depends(get_session)
 ):
+    from utils.slug import validate_and_check_slug
+
     payload = decode_oauth_token(body.oauth_token)
 
     provider = payload.get("provider")
@@ -238,13 +240,19 @@ async def complete_oauth_signup(
     email = payload.get("email", "")
     name = payload.get("name", "")
 
+    # ── shop_id (slug) 형식·중복 검증 ───────────────────────────────────────
+    slug_input = (body.slug or "").strip().lower()
+    ok, err = await validate_and_check_slug(slug_input, session)
+    if not ok:
+        raise HTTPException(status_code=400, detail=err)
+
     now = datetime.utcnow()
     store = Store(
         name=body.store_name,
         owner_id=email or provider_id,
         owner_name=body.owner_name or name,
         category=body.category,
-        slug=body.slug,
+        slug=slug_input,
         address=body.address or None,
         phone=body.phone or None,
         subscription_status="TRIAL",

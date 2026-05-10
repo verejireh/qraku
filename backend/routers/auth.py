@@ -17,6 +17,19 @@ from utils.email import send_email
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+# ── shop_id (slug) 가용성 실시간 체크 ─────────────────────────────────────
+
+@router.get("/check-slug")
+async def check_slug_availability(slug: str, session: AsyncSession = Depends(get_session)):
+    """
+    회원가입 화면에서 입력한 shop_id 가 사용 가능한지 실시간 체크.
+    Returns: {available: bool, message: str}
+    """
+    from utils.slug import validate_and_check_slug
+    ok, err = await validate_and_check_slug((slug or "").strip().lower(), session)
+    return {"available": ok, "message": err if not ok else "使用できます"}
+
+
 # ── Admin Login (이메일 + 비밀번호) ──────────────────────────────────────────
 
 class AdminLoginRequest(BaseModel):

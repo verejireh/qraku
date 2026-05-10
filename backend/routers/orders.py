@@ -1,10 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, BackgroundTasks, Request
+import logging
 import math
 from sqlmodel import select, SQLModel
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from database import get_session, async_session_maker
-from models import Order, OrderItem, Menu, Table, OrderCreate, Customer, DeviceSession, PaymentSettings
+from models import Order, OrderItem, Menu, Table, OrderCreate, Customer, DeviceSession, PaymentSettings, TabehoudaiSession, MenuGroupItem, Store
+from utils.jwt import require_staff_or_admin
 from datetime import datetime
 import os
 import time
@@ -105,7 +109,6 @@ async def create_order(
 
     order_type = getattr(order_in, "order_type", "eat_in") or "eat_in"
     is_take_out = (order_type == "take_out")
-    print(f"DEBUG: Processing order | Shop={order_in.shop_id} Table={order_in.table_number} Type={order_type}")
 
     # ── 1. Resolve Store and Payment Settings ──────────────────────────────
     from models import Store
@@ -127,6 +130,17 @@ async def create_order(
             store = None
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
+
+    # ── 영업시간 외 주문 거부 (사장님 수동 OFF 또는 영업시간 외) ──────────────
+    from utils.business_hours import is_store_open_now
+    is_open, reason = is_store_open_now(store)
+    if not is_open:
+        msg_map = {
+            'manual_off': '現在準備中のため、ご注文を受け付けておりません。',
+            'before_open': '営業時間前のため、ご注文を受け付けておりません。',
+            'after_close': '本日の営業時間が終了しました。',
+        }
+        raise HTTPException(status_code=400, detail=msg_map.get(reason, '営業時間外のため、ご注文を受け付けておりません。'))
 
     # ── 구독 만료 체크: 만료된 스토어는 신규 주문 불가 ──────────────────────────
     if store.subscription_expires_at and datetime.utcnow() > store.subscription_expires_at:
@@ -155,18 +169,37 @@ async def create_order(
         if not table:
             raise HTTPException(status_code=404, detail="Table not found")
 
-        print(f"DEBUG Table - ID:{table.id} No:{table.table_number} Status:{table.status} Token:{table.session_token}")
         table_status_val = table.status.value if hasattr(table.status, "value") else table.status
         if table_status_val != "occupied" or table.session_token != order_in.session_token:
-            print(f"SECURITY ALERT: Token mismatch or table not occupied. Expected:{table.session_token} Got:{order_in.session_token}")
+            logger.warning("Session token mismatch or table not occupied: table_id=%s", table.id)
             raise HTTPException(status_code=403, detail="Invalid session token or table is not occupied.")
 
-    # ── 3. Server-side price calculation (never trust client prices) ──────────
-    items_data: list = []          # (menu, item_in, unit_price)
+    # ── 3. 食べ放題: 활성 세션 + 대상 메뉴 ID 미리 조회 ───────────────────────
+    tabehoudai_menu_ids: set[int] = set()
+    tabehoudai_session_id: Optional[int] = None
+    if not is_take_out and table:
+        sess_res = await session.execute(
+            select(TabehoudaiSession).where(
+                TabehoudaiSession.table_id == table.id,
+                TabehoudaiSession.status == "active",
+            )
+        )
+        active_session = sess_res.scalar_one_or_none()
+        if active_session and active_session.expires_at >= datetime.utcnow():
+            tabehoudai_session_id = active_session.id
+            items_res = await session.execute(
+                select(MenuGroupItem.menu_id).where(MenuGroupItem.group_id == active_session.group_id)
+            )
+            tabehoudai_menu_ids = {r[0] for r in items_res.all()}
+
+    # ── 3.1. Server-side price calculation (never trust client prices) ──────────
+    items_data: list = []          # (menu, item_in, unit_price, is_tabehoudai_item)
     line_items_for_square: list = []
     total_amount = 0.0
 
     for item_in in order_in.items:
+        if item_in.quantity <= 0:
+            raise HTTPException(status_code=400, detail="数量は1以上で入力してください")
         try:
             menu_id_int = int(item_in.menu_item_id)
         except ValueError:
@@ -174,11 +207,13 @@ async def create_order(
 
         menu = await session.get(Menu, menu_id_int)
         if not menu:
-            print(f"DEBUG CART: Menu {menu_id_int} missing from DB")
+            logger.warning("Order: menu_id=%s not found, skipping", menu_id_int)
             continue
         if str(menu.store_id) != str(store.id) and str(menu.store_id) != str(order_in.shop_id):
-            print(f"DEBUG CART: Menu {menu_id_int} store_id mismatch")
+            logger.warning("Order: menu_id=%s store_id mismatch, skipping", menu_id_int)
             continue
+        if not menu.is_available:
+            raise HTTPException(status_code=400, detail=f"「{menu.name_jp or menu.name_en or menu.name_ko}」は現在売り切れです。")
 
         extra_price = 0.0
         if item_in.option_details:
@@ -195,11 +230,16 @@ async def create_order(
                                         break
                                 break
             except Exception as e:
-                print(f"DEBUG CART: Option parse error: {e}")
+                logger.warning("Option parse error for menu_id=%s: %s", menu_id_int, e)
 
-        unit_price = float(menu.price) + extra_price
+        # 食べ放題 대상 메뉴: unit_price = 0
+        is_tabehoudai_item = menu_id_int in tabehoudai_menu_ids
+        if is_tabehoudai_item:
+            unit_price = 0.0
+        else:
+            unit_price = float(menu.price) + extra_price
         total_amount += unit_price * item_in.quantity
-        items_data.append((menu, item_in, unit_price))
+        items_data.append((menu, item_in, unit_price, is_tabehoudai_item))
         line_items_for_square.append({
             "name": menu.name_jp or menu.name_en or f"Item {menu.id}",
             "quantity": item_in.quantity,
@@ -209,6 +249,99 @@ async def create_order(
     # ── 3.5. Reject empty orders (no valid items) ────────────────────────────
     if not items_data:
         raise HTTPException(status_code=400, detail="有効な注文アイテムがありません (No valid items)")
+
+    # ── 3.6. LINE Digital Stamp CRM: Apply Reward or Accumulate Stamp ─────────
+    stamp_reward_used = False
+    discount_amount = 0.0
+    from models import StampCard
+    
+    # guest_uuid가 line: 으로 시작하는 경우만 스탬프 대상이라고 가정 (또는 범용으로 사용)
+    is_line_user = bool(order_in.guest_uuid and order_in.guest_uuid.startswith("line:"))
+    stamp_card = None
+    
+    if store.stamp_active and is_line_user:
+        stamp_result = await session.execute(
+            select(StampCard).where(
+                StampCard.store_id == store.id,
+                StampCard.guest_uuid == order_in.guest_uuid
+            )
+        )
+        stamp_card = stamp_result.scalar_one_or_none()
+        
+        if order_in.use_stamp_reward:
+            # 보상 사용 — eligibility 재검증 (클라이언트 신뢰 금지)
+            if stamp_card and stamp_card.stamp_count >= store.stamp_target and store.stamp_target > 0:
+                discount_amount = min(total_amount, float(store.stamp_reward_discount or 0))
+                if discount_amount > 0:
+                    total_amount = max(0.0, total_amount - discount_amount)
+                    stamp_reward_used = True
+                    # 음수 방지 + race condition 시 안전
+                    stamp_card.stamp_count = max(0, stamp_card.stamp_count - store.stamp_target)
+                    session.add(stamp_card)
+            else:
+                logger.warning("Stamp reward 사용 시도 거부 (stamp 부족): uuid=%s count=%s target=%s",
+                               order_in.guest_uuid,
+                               stamp_card.stamp_count if stamp_card else 0,
+                               store.stamp_target)
+                # 자격 미달 → 보상 없이 처리하되, 1 스탬프 적립으로 대체
+                if not stamp_card:
+                    stamp_card = StampCard(
+                        store_id=store.id,
+                        guest_uuid=order_in.guest_uuid,
+                        stamp_count=1,
+                        last_stamped_at=datetime.utcnow()
+                    )
+                else:
+                    stamp_card.stamp_count += 1
+                    stamp_card.last_stamped_at = datetime.utcnow()
+                session.add(stamp_card)
+        else:
+            # 보상 미사용 시 1 스탬프 적립
+            if not stamp_card:
+                stamp_card = StampCard(
+                    store_id=store.id, 
+                    guest_uuid=order_in.guest_uuid, 
+                    stamp_count=1,
+                    last_stamped_at=datetime.utcnow()
+                )
+            else:
+                stamp_card.stamp_count += 1
+                stamp_card.last_stamped_at = datetime.utcnow()
+            session.add(stamp_card)
+
+    # ── 3.7. Photo Review Contest Coupon ──────────────────────────────────────
+    # Atomic update 패턴: UPDATE ... WHERE is_used=FALSE → 동시 사용 race 방지
+    used_coupon_id = None
+    if order_in.use_coupon_id and order_in.guest_uuid:
+        from models import RewardCoupon
+        from sqlalchemy import update as _sa_update
+        coupon = await session.get(RewardCoupon, order_in.use_coupon_id)
+        valid = (
+            coupon
+            and coupon.guest_uuid == order_in.guest_uuid
+            and coupon.store_id == store.id
+            and not coupon.is_used
+            and (coupon.expires_at is None or coupon.expires_at >= datetime.utcnow())
+        )
+        if valid:
+            # 동시성 안전: WHERE is_used=FALSE 인 행만 업데이트
+            res = await session.execute(
+                _sa_update(RewardCoupon)
+                .where(RewardCoupon.id == coupon.id, RewardCoupon.is_used == False)  # noqa: E712
+                .values(is_used=True, used_at=datetime.utcnow())
+            )
+            if res.rowcount == 1:
+                coupon_discount = min(total_amount, float(coupon.discount_amount))
+                if coupon_discount > 0:
+                    total_amount = max(0.0, total_amount - coupon_discount)
+                    discount_amount += coupon_discount  # UI 표시용
+                    used_coupon_id = coupon.id
+            else:
+                logger.warning("Coupon race condition: 이미 사용됨 coupon_id=%s", coupon.id)
+        else:
+            logger.warning("Invalid coupon usage attempt: uuid=%s coupon=%s expired=%s",
+                           order_in.guest_uuid, order_in.use_coupon_id,
+                           bool(coupon and coupon.expires_at and coupon.expires_at < datetime.utcnow()))
 
     # ── 4. Unified Payment Adapter: charge card BEFORE creating DB order ─────────────
     square_payment_id = None
@@ -243,6 +376,16 @@ async def create_order(
         if not order_in.source_id:
             raise HTTPException(status_code=400, detail="テイクアウトには決済情報が必要です (source_id required)")
 
+        # ── 멱등성: source_id (PayPay merchant_payment_id) 로 이미 주문 만들어졌으면 그대로 반환 ──
+        # PayPayCompleteView 가 두 번 호출되거나 새로고침해도 중복 주문 방지
+        existing_by_source = await session.execute(
+            select(Order).where(Order.session_token == order_in.session_token,
+                                Order.shop_id == order_in.shop_id,
+                                Order.square_payment_id != None)  # noqa: E711
+            .order_by(Order.created_at.desc()).limit(1)
+        )
+        # 더 정확한 검사는 결제 후 payment_id 받은 뒤 진행
+
         # New Adapter Flow (Square: card nonce, PayPay: merchant_payment_id)
         payment_adapter = get_payment_adapter(store, store.payment_settings)
         if payment_adapter:
@@ -255,7 +398,7 @@ async def create_order(
                 raise HTTPException(status_code=402, detail=pay_result.get("message", "Payment failed"))
             square_payment_id = pay_result.get("payment_id")
             sq_payment_order_id = pay_result.get("square_order_id")
-            print(f"[Payment] Pre-payment OK: payment_id={square_payment_id}")
+            logger.info("Pre-payment OK: payment_id=%s", square_payment_id)
         else:
             # Fallback Legacy
             from utils.square_client import process_square_payment
@@ -269,17 +412,44 @@ async def create_order(
                 raise HTTPException(status_code=402, detail=pay_result.get("message", "Payment failed"))
             square_payment_id = pay_result.get("payment_id")
             sq_payment_order_id = pay_result.get("square_order_id")
-            print(f"[Square Legacy] Pre-payment OK: payment_id={square_payment_id}")
+            logger.info("Square legacy pre-payment OK: payment_id=%s", square_payment_id)
+
+        # ── 멱등성: 동일 payment_id 로 이미 Order 가 있으면 그것을 반환 ──
+        if square_payment_id:
+            dup_res = await session.execute(
+                select(Order).where(Order.square_payment_id == square_payment_id).limit(1)
+            )
+            dup_order = dup_res.scalar_one_or_none()
+            if dup_order:
+                logger.info("Idempotent: 동일 payment_id 주문 이미 존재 order_id=%s payment_id=%s",
+                            dup_order.id, square_payment_id)
+                return OrderCreateResponse(
+                    order_id=dup_order.id,
+                    total_amount=dup_order.total_amount,
+                    payment_method=dup_order.payment_method,
+                    pickup_code=dup_order.pickup_code,
+                )
 
     # [이트인 일반 주문] pay_at_counter 경로 — 선결제 없이 바로 DB 생성
     # (eat_in 주문은 기존 로직 그대로)
 
     # ── 5. Create DB Order ────────────────────────────────────────────────────
-    # 테이크아웃 주문에는 4자리 알파뉴메릭 픽업 코드 생성
+    # 테이크아웃 주문에는 101번부터 시작하는 당일 순차 접수번호 생성
     pickup_code = None
     if is_take_out:
-        import random, string
-        pickup_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        codes_res = await session.execute(
+            select(Order.pickup_code).where(
+                Order.shop_id == order_in.shop_id,
+                Order.order_type == "take_out",
+                Order.created_at >= today_start
+            )
+        )
+        codes = [c for c in codes_res.scalars().all() if c and c.isdigit()]
+        if codes:
+            pickup_code = str(max(int(c) for c in codes) + 1)
+        else:
+            pickup_code = "101"
 
     # 결제 상태 결정: 테이크아웃 선결제 완료 → "paid" / 이트인 → "unpaid"
     is_paid = bool(is_take_out and square_payment_id)
@@ -303,13 +473,40 @@ async def create_order(
         pickup_code=pickup_code,
         status=order_status,
         total_amount=total_amount,
+        stamp_reward_used=stamp_reward_used,
+        used_coupon_id=used_coupon_id,
+        discount_amount=discount_amount,
     )
     session.add(db_order)
-    await session.commit()
-    await session.refresh(db_order)
+    # ── IntegrityError 안전 처리: UNIQUE(square_payment_id) 충돌 시 기존 주문 반환 ──
+    try:
+        await session.commit()
+        await session.refresh(db_order)
+    except Exception as commit_err:
+        from sqlalchemy.exc import IntegrityError
+        is_integrity = isinstance(commit_err, IntegrityError) or "Duplicate entry" in str(commit_err)
+        if is_integrity and square_payment_id:
+            await session.rollback()
+            # 동시 요청이 먼저 만든 주문 조회 후 그것을 반환
+            dup_res = await session.execute(
+                select(Order).where(Order.square_payment_id == square_payment_id).limit(1)
+            )
+            existing = dup_res.scalar_one_or_none()
+            if existing:
+                logger.warning("IntegrityError 회복: payment_id=%s 기존 order_id=%s 반환",
+                               square_payment_id, existing.id)
+                return OrderCreateResponse(
+                    order_id=existing.id,
+                    total_amount=existing.total_amount,
+                    payment_method=existing.payment_method,
+                    pickup_code=existing.pickup_code,
+                )
+        # 회복 불가 → 그대로 에러 전파
+        logger.exception("Order commit 실패")
+        raise HTTPException(status_code=500, detail="注文の保存に失敗しました")
 
     # ── 6. Add Order Items ────────────────────────────────────────────────────
-    for menu, item_in, unit_price in items_data:
+    for menu, item_in, unit_price, is_tabehoudai_item in items_data:
         session.add(OrderItem(
             order_id=db_order.id,
             menu_item_id=str(menu.id),
@@ -317,6 +514,8 @@ async def create_order(
             unit_price=unit_price,
             option_details=item_in.option_details,
             is_takeout_item=getattr(item_in, 'is_takeout_item', False),
+            is_tabehoudai=is_tabehoudai_item,
+            tabehoudai_session_id=tabehoudai_session_id if is_tabehoudai_item else None,
         ))
 
     # ── 7. Update GuestProfile ────────────────────────────────────────────────
@@ -340,17 +539,8 @@ async def create_order(
         use_kitchen = store.display_settings.use_kitchen_page
         
     if use_kitchen:
-        try:
-            from utils.websocket import manager
-            msg = json.dumps({
-                "type": "NEW_ORDER",
-                "order_id": db_order.id,
-                "table_number": db_order.table_number,
-                "order_type": order_type,
-            })
-            await manager.broadcast(msg, store.id)
-        except Exception as e:
-            print("WS Broadcast exception:", e)
+        from utils.events import emit_order_created
+        await emit_order_created(session, store.id, db_order)
 
     # ── 9. Async Background POS dispatch (Square, Smaregi, AirRegi) ──
     async def dispatch_pos_background(store_id: int, order_id: int, items_payload: list):
@@ -409,11 +599,33 @@ async def create_order(
 class OrderStatusUpdate(SQLModel):
     status: str
 
+async def _resolve_store_by_shop_id(shop_id: str, session: AsyncSession) -> Store:
+    """Order.shop_id(slug 또는 str(id))로 Store를 조회한다."""
+    store_result = await session.execute(select(Store).where(Store.slug == shop_id))
+    store = store_result.scalar_one_or_none()
+    if not store:
+        try:
+            store = await session.get(Store, int(shop_id))
+        except (ValueError, TypeError):
+            store = None
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    return store
+
+
 @router.patch("/{order_id}/status", response_model=Order)
-async def update_order_status(order_id: int, status_update: OrderStatusUpdate, session: AsyncSession = Depends(get_session)):
+async def update_order_status(
+    order_id: int,
+    status_update: OrderStatusUpdate,
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
+):
     order = await session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    store = await _resolve_store_by_shop_id(order.shop_id, session)
+    if store.id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     order.status = status_update.status
     session.add(order)
@@ -449,16 +661,8 @@ async def update_order_status(order_id: int, status_update: OrderStatusUpdate, s
                     notify_store = None
 
             if notify_store:
-                msg = json.dumps({
-                    "type": "order_completed",
-                    "order_id": order.id,
-                    "table_number": order.table_number,
-                    "items": item_names
-                })
-                await manager.broadcast_to_customer(msg, notify_store.id, order.table_number)
-                print(f"[WS] Broadcast order_completed to store {notify_store.id} table {order.table_number}")
-            else:
-                print(f"[WS] Could not resolve store for shop_id={order.shop_id}")
+                from utils.events import emit_order_completed_customer
+                await emit_order_completed_customer(session, notify_store.id, order.table_number, order, item_names)
         except Exception as e:
             print("Customer WS Broadcast exception:", e)
 
@@ -466,10 +670,17 @@ async def update_order_status(order_id: int, status_update: OrderStatusUpdate, s
     return order
 
 @router.patch("/{order_id}/pay", response_model=Order)
-async def pay_order(order_id: int, session: AsyncSession = Depends(get_session)):
+async def pay_order(
+    order_id: int,
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
+):
     order = await session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    order_store = await _resolve_store_by_shop_id(order.shop_id, session)
+    if order_store.id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     order.payment_status = "paid"
     order.status = "paid"
@@ -516,28 +727,11 @@ async def pay_order(order_id: int, session: AsyncSession = Depends(get_session))
     await session.commit()
     await session.refresh(order)
 
-    # Broadcast to staff screens
     if store:
-        try:
-            from utils.websocket import manager
-            import json
-            msg = json.dumps({
-                "type": "PAYMENT_COMPLETE",
-                "order_id": order.id,
-                "table_number": order.table_number
-            })
-            await manager.broadcast(msg, store.id)
-            if closed_table:
-                msg2 = json.dumps({
-                    "type": "TABLE_UPDATE",
-                    "table_id": closed_table.id,
-                    "table_number": closed_table.table_number,
-                    "status": "ready",
-                    "guest_count": None
-                })
-                await manager.broadcast(msg2, store.id)
-        except Exception as e:
-            print("WS Broadcast exception:", e)
+        from utils.events import emit_payment_completed, emit_table_update
+        await emit_payment_completed(session, store.id, order)
+        if closed_table:
+            await emit_table_update(session, store.id, closed_table, extra={"status": "ready", "guest_count": None})
 
     return order
 
@@ -545,11 +739,21 @@ class ItemStatusUpdate(SQLModel):
     status: str  # cooking_complete | served | pickup_ready
 
 @router.patch("/items/{item_id}/status")
-async def update_item_status(item_id: int, body: ItemStatusUpdate, session: AsyncSession = Depends(get_session)):
+async def update_item_status(
+    item_id: int,
+    body: ItemStatusUpdate,
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
+):
     """Update individual order item status (cooking_complete or served)"""
     item = await session.get(OrderItem, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Order item not found")
+    item_order = await session.get(Order, item.order_id)
+    if item_order:
+        item_store = await _resolve_store_by_shop_id(item_order.shop_id, session)
+        if item_store.id != auth_store.id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
     item.status = body.status
     session.add(item)
@@ -573,61 +777,34 @@ async def update_item_status(item_id: int, body: ItemStatusUpdate, session: Asyn
 
     await session.commit()
 
-    # Broadcast to kitchen + staff screens
     if order:
-        try:
-            from utils.websocket import manager
-            from models import Store
-            import json
-            store_result = await session.execute(select(Store).where(Store.slug == order.shop_id))
-            store = store_result.scalar_one_or_none()
-            if not store:
-                try:
-                    store = await session.get(Store, int(order.shop_id))
-                except (ValueError, TypeError):
-                    store = None
-
-            if store:
-                msg = json.dumps({
-                    "type": "ITEM_STATUS_UPDATE",
-                    "item_id": item.id,
-                    "order_id": item.order_id,
-                    "table_number": order.table_number,
-                    "item_status": body.status,
-                    "order_status": order.status
-                })
-                await manager.broadcast(msg, store.id)
-
-                # Notify customer when cooking complete
-                if body.status == "cooking_complete":
-                    menu_result = await session.execute(select(Menu).where(Menu.id == int(item.menu_item_id)))
-                    menu = menu_result.scalar_one_or_none()
-                    customer_msg = json.dumps({
-                        "type": "item_ready",
-                        "item_id": item.id,
-                        "name_jp": menu.name_jp if menu else None,
-                        "name_ko": menu.name_ko if menu else None,
-                        "name_en": menu.name_en if menu else None,
-                        "quantity": item.quantity
-                    })
-                    await manager.broadcast_to_customer(customer_msg, store.id, order.table_number)
-
-                # Notify takeout customer when ALL items are pickup_ready
-                if body.status == "pickup_ready" and all_pickup_ready and order.pickup_code:
-                    pickup_msg = json.dumps({
-                        "type": "pickup_ready",
-                        "order_id": order.id,
-                        "pickup_code": order.pickup_code
-                    })
-                    await manager.broadcast_to_customer(pickup_msg, store.id, order.table_number)
-        except Exception as e:
-            print(f"WS broadcast exception (item status): {e}")
+        from models import Store
+        from utils.events import emit_item_status_update, emit_item_ready_customer, emit_pickup_ready_customer
+        store_result = await session.execute(select(Store).where(Store.slug == order.shop_id))
+        store = store_result.scalar_one_or_none()
+        if not store:
+            try:
+                store = await session.get(Store, int(order.shop_id))
+            except (ValueError, TypeError):
+                store = None
+        if store:
+            await emit_item_status_update(session, store.id, item, order)
+            if body.status == "cooking_complete":
+                menu_result = await session.execute(select(Menu).where(Menu.id == int(item.menu_item_id)))
+                menu = menu_result.scalar_one_or_none()
+                await emit_item_ready_customer(session, store.id, order.table_number, item, menu)
+            if body.status == "pickup_ready" and all_pickup_ready and order.pickup_code:
+                await emit_pickup_ready_customer(session, store.id, order.table_number, order)
 
     return {"item_id": item.id, "status": body.status, "order_status": order.status if order else None}
 
 
 @router.patch("/items/bulk-served")
-async def bulk_mark_items_served(body: dict, session: AsyncSession = Depends(get_session)):
+async def bulk_mark_items_served(
+    body: dict,
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
+):
     """Mark multiple order items as served at once"""
     item_ids = body.get("item_ids", [])
     if not item_ids:
@@ -657,35 +834,36 @@ async def bulk_mark_items_served(body: dict, session: AsyncSession = Depends(get
 
     await session.commit()
 
-    # Broadcast
     if affected_order_ids:
-        try:
-            from utils.websocket import manager
-            from models import Store
-            import json
-            sample_order = await session.get(Order, list(affected_order_ids)[0])
-            if sample_order:
-                store_result = await session.execute(select(Store).where(Store.slug == sample_order.shop_id))
-                store = store_result.scalar_one_or_none()
-                if not store:
-                    try:
-                        store = await session.get(Store, int(sample_order.shop_id))
-                    except (ValueError, TypeError):
-                        store = None
-                if store:
-                    msg = json.dumps({"type": "ITEMS_SERVED", "item_ids": item_ids})
-                    await manager.broadcast(msg, store.id)
-        except Exception as e:
-            print(f"WS broadcast exception (bulk served): {e}")
+        from models import Store
+        from utils.events import emit_items_served
+        sample_order = await session.get(Order, list(affected_order_ids)[0])
+        if sample_order:
+            store_result = await session.execute(select(Store).where(Store.slug == sample_order.shop_id))
+            store = store_result.scalar_one_or_none()
+            if not store:
+                try:
+                    store = await session.get(Store, int(sample_order.shop_id))
+                except (ValueError, TypeError):
+                    store = None
+            if store:
+                await emit_items_served(session, store.id, item_ids)
 
     return {"message": f"Marked {len(item_ids)} items as served"}
 
 
 @router.delete("/{order_id}")
-async def delete_order(order_id: int, session: AsyncSession = Depends(get_session)):
+async def delete_order(
+    order_id: int,
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
+):
     order = await session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    order_store = await _resolve_store_by_shop_id(order.shop_id, session)
+    if order_store.id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # Delete order items first
     items_result = await session.execute(select(OrderItem).where(OrderItem.order_id == order_id))
@@ -717,10 +895,9 @@ async def read_order(order_id: int, session: AsyncSession = Depends(get_session)
 async def read_orders(
     store_id: str,
     status: Optional[str] = None,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
 ):
-    from models import Store
-
     # store_id 는 slug 일 수도 있고 수치 ID 일 수도 있다.
     # Order.shop_id 에는 주문 생성 시점의 slug/shop_id 값이 그대로 저장된다.
     # → Store 를 먼저 resolve 한 뒤, slug 와 str(id) 양쪽 모두로 조회한다.
@@ -736,6 +913,9 @@ async def read_orders(
 
     if not store:
         return []
+
+    if store.id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # Order.shop_id 에 slug 또는 str(id) 어느 쪽이 저장돼 있어도 조회한다.
     candidate_ids = {store_id}

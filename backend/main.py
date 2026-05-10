@@ -1,25 +1,72 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.routing import APIRouter
-from database import init_db
+from database import init_db, get_session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+from models import Store
 import os
 
 app = FastAPI(title="QR Order System API", version="0.1.0")
 
 # CORS Middleware
+# ALLOWED_ORIGINS=https://qraku.com,https://www.qraku.com
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# 보안 헤더 미들웨어
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 @app.on_event("startup")
 async def on_startup():
     await init_db()
+    from utils.redis import init_redis
+    await init_redis()
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    from utils.redis import close_redis
+    await close_redis()
+
+
+# ── 인프라 헬스체크 (INF-05) ─────────────────────────────────────────
+from sqlalchemy import text as _sql_text
+
+@app.get("/api/healthz", tags=["infra"])
+async def healthz():
+    return {"status": "ok"}
+
+@app.get("/api/readyz", tags=["infra"])
+async def readyz(session: AsyncSession = Depends(get_session)):
+    try:
+        await session.execute(_sql_text("SELECT 1"))
+        from utils.redis import get_redis
+        await get_redis().ping()
+        return {"status": "ready"}
+    except Exception:
+        raise HTTPException(status_code=503, detail="not ready")
+
 
 # ── 1) 모든 API 라우터를 /api prefix로 통합 ──────────────────────────
 # 프론트엔드에서 axios.get('/api/stores/...') 형태로 호출하므로
@@ -28,7 +75,8 @@ from routers import (
     stores, menus, orders, qr, ws, stats, auth, admin,
     billing, pos, reviews, ai, super_admin, loyalty_analytics,
     sessions, translate, tables, guests, oauth, demo, webhooks, square_oauth,
-    register, discover, takeout, staff_auth, paypay, messaging
+    register, discover, takeout, staff_auth, paypay, messaging, menu_groups, tabehoudai,
+    beta, ws_token
 )
 
 api_router = APIRouter(prefix="/api")
@@ -58,6 +106,11 @@ api_router.include_router(takeout.router)
 api_router.include_router(staff_auth.router)
 api_router.include_router(paypay.router)
 api_router.include_router(messaging.router)
+api_router.include_router(menu_groups.router)
+api_router.include_router(beta.router)
+api_router.include_router(tabehoudai.router)
+api_router.include_router(webhooks.router)
+api_router.include_router(ws_token.router)
 
 app.include_router(api_router)
 
@@ -100,8 +153,51 @@ async def serve_favicon():
     return {"error": "Favicon not found"}
 
 @app.get("/{full_path:path}", include_in_schema=False)
-async def serve_spa(full_path: str):
-    """React Router SPA fallback — index.html 반환"""
-    if os.path.exists(INDEX_HTML):
+async def serve_spa(full_path: str, session: AsyncSession = Depends(get_session)):
+    """React Router SPA fallback — index.html 반환 및 SEO 메타 태그 주입"""
+    if not os.path.exists(INDEX_HTML):
+        return {"error": "Frontend build not found. Run: npm run build"}
+
+    # 정적 파일 요청이면 무시 (vite나 로컬 개발 시에는 안 탈 수도 있지만 방어 코드)
+    if full_path.startswith("assets/") or full_path.endswith((".js", ".css", ".png", ".jpg", ".ico")):
         return FileResponse(INDEX_HTML)
-    return {"error": "Frontend build not found. Run: npm run build"}
+
+    path_parts = full_path.strip("/").split("/")
+    shop_id = path_parts[0] if path_parts and path_parts[0] else None
+
+    # 기본 index.html 읽기
+    with open(INDEX_HTML, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    # /{shop_id} 퍼블릭 페이지 접속일 경우 메타 태그 동적 주입
+    if shop_id and len(path_parts) == 1 and not shop_id.startswith("admin") and not shop_id.startswith("owner"):
+        result = await session.execute(select(Store).where(Store.slug == shop_id))
+        store = result.scalar_one_or_none()
+        
+        if store and store.allow_public_listing:
+            desc = (store.specialty or f"{store.name}のモバイルオーダー").replace('"', '&quot;')
+            title = f"{store.name} - QRaku"
+            
+            meta_tags = f"""
+            <title>{title}</title>
+            <meta name="description" content="{desc}" />
+            <meta property="og:title" content="{title}" />
+            <meta property="og:description" content="{desc}" />
+            """
+            
+            # Use exterior photo or interior photo or placeholder if no logo
+            image_url = None
+            if store.exterior_photos:
+                import json
+                try:
+                    photos = json.loads(store.exterior_photos)
+                    if photos and len(photos) > 0: image_url = photos[0]
+                except: pass
+            
+            if image_url:
+                meta_tags += f'<meta property="og:image" content="{image_url}" />\n'
+                
+            # <title>QRaku</title> 태그를 찾아서 치환
+            html_content = html_content.replace("<title>QRaku</title>", meta_tags)
+
+    return HTMLResponse(content=html_content)

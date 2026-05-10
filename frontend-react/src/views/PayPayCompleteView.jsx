@@ -39,15 +39,19 @@ export default function PayPayCompleteView() {
                 }
 
                 // 주문 생성 (source_id = merchant_payment_id)
+                // guest_uuid: LIFF 로그인된 line:userId 우선, 없으면 글로벌 fallback
+                const lineUuid = localStorage.getItem(`guest_uuid_${shop_id}`)
                 const orderPayload = {
                     shop_id: String(shop_id),
                     table_number: '0',
                     session_token: 'takeout',
-                    guest_uuid: localStorage.getItem('guest_uuid'),
+                    guest_uuid: lineUuid || localStorage.getItem('guest_uuid'),
                     order_type: 'take_out',
                     payment_method: 'paypay_direct',
                     source_id: mid,
                     pickup_time: tempData.pickupTime || null,
+                    use_stamp_reward: !!tempData.useStampReward,
+                    use_coupon_id: tempData.useCouponId || null,
                     items: (tempData.cart || []).map(item => ({
                         menu_item_id: String(item.menuId),
                         quantity: item.quantity,

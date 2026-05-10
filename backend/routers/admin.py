@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlmodel import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from typing import List, Dict, Any, Optional
 from database import get_session
-from models import Store, Table, Order, Menu, StaffMember, PaymentSettings, PaymentMethodType
+from models import Store, Table, Order, Menu, StaffMember, PaymentSettings, PaymentMethodType, StaffAttendance, RefundLog
 from datetime import datetime
 import uuid
 from utils.jwt import require_admin
@@ -184,14 +185,8 @@ async def update_display_settings(store_id: int, settings: DisplaySettingsUpdate
     await session.commit()
     await session.refresh(display_settings)
     
-    # 설정 변경 브로드캐스팅 시도
-    try:
-        from utils.websocket import manager
-        import json
-        msg = json.dumps({"type": "CONFIG_UPDATE", "store_id": store.id})
-        await manager.broadcast(msg, store.id)
-    except Exception as e:
-        print(f"WS Broadcast failed: {e}")
+    from utils.events import emit_config_update
+    await emit_config_update(session, store.id)
     
     return {"status": "success", "display_settings": display_settings}
 
@@ -327,14 +322,98 @@ async def toggle_staff_duty(store_id: str, member_id: int, body: DutyToggle, adm
     member = await session.get(StaffMember, member_id)
     if not member or member.store_id != store.id:
         raise HTTPException(status_code=404, detail="Staff member not found")
-    member.is_on_duty = body.is_on_duty
+
+    now_utc = datetime.utcnow()
+    # JST = UTC+9 로 변환하여 work_date 산출
+    from datetime import timezone, timedelta as td
+    jst = timezone(td(hours=9))
+    now_jst = now_utc.replace(tzinfo=timezone.utc).astimezone(jst)
+    work_date_str = now_jst.strftime("%Y-%m-%d")
+
     if body.is_on_duty:
-        member.clock_in_at = datetime.utcnow()
+        # 出勤: 새 attendance 레코드 생성
+        member.is_on_duty = True
+        member.clock_in_at = now_utc
+        attendance = StaffAttendance(
+            store_id=store.id,
+            staff_id=member.id,
+            staff_name=member.name,
+            clock_in=now_utc,
+            work_date=work_date_str,
+        )
+        session.add(attendance)
     else:
+        # 退勤: 가장 최근 미완료 attendance 레코드에 clock_out 기록
+        result = await session.execute(
+            select(StaffAttendance)
+            .where(
+                StaffAttendance.staff_id == member.id,
+                StaffAttendance.clock_out == None  # noqa: E711
+            )
+            .order_by(StaffAttendance.clock_in.desc())
+            .limit(1)
+        )
+        attendance = result.scalar_one_or_none()
+        if attendance:
+            attendance.clock_out = now_utc
+            diff = now_utc - attendance.clock_in
+            attendance.duration_minutes = max(1, int(diff.total_seconds() / 60))
+            session.add(attendance)
+        member.is_on_duty = False
         member.clock_in_at = None
+
     session.add(member)
     await session.commit()
     return {"status": "ok", "is_on_duty": member.is_on_duty}
+
+
+@router.get("/stores/{store_id}/staff-attendance")
+async def get_staff_attendance(
+    store_id: str,
+    date_from: Optional[str] = None,   # "2026-05-01" (work_date 기준, JST)
+    date_to: Optional[str] = None,     # "2026-05-31"
+    staff_id: Optional[int] = None,
+    admin_store: Store = Depends(require_admin),
+    session: AsyncSession = Depends(get_session)
+):
+    """근태 기록 조회. date_from/date_to는 work_date 기준(JST). staff_id 지정 시 해당 스태프만 필터링."""
+    _verify_admin_access(admin_store, store_id)
+    store = await _resolve_store(store_id, session)
+
+    query = select(StaffAttendance).where(StaffAttendance.store_id == store.id)
+    if date_from:
+        query = query.where(StaffAttendance.work_date >= date_from)
+    if date_to:
+        query = query.where(StaffAttendance.work_date <= date_to)
+    if staff_id:
+        query = query.where(StaffAttendance.staff_id == staff_id)
+    query = query.order_by(StaffAttendance.work_date.desc(), StaffAttendance.clock_in.desc())
+
+    result = await session.execute(query)
+    records = result.scalars().all()
+
+    # clock_in/clock_out은 UTC로 저장되어 있으므로 JST(+9)로 변환하여 반환
+    from datetime import timezone, timedelta as td
+    jst = timezone(td(hours=9))
+
+    def to_jst_hhmm(dt):
+        if dt is None:
+            return None
+        return dt.replace(tzinfo=timezone.utc).astimezone(jst).strftime("%H:%M")
+
+    return [
+        {
+            "id": r.id,
+            "staff_id": r.staff_id,
+            "staff_name": r.staff_name,
+            "work_date": r.work_date,
+            "clock_in": to_jst_hhmm(r.clock_in),
+            "clock_out": to_jst_hhmm(r.clock_out),
+            "duration_minutes": r.duration_minutes,
+            "is_open": r.clock_out is None,  # 아직 退勤 안 한 진행 중 기록
+        }
+        for r in records
+    ]
 
 
 # ── PaymentSettings 管理 ────────────────────────────────────────────
@@ -390,15 +469,107 @@ async def update_payment_settings(
         await session.commit()
         await session.refresh(ps)
 
+    from utils.crypto import encrypt_secret
+
     if body.payment_method_type:
         ps.payment_method_type = PaymentMethodType(body.payment_method_type)
+    # ── 시크릿은 DB 저장 시 자동 암호화 (ENCRYPTION_KEY 가 설정된 경우) ───
     if body.paypay_api_key is not None:
-        ps.paypay_api_key = body.paypay_api_key
+        ps.paypay_api_key = encrypt_secret(body.paypay_api_key.strip()) or body.paypay_api_key
     if body.paypay_api_secret is not None:
-        ps.paypay_api_secret = body.paypay_api_secret
+        ps.paypay_api_secret = encrypt_secret(body.paypay_api_secret.strip()) or body.paypay_api_secret
     if body.paypay_merchant_id is not None:
-        ps.paypay_merchant_id = body.paypay_merchant_id
+        ps.paypay_merchant_id = body.paypay_merchant_id  # 머천트 ID는 식별자라 암호화 불필요
 
     session.add(ps)
     await session.commit()
     return {"status": "ok"}
+
+
+# ── 환불 ────────────────────────────────────────────────────────
+
+from pydantic import BaseModel as _RefundBase
+
+class RefundRequest(_RefundBase):
+    amount: float
+    reason: str = ""
+
+
+@router.post("/orders/{order_id}/refund")
+async def refund_order(
+    order_id: int,
+    body: RefundRequest,
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    admin_store: Store = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    from utils.idempotency import with_idempotency, IDEMPOTENCY_TTL_SECONDS
+    from utils.event_log import log_event
+    from utils.refunds import perform_refund
+
+    async def _do_refund():
+        order = await session.get(Order, order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # 멀티테넌시: 다른 매장 주문 접근 차단
+        shop_id = order.shop_id
+        if shop_id.isdigit():
+            owner_match = int(shop_id) == admin_store.id
+        else:
+            owner_match = shop_id == admin_store.slug
+        if not owner_match:
+            raise HTTPException(status_code=404, detail="Not found")
+
+        if order.payment_status != "paid":
+            raise HTTPException(status_code=400, detail="결제 완료 상태가 아닙니다")
+
+        if body.amount <= 0 or body.amount > order.total_amount:
+            raise HTTPException(status_code=400, detail="환불 금액이 유효하지 않습니다")
+
+        # 결제 설정 로드 (PAY_AT_COUNTER 거부 + perform_refund 어댑터용)
+        store_full = await session.get(
+            Store, admin_store.id,
+            options=[selectinload(Store.payment_settings)],
+        )
+        ps = store_full.payment_settings if store_full else None
+        if ps and str(ps.payment_method_type) == str(PaymentMethodType.PAY_AT_COUNTER):
+            raise HTTPException(status_code=400, detail="PAY_AT_COUNTER는 자동 환불을 지원하지 않습니다")
+
+        result = await perform_refund(
+            session, store_full or admin_store, order,
+            amount=body.amount,
+            reason=body.reason,
+            admin_user_id=str(admin_store.id),
+        )
+        if result["status"] != "ok":
+            raise HTTPException(status_code=502, detail="환불 처리에 실패했습니다")
+
+        # perform_refund가 내부적으로 commit하므로 order 상태 업데이트는 별도 commit
+        if body.amount >= order.total_amount:
+            order.payment_status = "refunded"
+        else:
+            order.payment_status = "partial_refund"
+
+        await log_event(
+            session,
+            store_id=admin_store.id,
+            actor_type="admin",
+            actor_id=str(admin_store.id),
+            action="refund.issued",
+            target_type="order",
+            target_id=order.id,
+            payload={"amount": body.amount, "reason": body.reason},
+        )
+        await session.commit()
+
+        from utils.events import emit_refund_issued
+        await emit_refund_issued(session, admin_store.id, order)
+
+        return {"refund_id": result.get("refund_id"), "amount": body.amount, "status": "ok"}
+
+    return await with_idempotency(
+        key=f"refund:{admin_store.id}:{idempotency_key}",
+        ttl=IDEMPOTENCY_TTL_SECONDS,
+        fn=_do_refund,
+    )

@@ -1,5 +1,6 @@
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
+from sqlalchemy import Column, Text
 from datetime import datetime, timedelta
 import uuid
 
@@ -117,9 +118,19 @@ class Store(SQLModel, table=True):
     prefecture: Optional[str] = Field(default=None, max_length=100)  # 도도부현 (예: 東京都)
     city: Optional[str] = Field(default=None, max_length=100)        # 시구정촌 (예: 渋谷区)
 
+    # ── My Home Page 추가 컨텐츠 (qraku.com/{shop_id} 에 노출) ─────────────
+    about_description: Optional[str] = Field(default=None, max_length=2000)   # 매장 소개글
+    specialty: Optional[str] = Field(default=None, max_length=1000)            # 자랑거리 / 추천 포인트
+    interior_photos: Optional[str] = Field(default=None, max_length=4000)     # JSON 배열: ["url1", "url2", ...]
+    exterior_photos: Optional[str] = Field(default=None, max_length=4000)     # JSON 배열
+    nearby_attractions: Optional[str] = Field(default=None, max_length=4000)  # JSON 배열: [{name, description, image_url}]
+
     # Basic Info (owner fills in after signup)
     address: Optional[str] = Field(default=None, max_length=500)
     phone: Optional[str] = Field(default=None, max_length=50)
+
+    # Customer-facing LINE Official Account add-friend URL (e.g., https://lin.ee/xxxxx)
+    line_friend_url: Optional[str] = Field(default=None, max_length=500)
 
     # Staff Auth — 마스터 PIN (6자리+ 숫자, register/staff/kitchen/setting 전체 접근)
     master_pin: Optional[str] = Field(default=None, max_length=20)
@@ -142,6 +153,27 @@ class Store(SQLModel, table=True):
 
     # Daily Specials section toggle
     show_daily_specials: bool = Field(default=True)
+
+    # ── Job Board (알바 모집) ──────────────────────────────────────────────────
+    job_board_active: bool = Field(default=False)
+    job_board_text: Optional[str] = Field(default=None, max_length=1000)
+
+    # ── Food Rescue (타임 세일) ────────────────────────────────────────────────
+    food_rescue_active: bool = Field(default=False)
+    food_rescue_msg: Optional[str] = Field(default=None, max_length=500)
+    food_rescue_mode: str = Field(default="manual")            # 'auto' | 'manual'
+    food_rescue_auto_minutes: int = Field(default=60)          # 자동 모드: 영업종료 N분 전
+    food_rescue_manual_active: bool = Field(default=False)     # 수동 모드: Register에서 ON/OFF
+
+    # ── LINE Digital Stamp & CRM ──────────────────────────────────────────
+    stamp_active: bool = Field(default=False)
+    stamp_target: int = Field(default=10)
+    stamp_reward_msg: Optional[str] = Field(default=None, max_length=500)
+    stamp_reward_discount: int = Field(default=0)  # 적용할 할인 금액 (Yen)
+
+    # ── Photo Review Contest & SEO ────────────────────────────────────────
+    photo_contest_active: bool = Field(default=False)
+    photo_contest_reward_amount: int = Field(default=500)  # 이달의 사진 선정 시 지급할 쿠폰 금액
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     tables: List["Table"] = Relationship(back_populates="store")
@@ -232,6 +264,69 @@ class GuestProfile(SQLModel, table=True):
     preferred_language: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+class StampCard(SQLModel, table=True):
+    """매장별 고객 스탬프 카드"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    store_id: int = Field(foreign_key="store.id", index=True)
+    guest_uuid: str = Field(index=True)
+    stamp_count: int = Field(default=0)
+    last_stamped_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class RewardCoupon(SQLModel, table=True):
+    """포토 리뷰 콘테스트 등에서 지급되는 테이크아웃 할인권"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    store_id: int = Field(foreign_key="store.id", index=True)
+    guest_uuid: str = Field(index=True)
+    discount_amount: int = Field(default=0)
+    is_used: bool = Field(default=False)
+    used_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = Field(default=None, index=True)  # 만료일 (기본 90일)
+    source: str = Field(default="photo_contest", max_length=50)       # photo_contest 등
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class PhotoReview(SQLModel, table=True):
+    """고객 참여형 포토 리뷰 콘테스트 (미니 홈페이지 노출)"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    store_id: int = Field(foreign_key="store.id", index=True)
+    guest_uuid: str = Field(index=True)
+    image_url: str = Field(max_length=1000)
+    comment: Optional[str] = Field(default=None, max_length=1000)
+    status: str = Field(default="pending")  # pending, approved, best_of_month
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class BetaApplication(SQLModel, table=True):
+    """베타 식당 모집 신청서"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_name: str = Field(max_length=100)
+    store_name: str = Field(max_length=200)
+    prefecture: Optional[str] = Field(default=None, max_length=50)
+    city: Optional[str] = Field(default=None, max_length=100)
+    email: str = Field(max_length=255, index=True)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    seats: Optional[int] = None
+    current_pos: Optional[str] = Field(default=None, max_length=200)  # 현재 사용중인 POS
+    why_join: Optional[str] = Field(default=None, max_length=2000)    # 신청 이유
+    status: str = Field(default="pending", max_length=20)              # pending / approved / rejected
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class RefundLog(SQLModel, table=True):
+    """환불 감사 로그 — 누가 언제 어떤 결제를 환불했는지 추적"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    store_id: int = Field(foreign_key="store.id", index=True)
+    order_id: Optional[int] = Field(default=None, foreign_key="order.id", index=True)
+    payment_id: Optional[str] = Field(default=None, max_length=255, index=True)  # Square/PayPay payment_id
+    payment_method: Optional[str] = Field(default=None, max_length=50)           # square / paypay_direct
+    refund_id: Optional[str] = Field(default=None, max_length=255)               # 결제망에서 발급한 refund_id
+    amount: float = Field(default=0.0)
+    reason: Optional[str] = Field(default=None, max_length=500)
+    admin_user_id: Optional[str] = Field(default=None, max_length=255, index=True)  # 환불 실행한 관리자 (owner_id 등)
+    status: str = Field(default="ok", max_length=20)                              # ok / failed
+    error_message: Optional[str] = Field(default=None, max_length=1000)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 
 class CustomerPoint(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -286,8 +381,12 @@ class Order(SQLModel, table=True):
     pickup_time: Optional[str] = None               # Take-out pickup time (agreed)
     pickup_code: Optional[str] = Field(default=None, max_length=6)  # 손님 식별 코드 (예: A3F7)
     total_amount: float = Field(default=0.0)
+    stamp_reward_used: bool = Field(default=False)
+    used_coupon_id: Optional[int] = Field(default=None)  # 포토콘테스트 등 쿠폰 사용 내역
+    discount_amount: float = Field(default=0.0)
     status: str = Field(default="pending_payment")
     needs_serving: bool = Field(default=True)  # 새 주문: True → 서빙 완료 시 False
+    idempotency_key: Optional[str] = Field(default=None, max_length=64, unique=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     items: List["OrderItem"] = Relationship(back_populates="order")
@@ -302,6 +401,10 @@ class OrderItem(SQLModel, table=True):
     option_details: Optional[str] = None  # JSON string for options
     status: str = Field(default="pending")  # pending | cooking_complete | pickup_ready | served
     is_takeout_item: bool = Field(default=False)  # 이트인 주문 중 테이크아웃으로 요청된 아이템
+
+    # 食べ放題: 활성 세션 대상 메뉴는 unit_price=0으로 저장되며 이 플래그로 식별
+    is_tabehoudai: bool = Field(default=False)
+    tabehoudai_session_id: Optional[int] = Field(default=None, index=True)
 
     order: Optional[Order] = Relationship(back_populates="items")
 
@@ -331,6 +434,8 @@ class OrderCreate(SQLModel):
     payment_method: Optional[str] = None
     source_id: Optional[str] = None     # Square card nonce (take_out only)
     pickup_time: Optional[str] = None   # Take-out pickup time
+    use_stamp_reward: bool = False      # 스탬프 할인 사용 여부
+    use_coupon_id: Optional[int] = None # 쿠폰 할인 사용 여부
     items: List[OrderItemCreate]
 
 class TakeoutTimeQuery(SQLModel, table=True):
@@ -362,6 +467,19 @@ class StaffMember(SQLModel, table=True):
     store: Optional[Store] = Relationship(back_populates="staff_members")
 
 
+class StaffAttendance(SQLModel, table=True):
+    """스태프 출퇴근 1회 기록. clock_out 시 duration_minutes 자동 계산."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    store_id: int = Field(foreign_key="store.id", index=True)
+    staff_id: int = Field(foreign_key="staffmember.id", index=True)
+    staff_name: str = Field(max_length=50)          # 스태프 삭제 후에도 이름 보존
+    clock_in: datetime
+    clock_out: Optional[datetime] = None
+    duration_minutes: Optional[int] = None          # clock_out 시 계산 저장
+    work_date: str = Field(max_length=10)           # "2026-05-01" (JST 날짜, 집계용)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class SystemConfig(SQLModel, table=True):
     key: str = Field(primary_key=True)
     value: str
@@ -388,6 +506,58 @@ class POSType(str, Enum):
     SMAREGI = "smaregi"
     AIRREGI = "airregi"
     NONE = "none"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Menu Group: 점심/저녁/食べ放題 등을 통합한 메뉴 그룹화 모델
+# ──────────────────────────────────────────────────────────────────
+class MenuGroupType(str, Enum):
+    TIME_WINDOW = "time_window"  # 시간대 기반 자동 활성화 (ランチ, ディナー)
+    COURSE = "course"            # 좌석 코스 (食べ放題/飲み放題)
+    MANUAL = "manual"            # 사장님 수동 토글
+
+
+class MenuGroup(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    store_id: int = Field(foreign_key="store.id", index=True)
+    name: str = Field(max_length=100)                 # "ランチ", "ディナー", "90分食べ放題"
+    group_type: MenuGroupType = Field(default=MenuGroupType.TIME_WINDOW)
+
+    # TIME_WINDOW 전용
+    active_from: Optional[str] = Field(default=None, max_length=5)   # "11:00"
+    active_to: Optional[str] = Field(default=None, max_length=5)     # "15:00"
+    weekdays: Optional[str] = Field(default=None, max_length=50)     # CSV "mon,tue,..." (None=매일)
+
+    # COURSE 전용 (食べ放題/飲み放題)
+    price_per_person: int = Field(default=0)
+    duration_minutes: int = Field(default=90)
+    last_order_minutes: int = Field(default=10)
+    course_type: Optional[str] = Field(default=None, max_length=20)  # 'food' | 'drink' | 'both'
+
+    # MANUAL 전용
+    is_active: bool = Field(default=True)
+
+    sort_order: int = Field(default=0)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class MenuGroupItem(SQLModel, table=True):
+    """그룹과 메뉴 m:n 관계"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    group_id: int = Field(foreign_key="menugroup.id", index=True)
+    menu_id: int = Field(foreign_key="menu.id", index=True)
+
+
+class TabehoudaiSession(SQLModel, table=True):
+    """식다파다이 진행 중 세션 — group_type=COURSE 그룹을 테이블에서 활성화"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    table_id: int = Field(foreign_key="table.id", index=True)
+    group_id: int = Field(foreign_key="menugroup.id")
+    num_people: int = Field(default=1)
+    started_at: datetime = Field(default_factory=datetime.utcnow)
+    expires_at: datetime
+    status: str = Field(default="active")  # active | expired | settled
+    settled_at: Optional[datetime] = None
 
 class PaymentSettings(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -435,3 +605,32 @@ class Announcement(SQLModel, table=True):
     content: str
     is_important: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ── INF-02: 감사 로그 ────────────────────────────────────────────────────────
+
+class EventLog(SQLModel, table=True):
+    """모든 상태 변경 작업의 감사 로그. 절대 삭제하지 않는다."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    store_id: int = Field(index=True)
+    actor_type: str = Field(max_length=32)   # customer | staff | admin | system | webhook
+    actor_id: Optional[str] = Field(default=None, max_length=64)
+    action: str = Field(max_length=64, index=True)  # order.created, refund.issued, ...
+    target_type: Optional[str] = Field(default=None, max_length=32)
+    target_id: Optional[int] = Field(default=None, index=True)
+    payload_json: Optional[str] = Field(default=None, sa_column=Column(Text))
+    external_payload_raw: Optional[str] = Field(default=None, sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+# ── INF-04: 외부 Webhook 수신 기록 ──────────────────────────────────────────
+
+class WebhookEvent(SQLModel, table=True):
+    """외부 결제사(Stripe/PayPay/Square) webhook 수신 기록. 멱등성 키 역할."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    provider: str = Field(max_length=32, index=True)   # stripe | paypay | square
+    event_id: str = Field(max_length=128, index=True, unique=True)
+    received_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    signature_valid: bool = Field(default=False)
+    processed: bool = Field(default=False)
+    payload_raw: Optional[str] = Field(default=None, sa_column=Column(Text))

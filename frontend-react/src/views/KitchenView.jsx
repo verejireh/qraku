@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { CheckCircle, Clock, Bell, X, Eye, LayoutGrid, List, Layers } from 'lucide-react';
-import { useDisplayGuard, BlockedScreen } from '../hooks/useDisplayGuard';
+import { useDisplayGuard } from '../hooks/useDisplayGuard';
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav';
 import { useWebSocket } from '../hooks/useWebSocket';
 
@@ -457,7 +457,7 @@ export default function KitchenView() {
         </div>
     );
 
-    if (isAllowed === false) return <BlockedScreen shop_id={actualStoreId} viewName="주방 (Kitchen KDS)" />;
+    if (isAllowed === false) return null;
 
     // ── Audio Unlock Overlay ──────────────────────────────────────────────────
     if (!audioUnlocked) {

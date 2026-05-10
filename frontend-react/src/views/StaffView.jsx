@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
-import { useDisplayGuard, BlockedScreen } from '../hooks/useDisplayGuard'
+import { useDisplayGuard } from '../hooks/useDisplayGuard'
 import { useStaffAuth } from '../components/StaffLoginGate'
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -440,9 +440,7 @@ export default function StaffView() {
         )
     }
 
-    if (isAllowed === false) {
-        return <BlockedScreen shop_id={shop_id} viewName="홀 직원용 화면 (Staff)" />
-    }
+    if (isAllowed === false) return null;
 
     // ── DETAIL VIEW: Table Card (Bento style) ─────────────────────────────────
     const renderDetailCard = (table) => {

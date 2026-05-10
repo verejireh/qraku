@@ -928,21 +928,109 @@ JSON → jsonb 마이그레이션은 별도 카드로 두고 본 카드에서는
 
 ---
 
-## 다음 사이클 후보 (Backlog) — 본 사이클 외
+## 다음 사이클 후보 (Backlog)
 
-- 이전 사이클 backlog 그대로 carry:
-  - 멀티 인스턴스 실배포
-  - 결제 재시도 / POS 동기화 워커
-  - 영수증 PDF / NSFW 검사 워커화
-  - AI 매출 분석 / LINE 마케팅
-  - PayPay Direct E2E 테스트
-  - Smaregi / AirRegi 어댑터
-  - 食べ放題 인원 변경 / 시간 연장
-- **본 사이클에서 새로 발생한 것**:
-  - JSON → jsonb 컬럼 변경 (DBM-13 후 별도 카드)
-  - DATETIME → TIMESTAMPTZ + TZ 정책 도입
-  - PG read replica 도입 (트래픽 증가 시)
-  - `migration_sqls` 단일화 (PG only 안정화 후)
+### 마켓플레이스 / 미니홈피 / 발견 전략 (출시 전후 핵심 차별화)
+
+> 핵심 컨셉: `qraku.com/{shop_id}` 를 식당의 공개 미니홈피로 활용 + 위치 기반 발견 + 데이터 가치화.
+> 본 사이클(DBM, PG 이전) 후 순차 진행.
+
+#### MKT — 미니홈피 v1 (출시 전 권장, DBM 직후 진행)
+
+**현재 보유**: 메뉴 / 가격 / 설명, 영업시간, 위치 표시, 매장 추가 사진 갤러리 (이미 구현됨).
+
+**v1 범위** (A + 사진 갤러리 + 매장 소개):
+- `Store` 모델에 컬럼 추가: `mini_homepage_public` (bool), `intro_text`, `slug` (선택, URL 친화)
+- 공개 미니홈피 페이지 — FastAPI Jinja2 SSR 권장 (SEO 위해)
+  - 라우트: `/{shop_id}` (또는 `/{slug}`)
+  - 메뉴 / 사진 / 가격 / 영업시간 / 위치 (지도 임베드) / 매장 소개
+  - 테이크아웃 선결제 prominent CTA (기존 결제 흐름 재사용)
+- 식당 admin 에 opt-in 토글 + 미리보기 + 소개 텍스트 입력
+- 메타 태그 기본 (title / description / og:image)
+- 비공개 매장은 `/{shop_id}` 접근 시 운영 화면 (현 동작) 유지
+
+**v2 (출시 후)**: 후기 / 평점 (업주 opt-in 공개), 외부 SNS 임베드 (Instagram), 배너 이미지 별도 설정.
+
+#### GEO — 지오 발견 (MKT 직후 권장)
+
+- PostGIS extension 활성화 (Cloud SQL 콘솔 또는 `CREATE EXTENSION postgis`)
+- `Store.location POINT` 컬럼 + GIST 인덱스
+- 식당 admin: 주소 → 좌표 변환 (Google Geocoding API)
+- 공개 API: `GET /api/discover/nearby?lat=&lng=&radius=&category=`
+- 발견 페이지 `/find` 또는 `/near` — 현재 위치 기반 매장 리스트 + 지도
+- 영업중 / 테이크아웃 가능 / 카테고리 필터
+- 핵심 쿼리 (예):
+  ```sql
+  SELECT * FROM store
+   WHERE category = :cat AND takeout_enabled
+     AND mini_homepage_public
+     AND ST_DWithin(location::geography, ST_MakePoint(:lng,:lat)::geography, :m)
+   ORDER BY ST_Distance(location, ST_MakePoint(:lng,:lat)) LIMIT 20;
+  ```
+
+#### SEO — 발견성 강화 (MKT/GEO 와 한 사이클로 묶어도 OK)
+
+- 미니홈피 메타 태그 풍부화 (OG / Twitter Card / schema.org `Restaurant`)
+- `sitemap.xml` 자동 생성 (공개 매장만)
+- `robots.txt` + 검색엔진 등록 (Google Search Console / Bing Webmaster)
+- 가격 / 영업시간 schema.org 구조화 데이터 → 구글 검색 결과 카드
+- 매장 admin 에 "Google Maps 의 웹사이트 필드에 미니홈피 URL 등록" 안내 + 1클릭 복사
+
+#### SRC — 텍스트 검색 (식당 수 50+ 시점)
+
+- PG `tsvector` + `pg_trgm` — 매장명 / 메뉴명 / 카테고리 검색
+- 자동완성 (오타 허용)
+- 카테고리 트리 정비
+
+#### MNU — 메뉴 옵션 강화 (식당 수 30+ 시점)
+
+- `Menu.options` 컬럼 `JSON → jsonb` 마이그레이션
+- GIN 인덱스 추가
+- 메뉴별 "추가 요청 메모" 기능
+- 크로스 매장 옵션 검색 (비건 / 글루텐프리 / 알레르기 / 매운맛 등)
+
+#### REV — 후기 / 평점 시스템 (출시 후 일정 매장 수 확보 후)
+
+- `Review` 모델 (손님 → 매장)
+- 매장 admin opt-in 공개 토글
+- 미니홈피 페이지에 후기 섹션
+- 별점 분포 / 최근 후기 / 응답 기능
+
+#### ANA — 데이터 가치화 (출시 ~ 6개월 후)
+
+- 일 / 주 / 월 매장 인사이트 대시보드
+- 시간대별 매출 / 인기 메뉴 / 재방문율
+- AI 추천 (Gemini 기반): "비슷한 매장의 인기 메뉴", "이 시간에 잘 팔리는 메뉴"
+- 마케팅 메시지 (LINE 푸시) 워커 — 신메뉴 공지 / 쿠폰
+
+### 이전 사이클 carry-over (인프라 / 운영)
+
+- 멀티 인스턴스 실배포 검증 (이미 코드는 준비됨 — OPS-01 docker-compose)
+- 결제 재시도 / POS 동기화 워커 (Dramatiq 인프라 재사용)
+- 영수증 PDF / NSFW 검사 워커화
+- PayPay Direct E2E 테스트 (sandbox)
+- Smaregi / AirRegi 어댑터 본격 구현
+- 食べ放題 인원 변경 / 시간 연장
+
+### 본 사이클에서 발생한 것 (DBM 완료 후 별도 카드)
+
+- DATETIME → TIMESTAMPTZ + 타임존 정책 도입
+- PG read replica 도입 (트래픽 증가 시)
+- `migration_sqls` 단일화 (PG 단독 안정화 후)
+- Cloud SQL HA on (식당 수 100+ 시점)
+
+### 출시 전후 우선순위 권장
+
+| 순서 | 사이클 | 출시 전 필수도 | 비고 |
+|---|---|---|---|
+| 1 | **DBM** (현 사이클, PG 이전) | 🔴 출시 전 필수 | 출시 후엔 매우 어렵다 |
+| 2 | **MKT v1** (미니홈피 공개 + opt-in) | 🟠 차별화 핵심 | 가능하면 출시 전 |
+| 3 | **GEO** (PostGIS + 근처 매장) | 🟠 차별화 핵심 | MKT 와 같이 묶으면 좋음 |
+| 4 | **SEO** (메타 태그 + sitemap) | 🟠 미니홈피 가치의 핵심 | MKT/GEO 와 한 묶음 가능 |
+| 5 | **MNU** (jsonb + 옵션 검색) | 🟡 출시 후, 매장 수 ~30 | 본인이 처음 언급한 기능 |
+| 6 | **SRC** (텍스트 검색) | 🟡 매장 수 ~50 | 발견성 보강 |
+| 7 | **REV** (후기 시스템) | 🟢 매장 수 ~100 | 신뢰 자산 누적 |
+| 8 | **ANA** (데이터 인사이트) | 🟢 출시 6개월+ | 데이터 누적 후 |
 
 ---
 

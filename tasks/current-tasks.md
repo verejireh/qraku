@@ -58,7 +58,7 @@
 | WS-01 | WebSocket 이벤트 헬퍼 (`utils/events.py`) | 2 | 🟠 P1 | websocket-specialist | **sonnet** | ✅ DONE |
 | WS-02 | WebSocket Redis Pub/Sub 어댑터 | 2 | 🟠 P1 | architect → websocket-specialist | **opus → sonnet** | ✅ DONE |
 | WS-03 | WebSocket 인증 토큰 | 2 | 🟠 P1 | websocket-specialist | **sonnet** | ✅ DONE |
-| WS-04 | 클라이언트 훅 통일 (heartbeat/재연결) | 2 | 🟡 P2 | websocket-specialist | **sonnet** | TODO |
+| WS-04 | 클라이언트 훅 통일 (heartbeat/재연결) | 2 | 🟡 P2 | websocket-specialist | **sonnet** | ✅ DONE |
 | OPS-01 | Dockerfile + docker-compose (개발용) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | TODO |
 | OPS-02 | Dramatiq + 첫 워커 (번역) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | TODO |
 | OPS-03 | Alembic 도입 (신규 변경부터) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | TODO |

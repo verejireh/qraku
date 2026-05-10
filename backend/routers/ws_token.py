@@ -13,7 +13,7 @@ from sqlmodel import select
 from database import get_session
 from models import Store, Table
 from utils.redis import get_redis
-from utils.jwt import require_admin
+from utils.jwt import require_admin, require_staff_or_admin
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +81,10 @@ async def _issue_token(
 @router.post("/token/staff")
 async def create_ws_token_staff(
     body: WsTokenRequest,
-    admin_store: Store = Depends(require_admin),
+    admin_store: Store = Depends(require_staff_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """스태프용 WS 토큰 발급 — Admin JWT 필수."""
+    """스태프용 WS 토큰 발급 — Admin JWT 또는 Staff JWT(마스터PIN) 모두 허용."""
     if body.audience not in _STAFF_AUDIENCES:
         raise HTTPException(status_code=400, detail=f"Unknown staff audience: {body.audience}")
     if body.store_id != admin_store.id:

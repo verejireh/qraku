@@ -5,6 +5,7 @@ import staffApi from '../hooks/useStaffApi'
 import { ShoppingCart, Plus, Minus, X } from 'lucide-react'
 import { useStaffAuth } from '../components/StaffLoginGate'
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav'
+import { useWebSocket } from '../hooks/useWebSocket'
 
 /* ── ユーティリティ ─────────────────────────────────────── */
 
@@ -155,15 +156,11 @@ export default function RegisterView() {
     }
 
     /* ── WebSocket ─────────────────────────────────────── */
-    useEffect(() => {
-        if (!storeInfo?.id) return
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const host = ['localhost', '127.0.0.1'].includes(window.location.hostname)
-            ? `${window.location.hostname}:8000` : window.location.host
-        const ws = new WebSocket(`${protocol}//${host}/api/ws/${storeInfo.id}`)
-        ws.onmessage = () => fetchAll()
-        return () => ws.close()
-    }, [storeInfo?.id, fetchAll])
+    useWebSocket({
+        audience: 'admin',
+        storeId: storeInfo?.id,
+        onEvent: useCallback(() => fetchAll(), [fetchAll]),
+    })
 
     /* ── マージデータ ─────────────────────────────────── */
     const merged = staffTables.map(st => {

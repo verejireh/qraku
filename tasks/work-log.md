@@ -352,3 +352,37 @@
 - `INSTANCE_ID`: `INSTANCE_ID` 환경변수 우선, 없으면 `uuid.uuid4().hex[:12]` 자동 생성
 - 다중 인스턴스 정식 검증은 OPS-01 (docker-compose) 완료 후
 - 다음 가능 작업: WS-04 (클라이언트 훅 통일 — WS-01·WS-02·WS-03 모두 완료)
+
+---
+
+## [WS-04] 클라이언트 훅 통일 (heartbeat/재연결)
+**날짜**: 2026-05-10
+**담당**: websocket-specialist (sonnet)
+**커밋**: (이번 커밋)
+
+### 변경 파일
+- `frontend-react/src/hooks/useWebSocket.js` (신규, 105 LOC) — 토큰 취득, WS 연결, heartbeat, backoff 재연결, store_id 가드 통합 훅
+- `frontend-react/src/views/KitchenView.jsx` (수정) — 인라인 WS → `useWebSocket(audience:'kitchen')`, wsConnected → wsStatus 파생
+- `frontend-react/src/views/StaffView.jsx` (수정) — 인라인 WS + wsRef → `useWebSocket(audience:'admin')`
+- `frontend-react/src/views/OrderView.jsx` (수정) — 인라인 customer WS + wsCustomerRef → `useWebSocket(audience:'customer')`
+- `frontend-react/src/views/RegisterView.jsx` (수정) — 잘못된 `/api/ws/{id}` URL + 포트 8000 버그 → `useWebSocket(audience:'admin')` 수정
+- `backend/routers/ws_token.py` (수정, WS-03 bug fix) — `require_admin` → `require_staff_or_admin`: 마스터PIN JWT로도 WS 토큰 발급 가능
+
+### 마이그레이션
+없음
+
+### 검증 결과
+- ✅ 4개 뷰에서 인라인 `new WebSocket()` / 수동 재연결 타이머 / `wsRef` 완전 제거
+- ✅ ESLint 0 errors (외부 패스 warning만 — worktree 특성)
+- ✅ `useWebSocket` 훅: token → WS URL 구성 → connect 순서 명확
+- ✅ `audioUnlocked` 조건: `storeId: audioUnlocked ? storeData?.id : null` 패턴으로 미잠금 시 연결 안 함
+- ✅ RegisterView URL 버그 수정: `/api/ws/${storeInfo.id}` (미정의 경로) → `/api/ws/admin/${storeId}` (올바른 경로)
+- ✅ ws_token.py: 스태프 JWT(type=staff)도 `/ws/token/staff` 발급 허용 (WS-03 카드 의도 — "require_admin 또는 마스터PIN 세션 검증")
+
+### 비고
+- heartbeat: 30초마다 `{type:"ping"}` 전송, 60초 무응답 시 강제 close → 재연결
+- backoff: `[1, 2, 5, 10, 30]초` 순서로 증가, 연결 성공 시 리셋
+- store_id 가드: envelope.store_id !== storeId 메시지 무시 (클라이언트 이중 가드)
+- 토큰 갱신: 만료 30초 전에 자동 재발급
+- WS-03 bug fix: WS-03 구현 시 `require_admin`만 사용 → 마스터PIN 로그인 스태프가 WS 토큰 발급 불가했던 문제 수정
+- 다음 가능 작업: FE-01 (Display Toggle URL 가드), OPS-01 (docker-compose)

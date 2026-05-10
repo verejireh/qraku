@@ -61,7 +61,7 @@
 | WS-04 | 클라이언트 훅 통일 (heartbeat/재연결) | 2 | 🟡 P2 | websocket-specialist | **sonnet** | ✅ DONE |
 | OPS-01 | Dockerfile + docker-compose (개발용) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | ✅ DONE |
 | OPS-02 | Dramatiq + 첫 워커 (번역) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | ✅ DONE |
-| OPS-03 | Alembic 도입 (신규 변경부터) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | TODO |
+| OPS-03 | Alembic 도입 (신규 변경부터) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | ✅ DONE |
 
 > **우선순위 표기**: 🔴 P0 (출시 전 필수) / 🟠 P1 (이번 사이클 내) / 🟡 P2 (사이클 후반)
 
@@ -100,6 +100,7 @@ SEC-01 opus의 architect로 먼저 정밀화 → 그 다음 sonnet의 backend-re
 | OPR-04 | `VISION_API_KEY` GCP Vision API 활성화 | 사진 NSFW 자동 차단 (선택) |
 | OPR-05 | `REDIS_URL` 운영 환경 Redis 인스턴스 | INF-01 완료 후 |
 | OPR-06 | PayPay 콘솔에 webhook URL 등록 | PAY-01 배포 후 |
+| OPR-07 | OPS-03 Alembic baseline stamp | 운영 DB 첫 배포 시 1회 `uv run alembic stamp head` 실행 (이후 새 스키마 변경부터 alembic 사용) |
 
 ---
 

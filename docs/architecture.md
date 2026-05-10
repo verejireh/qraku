@@ -304,7 +304,61 @@ backend/
 
 ---
 
-## 9. 참고 문서
+## 9. Alembic 운영 가이드 (OPS-03)
+
+기존 마이그레이션 흐름과 Alembic을 **공존**시키는 전략. 두 시스템이 충돌하지 않도록 규칙을 엄격히 지킨다.
+
+### 9.1 두 마이그레이션 시스템
+
+| 시스템 | 위치 | 역할 |
+|---|---|---|
+| `migration_sqls` (인라인) | `backend/database.py` | **운영 안정성** — 서버 startup마다 실행되는 멱등 SQL 리스트. 기존 컬럼 추가 등 모든 과거 변경의 단일 진실 공급원 |
+| Alembic | `alembic/`, `alembic.ini` | **신규 변경부터** — 정식 마이그레이션 도구. autogenerate / revision 관리 |
+
+**중요**: 둘 중 하나만 사용하지 않는다. **이중 안전망 기간** 동안 같은 변경을 양쪽에 모두 추가한다.
+
+### 9.2 Baseline (최초 1회)
+
+- **신규 dev 환경**: `init_db()` 가 SQLModel.metadata.create_all 로 모든 테이블을 생성한 뒤, `uv run alembic stamp head` 1회 실행하여 baseline 마킹.
+- **기존 운영 환경 (GCP VM)**: 운영자가 첫 배포 시 1회 `uv run alembic stamp head` 수동 실행. `tasks/current-tasks.md` 의 OPR-07 액션 참조.
+- **Baseline revision** (`alembic/versions/0001_baseline.py`) 은 의도적으로 **no-op**. 단지 "현 schema 상태"를 의미.
+
+### 9.3 신규 스키마 변경 절차
+
+```bash
+# 1. backend/models.py 수정
+# 2. autogenerate
+uv run alembic revision --autogenerate -m "add staff_phone column"
+
+# 3. 생성된 alembic/versions/xxxx_add_staff_phone_column.py 파일을 수기 검토
+#    - Enum / JSON-텍스트 컬럼 노이즈 제거
+#    - 운영 DB에 안전하게 적용 가능한지 확인
+
+# 4. 같은 SQL을 backend/database.py:migration_sqls 에도 추가 (이중 안전망)
+#    "# [YYYY-MM-DD] 설명"
+#    "ALTER TABLE staffmember ADD COLUMN phone VARCHAR(32) NULL",
+
+# 5. 커밋
+```
+
+### 9.4 자동 실행하지 않음
+
+- `backend/main.py` 의 startup 훅에서 `alembic upgrade head` 를 호출하지 **않는다**. 이중 적용 위험.
+- 운영 배포 시 마이그레이션 적용은 운영자 수동 또는 별도 deploy 카드에서 처리한다 (현재 deploy.py 는 변경하지 않음).
+
+### 9.5 Autogenerate 한계
+
+- **SQLModel Enum 컬럼**: String 으로 매핑되어 Enum 값 변경이 추적되지 않음 → 수기 검토 필수.
+- **JSON-as-TEXT 필드** (`Menu.options`, `Store.extra_translations` 등): 매번 차이로 검출됨 → 생성된 revision 파일에서 노이즈 라인 제거.
+- **인덱스 누락**: `migration_sqls` 의 일부 인덱스(`CREATE INDEX IF NOT EXISTS ...`)는 SQLModel metadata 에 없을 수 있음 → autogenerate 가 인덱스를 다시 만들려고 시도할 수 있으니 검토.
+
+### 9.6 DATABASE_URL 드라이버
+
+`alembic/env.py` 가 `mysql+aiomysql://` → `mysql+pymysql://` 자동 치환. Alembic 은 sync 엔진이 필요하다.
+
+---
+
+## 10. 참고 문서
 
 - 코딩 규칙: [`coding-rules.md`](./coding-rules.md)
 - WebSocket 설계: [`websocket-rules.md`](./websocket-rules.md)

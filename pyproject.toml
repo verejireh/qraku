@@ -27,6 +27,7 @@ dependencies = [
     "paramiko",
     "redis>=5.0",
     "dramatiq[redis]>=1.16",
+    "alembic>=1.13",
 ]
 
 [tool.uv]

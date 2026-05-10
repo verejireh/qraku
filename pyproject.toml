@@ -26,6 +26,7 @@ dependencies = [
     "google-cloud-storage",
     "paramiko",
     "redis>=5.0",
+    "dramatiq[redis]>=1.16",
 ]
 
 [tool.uv]

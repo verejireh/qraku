@@ -60,7 +60,7 @@
 | WS-03 | WebSocket 인증 토큰 | 2 | 🟠 P1 | websocket-specialist | **sonnet** | ✅ DONE |
 | WS-04 | 클라이언트 훅 통일 (heartbeat/재연결) | 2 | 🟡 P2 | websocket-specialist | **sonnet** | ✅ DONE |
 | OPS-01 | Dockerfile + docker-compose (개발용) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | ✅ DONE |
-| OPS-02 | Dramatiq + 첫 워커 (번역) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | TODO |
+| OPS-02 | Dramatiq + 첫 워커 (번역) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | ✅ DONE |
 | OPS-03 | Alembic 도입 (신규 변경부터) | 3 | 🟡 P2 | architect → backend-reliability | **opus → sonnet** | TODO |
 
 > **우선순위 표기**: 🔴 P0 (출시 전 필수) / 🟠 P1 (이번 사이클 내) / 🟡 P2 (사이클 후반)

@@ -232,3 +232,20 @@ async def emit_takeout_query_update(session: AsyncSession, store_id: int, query)
         "agreed_time": query.agreed_time,
         "staff_response": query.staff_response,
     })
+
+
+async def emit_translation_completed(
+    session: AsyncSession, store_id: int, menu_id: int, translations: dict
+) -> None:
+    """라우터에서 사용 가능한 번역 완료 통지 헬퍼.
+
+    워커(Dramatiq)는 FastAPI lifecycle 외부이므로 이 함수 대신 직접 redis publish를
+    사용한다 (`backend/workers/translate_tasks.py:_publish_translation_completed`).
+    이 헬퍼는 라우터 동기 흐름(예: 즉시 번역 완료 후 emit)을 위한 것이다.
+    """
+    await _emit(
+        session,
+        store_id=store_id,
+        type="TRANSLATION_COMPLETED",
+        data={"menu_id": menu_id, "translations": translations},
+    )

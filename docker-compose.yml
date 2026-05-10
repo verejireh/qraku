@@ -59,16 +59,15 @@ services:
     ports:
       - "8004:8003"
 
-  # OPS-02 placeholder — 그 카드에서 주석 해제:
-  # worker:
-  #   <<: *backend
-  #   command: ["uv","run","dramatiq","backend.workers.translate_tasks","-p","2","-t","4"]
-  #   ports: []
-  #   environment:
-  #     INSTANCE_ID: worker
-  #     DATABASE_URL: mysql+aiomysql://root:${MYSQL_ROOT_PASSWORD:-rootpw}@mysql:3306/${MYSQL_DATABASE:-qraku}
-  #     REDIS_URL: redis://redis:6379/0
-  #     DRAMATIQ_BROKER_URL: redis://redis:6379/0
+  worker:
+    <<: *backend
+    command: ["uv","run","dramatiq","backend.workers.translate_tasks","-p","2","-t","4"]
+    ports: []
+    environment:
+      INSTANCE_ID: worker
+      DATABASE_URL: mysql+aiomysql://root:${MYSQL_ROOT_PASSWORD:-rootpw}@mysql:3306/${MYSQL_DATABASE:-qraku}
+      REDIS_URL: redis://redis:6379/0
+      DRAMATIQ_BROKER_URL: redis://redis:6379/0
 
   frontend:
     build:

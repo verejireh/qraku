@@ -29,7 +29,9 @@
 | DBM-02 | Cloud SQL 사이징 + 도구 + 컷오버 전략 결정 | A | 🔴 P0 | db-migration-architect | **opus** | TODO |
 | DBM-03 | ADR 006/007/008 작성 | A | 🔴 P0 | db-migration-architect | **opus** | TODO |
 | DBM-04 | 의존성 + DATABASE_URL 추상화 | B | 🔴 P0 | postgres-specialist | **sonnet** | TODO |
-| DBM-05 | `migration_sqls` ANSI 호환화 | B | 🔴 P0 | postgres-specialist | **sonnet** | TODO |
+| DBM-05 | `migration_sqls` ANSI 호환화 + 트랜잭션 항목별 분리 | B | 🔴 P0 | postgres-specialist | **sonnet** | TODO |
+| DBM-05b | `routers/demo.py` raw SQL 백틱 제거 | B | 🟠 P1 | postgres-specialist | **sonnet** | TODO |
+| DBM-05c | `routers/stats.py` MySQL 날짜 함수 PG 호환화 | B | 🔴 P0 | postgres-specialist | **sonnet** | TODO |
 | DBM-06 | Alembic env.py + workers/db.py 양 DB 지원 | B | 🔴 P0 | postgres-specialist | **sonnet** | TODO |
 | DBM-07 | docker-compose 에 postgres 서비스 추가 | B | 🟠 P1 | postgres-specialist | **sonnet** | TODO |
 | DBM-08 | PG 빈 인스턴스 schema 생성 + 비교 | C | 🔴 P0 | postgres-specialist | **sonnet** | TODO |
@@ -379,20 +381,40 @@ DBM-01 의 §3 호환화 액션 리스트를 따라 `migration_sqls` 의 모든 
 
 - `backend/database.py` — `migration_sqls` 리스트만
 
-### 변환 규칙
+### 변환 규칙 (audit §6 참조)
 
-1. `` `order` `` → `"order"` (큰따옴표)
-2. `IF NOT EXISTS` 유지 (PG/MySQL 둘 다 지원)
-3. `TINYINT(1)` 가 SQL 안에 직접 들어있으면 → `BOOLEAN` (현재는 SQLModel 이 처리해서 들어있을 가능성 낮음)
-4. `DATETIME` 가 SQL 안에 들어있으면 → `TIMESTAMP`
-5. `CHARSET` / `COLLATE` / `ENGINE` 절 제거 (MySQL-only)
+1. 백틱(`` ` ``) 식별자 → ANSI 큰따옴표 (`` `order` `` → `"order"`, `` `table` `` → `"table"`) — **약 23건**
+2. 라인 45 `JSON DEFAULT ('[]')` → `TEXT DEFAULT '[]'` (코드는 str 로 다룸)
+3. 라인 186 `ADD UNIQUE INDEX uq_order_square_payment_id (col)` → `CREATE UNIQUE INDEX IF NOT EXISTS uq_order_square_payment_id ON "order"(col)`
+4. 모든 `ADD COLUMN` 에 `IF NOT EXISTS` 추가 (트랜잭션 abort 방지)
+5. 에러 메시지 분기에 PG SQLSTATE 추가: `"42701"`, `"42P07"` 도 무시 대상에 포함
+
+### ⚠️ 핵심 추가 작업: 트랜잭션 항목별 분리 (audit §6.3)
+
+현재 `database.py:202~212` 는 단일 `async with engine.begin()` 안에서 모든 SQL 실행 → PG 는 한 건 실패 시 트랜잭션 전체 abort, 이후 모두 실패. **항목별 트랜잭션** 으로 변경:
+
+```python
+for sql in migration_sqls:
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(sql))
+    except Exception as e:
+        if any(s in str(e) for s in ("Duplicate column name", "already exists", "1060", "42701", "42P07", "Duplicate key name")):
+            pass
+        else:
+            print(f"⚠️ Migration skipped ({sql[:40]}...): {e}")
+```
+
+본 변경은 MySQL 운영에도 안전 (각 항목 멱등).
 
 ### 수용 기준
 
-- [ ] DBM-01 §3 의 모든 항목 처리
-- [ ] **MySQL 부팅 회귀 0** — 기존 `migration_sqls` 가 멱등이므로 재실행 안전
-- [ ] `Grep` 으로 backtick / `CHARSET` / `ENGINE=InnoDB` 0건
-- [ ] PG 빈 인스턴스에 부팅 시도 (DBM-08 에서 검증)
+- [ ] audit §1 의 모든 항목 처리 (백틱, JSON, UNIQUE INDEX)
+- [ ] 항목별 트랜잭션 분리
+- [ ] 에러 메시지 분기에 PG SQLSTATE 포함
+- [ ] **MySQL 부팅 회귀 0** — 기존 멱등성 보장
+- [ ] `Grep ` ` ` 으로 backtick 0건 (database.py 내)
+- [ ] PG 빈 인스턴스 부팅 시도 (DBM-08 에서 검증)
 
 ### 사용자 지시 프롬프트
 
@@ -409,6 +431,146 @@ DBM-01 의 db-migration-audit.md §3 호환화 액션 리스트를 입력으로 
 
 기존 MySQL 부팅이 회귀 없이 동작해야 함 (멱등성).
 완료 후 grep 으로 backtick 0건 확인해줘.
+```
+
+---
+
+## 🟦 DBM-05b — `routers/demo.py` raw SQL 백틱 제거
+
+**Owner**: postgres-specialist (sonnet)
+**Priority**: 🟠 P1
+**Depends on**: DBM-01
+
+### 배경
+
+`demo.py` 의 `cleanup_expired_temp_stores` 함수에 `_text(f"DELETE FROM \`order\` ...")` 류 raw SQL 이 8건. PG 에서 즉시 실패. audit §2.1 참조.
+
+### 허용 파일
+
+- `backend/routers/demo.py` (8 라인 변경)
+
+### 작업
+
+라인 224, 230, 231, 234, 237, 240, 243, 246, 249 의 `` `order` `` / `` `table` `` 백틱을 ANSI 큰따옴표로 변경:
+
+```python
+# 변경 전
+_text(f"SELECT id FROM `order` WHERE shop_id IN ({placeholders})")
+_text(f"DELETE FROM `order` WHERE id IN ({id_list})")
+_text(f"DELETE FROM `table` WHERE store_id = {sid}")
+
+# 변경 후
+_text(f'SELECT id FROM "order" WHERE shop_id IN ({placeholders})')
+_text(f'DELETE FROM "order" WHERE id IN ({id_list})')
+_text(f'DELETE FROM "table" WHERE store_id = {sid}')
+```
+
+> 단순 식별자 인용 변경. SQL injection 보강 / ORM 전환은 별도 backlog.
+
+### 수용 기준
+
+- [ ] 백틱 0건 (`grep` 으로 검증)
+- [ ] MySQL 환경에서 demo cleanup 회귀 없음 (ANSI 큰따옴표는 MySQL `sql_mode=ANSI_QUOTES` 가 아니어도 식별자로 인식됨 — 실제로는 MySQL 도 큰따옴표 식별자 지원 모드 있으나 안전 확인 필요)
+- [ ] PG 환경에서 demo cleanup 정상 동작
+
+### 사용자 지시 프롬프트
+
+```
+DBM-05b 를 postgres-specialist 에이전트(sonnet)로 진행해줘.
+허용 파일은 backend/routers/demo.py 만.
+audit §2.1 의 8건 백틱을 ANSI 큰따옴표로 변경.
+주의: MySQL 의 sql_mode 가 ANSI_QUOTES 가 아니면 큰따옴표 식별자가 실패할 수 있음 — 검증 필요.
+대안: `f'SELECT id FROM \\"order\\" WHERE ...'` 가 양쪽 모두 안 되면 별도 분기 또는 ORM 으로 재작성 (이 경우 사용자에게 보고).
+```
+
+---
+
+## 🟦 DBM-05c — `routers/stats.py` MySQL 날짜 함수 PG 호환화
+
+**Owner**: postgres-specialist (sonnet)
+**Priority**: 🔴 P0
+**Depends on**: DBM-01
+
+### 배경
+
+`stats.py` 가 `func.hour() / year() / month() / dayofweek() / date()` 사용 — MySQL 전용. PG 에서는 syntax error 또는 함수 없음. analytics 기능 전체가 PG 에서 깨짐. audit §2.3 참조.
+
+### 허용 파일
+
+- `backend/utils/db_compat.py` (신규)
+- `backend/routers/stats.py` (수정)
+
+### 작업
+
+#### 1. `utils/db_compat.py` 신규 — ANSI 호환 헬퍼
+
+```python
+"""양 DB 호환 SQLAlchemy 함수 래퍼.
+
+MySQL 전용 func.hour / year / month / dayofweek / date 를 ANSI EXTRACT 로 통일.
+MySQL 8 / PG 13+ 모두 EXTRACT(... FROM ...) 지원.
+"""
+from sqlalchemy import func, cast, Date
+
+
+def hour(col):
+    """MySQL HOUR(x) / PG EXTRACT(HOUR FROM x) — 0~23"""
+    return func.extract('hour', col)
+
+
+def year(col):
+    return func.extract('year', col)
+
+
+def month(col):
+    return func.extract('month', col)
+
+
+def day_of_week(col):
+    """⚠️ Semantics 통일: MySQL DAYOFWEEK 는 1=Sun..7=Sat, PG EXTRACT(DOW) 는 0=Sun..6=Sat.
+    본 헬퍼는 **MySQL 의미** (1=Sun..7=Sat) 로 통일 — 기존 클라이언트 호환 보존."""
+    return func.extract('dow', col) + 1
+
+
+def date_only(col):
+    """MySQL DATE(x) / PG x::date"""
+    return cast(col, Date)
+```
+
+#### 2. `routers/stats.py` — 14건 교체
+
+| 기존 | 변경 |
+|---|---|
+| `func.date(Order.created_at)` | `date_only(Order.created_at)` |
+| `func.hour(Order.created_at)` | `hour(Order.created_at)` |
+| `func.year(...)` | `year(...)` |
+| `func.month(...)` | `month(...)` |
+| `func.dayofweek(...)` | `day_of_week(...)` |
+
+import 추가:
+```python
+from utils.db_compat import hour, year, month, day_of_week, date_only
+```
+
+### 수용 기준
+
+- [ ] `utils/db_compat.py` 신규 (5 함수)
+- [ ] `stats.py` 의 14건 모두 헬퍼로 교체
+- [ ] `grep "func\.hour\|func\.year\|func\.month\|func\.dayofweek\|func\.date(" backend/routers/stats.py` 결과 0건
+- [ ] MySQL 환경에서 stats 응답 회귀 없음 (값 / 형식 동일)
+- [ ] PG 환경에서 stats 응답 정상 (DBM-08 후 검증 가능)
+
+### 사용자 지시 프롬프트
+
+```
+DBM-05c 를 postgres-specialist 에이전트(sonnet)로 진행해줘.
+허용 파일은 backend/utils/db_compat.py (신규) 와 backend/routers/stats.py 만.
+audit §2.3 의 14건 사용처 모두 헬퍼로 교체.
+
+특히 dayofweek 의 MySQL vs PG semantics 차이 (1=Sun vs 0=Sun) 가 핵심 —
+헬퍼에서 PG 측 +1 보정하여 MySQL 의미로 통일 (기존 클라이언트 호환 보존).
+
+MySQL 환경에서 회귀 없는지 검증해줘.
 ```
 
 ---

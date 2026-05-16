@@ -29,3 +29,17 @@ Alembic 을 도입하되 **기존 `database.py:migration_sqls` (인라인 ALTER)
 
 공존이 가장 안전. 충분한 운영 검증 후 `migration_sqls` 를 단계적으로 deprecate (별도 사이클).
 **미래 분기점**: `migration_sqls` 가 마지막 변경된 지 수 사이클 경과 + Alembic revision 으로 모든 schema 가 표현됨이 확인되면, baseline 압축 + `migration_sqls` 폐기.
+
+---
+
+## Update (2026-05-11) — PG 컷오버 후 단일화 예정
+
+> **수퍼시드 예고**: [ADR-006 PostgreSQL 마이그레이션](./006-postgresql-migration.md) + [ADR-008 Big-Bang 컷오버](./008-cutover-strategy.md) 의 결정에 따라, 본 ADR 의 "공존" 전제는 **2026-05 PostgreSQL 마이그레이션 사이클의 DBM-12 컷오버 시점까지만 유효**.
+>
+> **DBM-13 (컷오버 후 정리)** 단계에서 다음 중 하나로 결정:
+> - **읽기 전용 보존**: `migration_sqls` 를 코드에 그대로 두되 신규 변경은 Alembic only. 역사 / 디버깅 가치 보존.
+> - **물리적 제거**: `database.py` 의 `migration_sqls` 리스트 + 호출부 삭제. Alembic 단일화.
+>
+> 어느 쪽이든 본 ADR 의 "Alembic + 인라인 공존" 정책은 **DBM-13 종료 시점에 종료**. 그 시점에 본 ADR 의 상태를 **Superseded by ADR-009** (또는 DBM-13 가 산출하는 후속 ADR) 로 변경 예정.
+>
+> 따라서 DBM-04 ~ DBM-12 기간 동안 신규 schema 변경이 발생하면, 본 ADR 의 기존 정책 (Alembic + `migration_sqls` 양쪽 추가) 을 그대로 따른다.

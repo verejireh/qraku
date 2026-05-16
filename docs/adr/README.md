@@ -19,3 +19,16 @@
 | [003](./003-inline-migration-coexistence.md) | Alembic + 인라인 마이그레이션 공존 | Accepted (2026-05) |
 | [004](./004-websocket-pubsub-lazy-start.md) | WebSocket Pub/Sub Lazy Start + 자기메시지 dedup | Accepted (2026-05) |
 | [005](./005-jwt-ws-token.md) | 단기 JWT WebSocket 인증 토큰 | Accepted (2026-05) |
+| [006](./006-postgresql-migration.md) | PostgreSQL (Cloud SQL) 마이그레이션 | Accepted (2026-05) |
+| [007](./007-pgloader-choice.md) | pgloader 선택 (마이그레이션 도구) | Accepted (2026-05) |
+| [008](./008-cutover-strategy.md) | Big-Bang 컷오버 (MySQL → PostgreSQL) | Accepted (2026-05) |
+
+## 2026-05 PostgreSQL 마이그레이션 사이클 ADRs
+
+- **[006](./006-postgresql-migration.md)** — 왜 PG 로 가는가 + Cloud SQL 사양·네트워크
+- **[007](./007-pgloader-choice.md)** — 데이터 마이그레이션 도구 (pgloader vs DMS vs 자체 스크립트)
+- **[008](./008-cutover-strategy.md)** — 컷오버 전략 (big-bang vs 듀얼라이트 vs read replica)
+
+> 본 묶음의 입력은 `tasks/db-migration-audit.md` §13 (DBM-02 산출). 사이클 카드는 `tasks/current-tasks.md` 의 DBM-01 ~ DBM-13.
+>
+> 본 사이클의 DBM-13 (컷오버 후 정리) 완료 시점에 [ADR-003 (인라인 마이그레이션 공존)](./003-inline-migration-coexistence.md) 의 "공존" 전제가 해제되어 단일화 예정. 자세한 메모는 ADR-003 본문 끝 참조.

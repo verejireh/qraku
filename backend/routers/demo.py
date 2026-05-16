@@ -197,7 +197,14 @@ async def _cleanup_expired_temp_stores(session: AsyncSession, now: datetime):
     ORM オブジェクト経由ではなく直接 SQL DELETE を使うことで
     セッション状態を汚染せず、FK 制約エラーも確実に回避する。
     """
+    import os
     from sqlalchemy import text as _text
+    # [DBM-05b] PG 예약어(order/table) 식별자 인용을 양 DB 호환으로:
+    # MySQL 기본 sql_mode 는 backtick, PG 는 ANSI 큰따옴표만 허용.
+    _is_pg = "postgresql" in os.environ.get("DATABASE_URL", "").lower()
+    _q = '"' if _is_pg else "`"
+    _order_tbl = f"{_q}order{_q}"
+    _table_tbl = f"{_q}table{_q}"
     try:
         # 期限切れの一時ストアIDを取得
         result = await session.execute(
@@ -222,16 +229,16 @@ async def _cleanup_expired_temp_stores(session: AsyncSession, now: datetime):
                 # 1. OrderItem → Order（shop_id は文字列なので IN で検索）
                 placeholders = ",".join(f"'{v}'" for v in shop_variants)
                 order_rows = await session.execute(
-                    _text(f"SELECT id FROM `order` WHERE shop_id IN ({placeholders})")
+                    _text(f"SELECT id FROM {_order_tbl} WHERE shop_id IN ({placeholders})")
                 )
                 order_ids = [row[0] for row in order_rows.all()]
                 if order_ids:
                     id_list = ",".join(str(i) for i in order_ids)
                     await session.execute(_text(f"DELETE FROM orderitem WHERE order_id IN ({id_list})"))
-                    await session.execute(_text(f"DELETE FROM `order` WHERE id IN ({id_list})"))
+                    await session.execute(_text(f"DELETE FROM {_order_tbl} WHERE id IN ({id_list})"))
 
                 # 2. Table（FK あり）
-                await session.execute(_text(f"DELETE FROM `table` WHERE store_id = {sid}"))
+                await session.execute(_text(f"DELETE FROM {_table_tbl} WHERE store_id = {sid}"))
 
                 # 3. Menu（FK あり）
                 await session.execute(_text(f"DELETE FROM menu WHERE store_id = {sid}"))

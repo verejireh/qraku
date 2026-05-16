@@ -499,6 +499,10 @@ audit §2.1 의 8건 백틱을 ANSI 큰따옴표로 변경.
 
 - `backend/utils/db_compat.py` (신규)
 - `backend/routers/stats.py` (수정)
+- `backend/routers/register.py` (수정)
+- `backend/routers/super_admin.py` (수정)
+
+> **확장 이유 (audit §12.5 권고)**: `func.date(Order.created_at)` 가 `stats.py` 외에도 `register.py` 2건 + `super_admin.py` 6건 추가 사용 → 동일 헬퍼 `date_only()` 로 일괄 교체해야 PG 컷오버 후 정산/슈퍼어드민 페이지 일관성 확보. audit §2.4, §2.5 참조.
 
 ### 작업
 
@@ -537,40 +541,63 @@ def date_only(col):
     return cast(col, Date)
 ```
 
-#### 2. `routers/stats.py` — 14건 교체
+#### 2. 22건+ 교체 (stats.py 14건, register.py 2건, super_admin.py 6건)
 
-| 기존 | 변경 |
-|---|---|
-| `func.date(Order.created_at)` | `date_only(Order.created_at)` |
-| `func.hour(Order.created_at)` | `hour(Order.created_at)` |
-| `func.year(...)` | `year(...)` |
-| `func.month(...)` | `month(...)` |
-| `func.dayofweek(...)` | `day_of_week(...)` |
+> 참고: audit §2.3 의 함수 호출 라인 18건 중 동일 라인 중복 호출(group_by/order_by 양쪽) 4건을 합쳐 stats.py 본문상 **교체 대상은 14건**. register / super_admin 까지 합치면 **총 22건+**.
 
-import 추가:
+| 파일 | 기존 | 변경 | 라인 (audit §2.3~§2.5) |
+|---|---|---|---|
+| `stats.py` | `func.date(Order.created_at)` | `date_only(Order.created_at)` | 71, 78, 80, 107, 267 |
+| `stats.py` | `func.hour(Order.created_at)` | `hour(Order.created_at)` | 103, 109, 111, 263, 268 |
+| `stats.py` | `func.year(...)` | `year(...)` | 292, 300 |
+| `stats.py` | `func.month(...)` | `month(...)` | 293, 300, 302 |
+| `stats.py` | `func.dayofweek(...)` | `day_of_week(...)` | 325, 332, 334 |
+| `register.py` | `func.date(Order.created_at)` | `date_only(Order.created_at)` | 421, 484 |
+| `super_admin.py` | `func.date(Order.created_at)` | `date_only(Order.created_at)` | 147, 153 (×2), 395, 399, 400 |
+
+import 추가 (세 파일 모두):
 ```python
+# stats.py 는 5종 헬퍼 모두 사용
 from utils.db_compat import hour, year, month, day_of_week, date_only
+
+# register.py / super_admin.py 는 date_only 만 사용
+from utils.db_compat import date_only
 ```
 
 ### 수용 기준
 
 - [ ] `utils/db_compat.py` 신규 (5 함수)
-- [ ] `stats.py` 의 14건 모두 헬퍼로 교체
-- [ ] `grep "func\.hour\|func\.year\|func\.month\|func\.dayofweek\|func\.date(" backend/routers/stats.py` 결과 0건
-- [ ] MySQL 환경에서 stats 응답 회귀 없음 (값 / 형식 동일)
-- [ ] PG 환경에서 stats 응답 정상 (DBM-08 후 검증 가능)
+- [ ] `stats.py` 14건 + `register.py` 2건 + `super_admin.py` 6건 모두 헬퍼로 교체
+- [ ] 다음 grep 결과 0건 (세 파일 합쳐):
+  ```bash
+  grep -nE "func\.hour\(|func\.year\(|func\.month\(|func\.dayofweek\(|func\.date\(" \
+       backend/routers/stats.py \
+       backend/routers/register.py \
+       backend/routers/super_admin.py
+  ```
+- [ ] MySQL 환경에서 stats / register 정산 / super_admin 일별 통계 응답 회귀 없음 (값 / 형식 동일)
+- [ ] PG 환경에서 동일 응답 정상 (DBM-08 후 검증 가능)
 
 ### 사용자 지시 프롬프트
 
 ```
 DBM-05c 를 postgres-specialist 에이전트(sonnet)로 진행해줘.
-허용 파일은 backend/utils/db_compat.py (신규) 와 backend/routers/stats.py 만.
-audit §2.3 의 14건 사용처 모두 헬퍼로 교체.
+허용 파일은 다음 4개:
+- backend/utils/db_compat.py (신규)
+- backend/routers/stats.py
+- backend/routers/register.py
+- backend/routers/super_admin.py
+
+audit §2.3 (stats.py 14건) + §2.4 (register.py 2건) + §2.5 (super_admin.py 6건)
+총 22건+ 모두 db_compat 헬퍼로 교체.
 
 특히 dayofweek 의 MySQL vs PG semantics 차이 (1=Sun vs 0=Sun) 가 핵심 —
 헬퍼에서 PG 측 +1 보정하여 MySQL 의미로 통일 (기존 클라이언트 호환 보존).
 
-MySQL 환경에서 회귀 없는지 검증해줘.
+MySQL 환경에서 stats / register 정산 / super_admin 일별 통계 회귀 없는지 검증.
+완료 후 다음 grep 으로 세 파일 합쳐 0건 확인:
+  grep -nE "func\.hour\(|func\.year\(|func\.month\(|func\.dayofweek\(|func\.date\(" \
+       backend/routers/stats.py backend/routers/register.py backend/routers/super_admin.py
 ```
 
 ---

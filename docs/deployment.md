@@ -339,7 +339,77 @@ redis-cli ping   # PONG 안 나오면 redis 자체 문제
 
 ---
 
-## 11. 참고
+## 11. Cloud SQL PostgreSQL (2026-05 이후)
+
+> **상태**: DBM-02 (2026-05-11, db-migration-architect, opus) 산출 권장값 뼈대.
+> **상세 결정 근거**: [`../tasks/db-migration-audit.md`](../tasks/db-migration-audit.md) §13.
+> **콘솔 절차 / Auth Proxy systemd / 트러블슈팅 디테일은 DBM-11 카드에서 본 섹션을 보강한다** (현재는 권장 사양과 환경변수 형식만).
+
+### 11.1 인스턴스 사양 (DBM-02 권장)
+
+| 항목 | 권장값 |
+|---|---|
+| 인스턴스 타입 | `db-custom-1-3840` (1 vCPU, 3.75 GB) |
+| 디스크 | 20 GB SSD, 자동 증가 ON |
+| HA | zonal (단일 인스턴스) |
+| 리전 / 존 | `asia-northeast1` / `asia-northeast1-b` (GCP VM 동일 존) |
+| PostgreSQL 버전 | 16 |
+| 백업 | 매일 02:00 KST, 7일 보관 |
+| PITR | 활성화, WAL 7일 보관 |
+| Maintenance window | 일요일 03:00~04:00 KST |
+| 사용자 | `qraku` (superuser 아님) |
+| 데이터베이스명 | `qraku` |
+
+> **scale up 검토 기준**: 식당 30+ 또는 동시 주문 폭증 시 `db-custom-2-7680` (2 vCPU / 7.5 GB) 로. online resize 5~10분.
+
+### 11.2 네트워크 (DBM-02 권장)
+
+- **선택**: Cloud SQL Auth Proxy (Public IP)
+- **이유**: 단일 GCP VM 운영. VPC Peering 비용 / 설정 복잡도 회피. IAM + TLS 자동.
+- VM 에 `cloud-sql-proxy` binary 설치 + systemd 서비스로 `127.0.0.1:5432` listen.
+- backend 의 `DATABASE_URL` 은 `127.0.0.1:5432` 만 알면 됨.
+
+### 11.3 `backend/.env` 변경 (컷오버 후)
+
+```ini
+# 컷오버 전 (MySQL)
+# DATABASE_URL=mysql+aiomysql://kios_user:Kiospad1234!@localhost:3306/kiospad
+
+# 컷오버 후 (Cloud SQL PostgreSQL via Auth Proxy)
+DATABASE_URL=postgresql+asyncpg://qraku:***@127.0.0.1:5432/qraku
+```
+
+- driver prefix `postgresql+asyncpg://` — async 라우터용.
+- Alembic / dramatiq 워커는 `backend/utils/db.py:to_sync_url()` 가 자동으로 `postgresql+psycopg2://` 로 치환.
+- 비밀번호는 16자 이상 random. secret manager 또는 `.env` (chmod 600) 에만 보관.
+
+### 11.4 DBM-11 에서 보강될 항목 (TODO)
+
+- [ ] GCP 콘솔에서 Cloud SQL PostgreSQL 인스턴스 생성 절차 (스크린샷 또는 단계별 캡션)
+- [ ] `cloud-sql-proxy` binary 다운로드 + `/etc/systemd/system/cloud-sql-proxy.service` 설정 파일 예시
+- [ ] IAM 권한 (Cloud SQL Client 역할) 부여 절차
+- [ ] 트러블슈팅
+  - 연결 실패 (`could not connect to server`)
+  - IAM 권한 오류 (`PERMISSION_DENIED`)
+  - 백업 / PITR 복구 절차
+  - Auth Proxy 자동 재시작 안 됨
+- [ ] PG 측 백업 / dump / 복구 명령 (8.1 / 8.3 의 PG 버전)
+- [ ] `journalctl -u cloud-sql-proxy.service -f` 등 모니터링 명령
+
+### 11.5 운영자 액션 (OPR-09 ~ OPR-12)
+
+`tasks/current-tasks.md` 참조:
+
+| OPR | 항목 | 시점 |
+|---|---|---|
+| OPR-09 | Cloud SQL 인스턴스 생성 (콘솔) | DBM-11 |
+| OPR-10 | Auth Proxy 설치 (VM systemd) | DBM-11 |
+| OPR-11 | 컷오버 시간 / 사전 공지 | DBM-12 |
+| OPR-12 | `.env` `DATABASE_URL` 교체 | DBM-12 컷오버 룬북 T-5 |
+
+---
+
+## 12. 참고
 
 - [`architecture.md`](./architecture.md) — 전체 아키텍처
 - [`coding-rules.md`](./coding-rules.md) — 코딩 규칙

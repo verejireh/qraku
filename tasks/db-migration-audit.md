@@ -678,3 +678,197 @@ DBM-02 의 사용자 지시 프롬프트는 `current-tasks.md` 의 DBM-02 카드
 | §4.3 | Enum "약 12개" → "14개" + 라인 번호 명시 |
 | §12 (신규) | 본 검증 패스 결과 섹션 추가 |
 
+---
+
+## 13. 마이그레이션 결정 사항 (DBM-02 산출, 2026-05-11)
+
+> **결정자**: db-migration-architect (opus)
+> **입력**: §1~12 (호환성 감사 + 검증 패스 결과) + 운영자 컨텍스트 (단일 GCP VM `35.213.6.149`, 식당 수 베타, 데이터 < 1 GB, 비용 민감, 새벽 30~60분 다운타임 허용, 백업/PITR 요구)
+> **목적**: DBM-03 (ADR 3개), DBM-09 (pgloader), DBM-11 (Cloud SQL 인스턴스), DBM-12 (컷오버 룬북) 의 입력
+> **주의**: 운영자(자이라) 가 검토해서 변경 가능한 권장값. 묻지 않고 합리적 default 로 채움. 각 결정의 운영자 협의 항목은 `current-tasks.md` 의 OPR-09~12 와 매핑.
+
+---
+
+### 13.1 Cloud SQL 인스턴스 사양
+
+#### 트레이드오프 비교
+
+| 옵션 | vCPU / 메모리 | 디스크 | 월 비용 (US 기준) | 적합 시점 | 리스크 |
+|---|---|---|---|---|---|
+| do-nothing (MySQL 유지) | n/a | n/a | $0 추가 | n/a | PG 이전 목표 미달성. MySQL 한계 (PostGIS / jsonb / tsvector) 그대로 |
+| **db-custom-1-3840 (1 vCPU, 3.75 GB)** ★ | 1 / 3.75 GB | 20 GB SSD, 자동 증가 | ~$45~55 / 월 (zonal, asia-northeast1) | 베타 (식당 < 30), 데이터 < 5 GB | 동시 주문 폭증 시 CPU 병목 — scale up 으로 5~10분 다운타임 해소 |
+| db-g1-small (0.6 vCPU shared, 1.7 GB) | shared | 10 GB SSD | ~$25~30 / 월 | 매우 가벼운 dev/staging | shared CPU → 운영 SLA 보장 안 됨. 메모리 부족 시 OOM |
+| db-custom-2-7680 (2 vCPU, 7.5 GB) | 2 / 7.5 GB | 50 GB SSD | ~$95~110 / 월 | 식당 30~100, 동시 주문 다수 | 초기 비용 과지출. 베타에서 활용도 낮음 |
+| db-custom-4-16384 (4 vCPU, 16 GB) | 4 / 16 GB | 100 GB SSD | ~$200~230 / 월 | 식당 100+ | 베타 단계에 과한 사양 |
+
+#### 권장 사양
+
+| 항목 | 권장값 | 근거 |
+|---|---|---|
+| 인스턴스 타입 | **db-custom-1-3840** (1 vCPU, 3.75 GB) | 베타 단계, 매출 적음. db-g1-small 보다 메모리 여유 + non-shared CPU 로 운영 SLA 확보 |
+| 디스크 | **20 GB SSD, 자동 증가 ON** | 현 데이터 < 1 GB. 자동 증가는 일방향이므로 작게 시작 |
+| HA | **zonal (단일 인스턴스)** | 단일 GCP VM 운영과 매치. regional HA 는 비용 ~2배. 식당 50+ 시 검토 |
+| 리전 / 존 | **asia-northeast1 / asia-northeast1-b** | 기존 GCP VM 과 동일 존 → 네트워크 latency 최소 (~1ms 이하) |
+| PostgreSQL 버전 | **16** | 안정 LTS + jsonb 성숙 + EXTRACT 표준 호환 + PostGIS 3.4 지원 (GEO 사이클 대비) |
+| 백업 | **매일 02:00 KST, 7일 보관** | 운영자 요구. 영업 외 시간 |
+| PITR (Point-in-time Recovery) | **활성화, WAL 7일 보관** | 운영자 요구. 컷오버 직후 사고 시 즉시 복구 가능 |
+| Maintenance window | **일요일 03:00~04:00 KST** | 영업 외 시간. GCP 자동 패치 시간대 |
+| 사용자 | `qraku` (superuser 아님) | postgres superuser 는 콘솔 전용 |
+| 데이터베이스명 | `qraku` | 단일 DB |
+
+#### 선택 이유
+
+1. 베타 단계 데이터 (< 1 GB) 와 식당 수 (< 30) 에 db-custom-1-3840 으로 충분, db-g1-small 의 shared CPU 리스크 회피.
+2. zonal + 자동 증가 디스크로 비용 최소화하면서, scale-up 경로 (vCPU 2~4, regional HA) 가 GCP 콘솔 클릭으로 확보.
+3. PG 16 은 GEO (PostGIS), MNU (jsonb GIN), SRC (tsvector + pg_trgm) 후속 사이클까지 한 번에 커버.
+
+#### 롤백 비용
+
+인스턴스 사이즈 변경은 **online resize 5~10분** (GCP 자동). 디스크는 일방향 증가만 가능 → 작게 시작이 안전. PG 버전 다운그레이드는 불가 → 16 으로 시작 후 유지.
+
+> **운영자 결정 필요 (OPR-09)**: GCP 콘솔에서 위 사양으로 Cloud SQL PostgreSQL 인스턴스 생성. 비밀번호는 16자 이상 random 생성 후 secret manager 또는 `.env` 에만 보관.
+
+---
+
+### 13.2 네트워크
+
+#### 트레이드오프 비교
+
+| 옵션 | latency | 비용 | 설정 복잡도 | 보안 | 적합 시점 |
+|---|---|---|---|---|---|
+| do-nothing (외부 IP 직노출) | 동일 | $0 | 가장 단순 | 🔴 위험 — Cloud SQL 비번 하나만 노출되면 전 데이터 손실 | 권장 안 함 |
+| **Public IP + Cloud SQL Auth Proxy** ★ | ~1~2 ms | $0 (proxy 무료) | ★ 낮음 — VM 에 binary 1개 + systemd 서비스 | IAM 인증 + TLS 자동 | 단일 VM 운영, 본 사이클 |
+| Private IP + VPC Peering | < 1 ms | VPC 비용 ~$10 / 월 + Cloud SQL Private Service Connection 추가 비용 | 중간 — VPC / 서브넷 / Peering 설정 | 가장 안전 (VPC 내부) | 멀티 VM / GKE / 트래픽 100+ rps |
+| Cloud SQL Connector (Python lib) | ~1~2 ms | $0 | 중간 — Python 측 추가 의존성 + IAM 토큰 갱신 로직 | IAM 인증 + TLS | proxy 대신 lib 사용하고 싶을 때 |
+
+#### 권장
+
+**Cloud SQL Auth Proxy (Public IP)** — VM 에 `cloud-sql-proxy` binary 설치 + systemd 서비스로 127.0.0.1:5432 listen. backend 의 `DATABASE_URL` 은 localhost 만 알면 됨.
+
+#### 선택 이유
+
+1. 단일 VM 운영 (`35.213.6.149`) + 단일 Cloud SQL 의 1:1 트래픽 — VPC 까지는 과함.
+2. Auth Proxy 는 IAM 자동 인증 + TLS 자동 + 무료 → 가장 좋은 비용/보안/단순성 균형.
+3. 향후 멀티 VM / GKE 로 갈 때만 Private IP + VPC 재검토.
+
+#### 롤백 비용
+
+Auth Proxy 중단 시 즉시 DB 끊김. `systemctl restart cloud-sql-proxy.service` 로 즉시 복구. VPC 로 전환은 한 번에 가능 (단 인스턴스 재생성 또는 Private IP 추가 활성화 필요, ~20분).
+
+> **운영자 결정 필요 (OPR-10)**: GCP VM 에 Cloud SQL Auth Proxy binary 다운로드 + systemd 서비스 등록. 절차는 DBM-11 에서 deployment.md 에 보강 예정.
+
+---
+
+### 13.3 데이터 마이그레이션 도구
+
+#### 트레이드오프 비교
+
+| 도구 | schema 자동 변환 | data copy | 성능 | 재현성 | 비용 | 학습 곡선 | 본 프로젝트 적합도 |
+|---|---|---|---|---|---|---|---|
+| do-nothing (수동 mysqldump + psql 변환) | ❌ (수동 sed) | ✅ | 느림 (단일 스레드 import) | 낮음 (수동 sed 누락 위험) | $0 | 낮음 | 🔴 데이터 < 1 GB 인데도 사람 손이 너무 많이 가고 dayofweek 등 semantics 보정 누락 위험 |
+| **pgloader** ★ | ✅ (자동 매핑 + cast 규칙) | ✅ (병렬) | 빠름 (~1 GB / 5분) | 높음 (`qraku.load` config 파일에 박힘) | $0 (오픈소스) | 중간 | ★ schema + data + 시퀀스 보정 + 인덱스를 한 명령으로. 스테이징 검증 후 운영 컷오버 그대로 재사용 |
+| Google Database Migration Service (DMS) | ✅ | ✅ (read replica 방식) | 빠름 + zero-downtime 옵션 | 높음 (GCP 콘솔에서 관리) | ~$0 (Cloud SQL 비용에 포함) | 높음 — GCP 콘솔 + IAM + binlog 설정 | 🟡 베타 데이터에 과한 인프라. zero-downtime 이 본 사이클 목표 외 |
+| AWS DMS | n/a (AWS 전용) | n/a | n/a | n/a | n/a | n/a | n/a (GCP 환경) |
+
+#### 권장
+
+**pgloader** — 스테이징 1회 검증 (DBM-09) → 운영 컷오버 (DBM-12) 동일 config 재사용.
+
+#### 선택 이유
+
+1. 데이터 < 1 GB + 새벽 30~60분 다운타임 허용 → DMS 의 zero-downtime 가치가 본 사이클에서 발생 안 함.
+2. pgloader 는 GCP 외 환경에서도 재현 가능 (vendor lock-in 회피).
+3. 단일 `qraku.load` config 파일에 변환 규칙 (DATETIME → TIMESTAMP, JSON → TEXT, ENUM → VARCHAR) 모두 박혀있어 audit §5 의 매핑 표를 1:1 로 옮길 수 있음.
+
+#### 롤백 비용
+
+pgloader 는 멱등 아님 — 다시 돌리면 PRIMARY KEY 충돌. 롤백은 **PG 측 데이터 truncate + 재실행**. MySQL 측은 read-only mode 로 유지하므로 롤백 시 backend 의 `DATABASE_URL` 만 MySQL 로 되돌리면 즉시 복구 (T+5분 윈도우).
+
+> **운영자 결정 필요**: 없음 (architect + data-migration-engineer 담당).
+
+---
+
+### 13.4 컷오버 전략
+
+#### 트레이드오프 비교
+
+| 전략 | 다운타임 | 코드 변경 부담 | 정합성 검증 | 롤백 윈도우 | 본 프로젝트 적합도 |
+|---|---|---|---|---|---|
+| do-nothing (MySQL 유지) | 0 | 0 | n/a | n/a | n/a |
+| **big-bang (점검 30~60분)** ★ | 30~60분 | 0 (이번 사이클 코드 변경만) | DBM-10 정합성 스크립트 1회 | T+5분 ~ T+30분 (.env 되돌리기) | ★ 베타 단계 + 단일 VM + 새벽 트래픽 ~0 → 가장 단순하고 안전 |
+| 듀얼라이트 (코드가 양 DB 동시 쓰기) | 0 | 🔴 매우 큼 — 모든 라우터에 양 DB 트랜잭션 + 분산 트랜잭션 또는 outbox 패턴 | 매 요청마다 양 DB 정합성 비교 워커 필요 | 항시 (양쪽 살아있으므로) | 본 사이클 범위 외. 코드 변경 비용 2~3주+ |
+| read replica + 컷오버 (DMS 사용 시) | < 5분 | 적음 | DMS 가 binlog 추적 → 자동 검증 | T+5분 | 🟡 DMS 사용 시만 가능. 본 사이클은 pgloader 선택 → 불가 |
+
+#### 권장
+
+**big-bang (새벽 점검 30~60분)**.
+
+#### 선택 이유
+
+1. 베타 단계 → 새벽 4~6시 트래픽 거의 0. 30~60분 다운타임 영향 매우 작음.
+2. 듀얼라이트는 코드 변경 비용이 이 사이클 (DBM 총 13 카드) 의 2~3배 → ROI 매우 낮음.
+3. pgloader 단일 실행 + 정합성 스크립트 (DBM-10) + smoke test 의 단순한 시퀀스로 검증 가능.
+
+#### 롤백 비용
+
+- T+0 ~ T+30분 사이 smoke test 실패 시: `.env` 의 `DATABASE_URL` 을 MySQL 로 되돌리고 `systemctl restart qrorder` → **5분 이내 복구**.
+- T+30분 이후 ~ T+24h 사이: PG 에 들어간 신규 행 (T+0 이후) 을 MySQL 로 역복사하는 `tools/rollback_resync.py` 사전 준비 필요. 룬북에 명시.
+- T+24h 이후: 롤백 비용 폭증 — 운영자 결정 필요. 사실상 forward fix 만.
+
+> **운영자 결정 필요 (OPR-11)**: 컷오버 날짜 / 시간대 / 사전 공지 채널 확정. 권장: 일요일 또는 평일 새벽 04:00~05:00 KST. 사전 공지는 LINE / 매장 admin 페이지 배너 / 운영자 직접 연락 등 채널 선택.
+
+---
+
+### 13.5 다운타임 윈도우 + 사전 공지
+
+#### 권장
+
+| 항목 | 권장값 | 근거 |
+|---|---|---|
+| 컷오버 시간대 | **새벽 04:00~05:00 KST** (예비 06:00 까지) | 거의 모든 매장 영업 외 시간. 일본 / 한국 / 동남아 모두 새벽 |
+| 다운타임 윈도우 | **30분 (목표), 60분 (최대)** | pgloader 5분 + 정합성 검증 5분 + smoke test 5분 + 버퍼 |
+| 사전 공지 시점 | **T-72h, T-24h, T-1h** 3회 | 운영자 → 매장. 채널은 OPR-11 에서 확정 |
+| 컷오버 후 모니터링 | **T+0 ~ T+24h 집중, T+24h ~ T+48h 감시** | 에러율 < 0.1% / 결제 실패율 < 0.5% 유지 확인 |
+| 점검 페이지 | `503 Service Unavailable` + 예상 복구 시간 텍스트 | systemd stop 만으로도 nginx / Cloudflare 가 자동 503 |
+
+#### 매장 측 영향
+
+- 새벽 04:00~05:00 KST 는 거의 모든 매장 영업 외 → 손님 영향 거의 없음.
+- 24시간 영업 매장 (편의점, 일부 카페) — 운영자가 사전 협의 필요.
+- 식당 admin / 메뉴 / QR 모두 30~60분 접근 불가.
+
+#### 롤백 비용
+
+컷오버 실행 중 (T-30 ~ T+30) 에는 룬북의 "T+5 smoke test fail → 즉시 .env 되돌리기" 경로로 5분 내 복구. T+60분 넘으면 롤백 비용 증가하므로 60분 안에 success / fail 판정 필수.
+
+> **운영자 결정 필요 (OPR-11, OPR-12)**: 사전 공지 채널 + 컷오버 시점 + `.env` 교체 권한 (운영자 본인 또는 sonnet 에이전트).
+
+---
+
+### 13.6 결정 요약 + DBM-03 핸드오프
+
+| # | 결정 항목 | 선택 | 연결 ADR (DBM-03) |
+|---|---|---|---|
+| 13.1 | Cloud SQL 사양 | db-custom-1-3840 / 20 GB SSD / zonal / PG 16 / asia-northeast1-b / 백업+PITR | ADR-006 (왜 PG 로 가는가) |
+| 13.2 | 네트워크 | Public IP + Cloud SQL Auth Proxy | ADR-006 (배포 인프라 결정) |
+| 13.3 | 데이터 마이그레이션 도구 | **pgloader** (스테이징 + 운영 동일) | ADR-007 (pgloader 선택) |
+| 13.4 | 컷오버 전략 | **big-bang** (새벽 30~60분) | ADR-008 (컷오버 전략) |
+| 13.5 | 다운타임 윈도우 | 새벽 04:00~05:00 KST, 60분 최대 | ADR-008 |
+
+#### DBM-03 (ADR 작성) 핸드오프 입력
+
+- **ADR-006 (postgresql-migration)**: §13.1 + §13.2 + audit §5 (데이터 타입 매핑) 를 입력으로 "왜 MySQL 한계 → PG", Cloud SQL 사양, 네트워크 결정을 정리.
+- **ADR-007 (pgloader-choice)**: §13.3 의 4 옵션 트레이드오프 표 + 선택 이유를 그대로 옮김.
+- **ADR-008 (cutover-strategy)**: §13.4 + §13.5 의 big-bang + 다운타임 윈도우 + 롤백 윈도우 (T+5분 ~ T+24h) 를 정리.
+- **ADR-003 (inline-migration-coexistence)** 에 "PG 컷오버 후 DBM-13 에서 superseded 예정 (Alembic 단일화)" 메모 추가.
+
+#### 운영자 협의 항목 (OPR 매핑)
+
+| 결정 | 운영자 액션 | OPR ID |
+|---|---|---|
+| §13.1 Cloud SQL 인스턴스 생성 | GCP 콘솔에서 사양대로 생성 + 비밀번호 발급 | **OPR-09** |
+| §13.2 Auth Proxy 설치 | VM 에 binary + systemd 등록 (DBM-11 룬북 따름) | **OPR-10** |
+| §13.4~5 컷오버 시점 / 공지 | 날짜 / 시간 / 채널 결정 + 매장 사전 공지 | **OPR-11** |
+| §13.5 `.env` 교체 | 컷오버 룬북 T-5 단계, 운영자 직접 수행 | **OPR-12** |
+
+> 본 §13 가 DBM-03 (ADR 작성) 의 입력. DBM-03 은 본 표를 기반으로 ADR 3 개 (006, 007, 008) + 색인 갱신 + ADR-003 superseded 메모.

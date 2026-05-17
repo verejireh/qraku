@@ -17,7 +17,7 @@ _SUBPROCESS_ENV = {**os.environ, "NO_COLOR": "1", "FORCE_COLOR": "0", "PYTHONIOE
 # --- 설정 사항 ---
 PROJECT_NAME = "qr-order-system"
 SERVER_USER = "verejireh"  # GCP 서버 사용자명으로 변경하세요
-SERVER_IP = "35.213.6.149"   # GCP 서버 외부 IP로 변경하세요
+SERVER_IP = "35.213.6.149"   # GCP 서버 외부 IP로 변경하세요~   
 REMOTE_DIR = f"~/{PROJECT_NAME}"
 ZIP_FILENAME = "deploy_package.zip"
 SSH_KEY_PATH = os.path.join(os.path.dirname(__file__), "..", "qraku")  # 프로젝트 상위 폴더의 qraku 키

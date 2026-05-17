@@ -105,3 +105,8 @@ myproject*.html
 .claude/
 .gemini/
 .antigravityignore
+cloud-sql-proxy.exe
+*.env
+*복사본.env
+lions.yaml
+tigers.yaml

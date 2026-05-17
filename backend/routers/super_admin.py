@@ -13,6 +13,7 @@ import json
 from typing import Optional
 from utils.auth import verify_password
 from utils.jwt import create_super_admin_token, require_super_admin
+from utils.db_compat import date_only
 
 router = APIRouter(prefix="/super-admin", tags=["super-admin"])
 
@@ -144,13 +145,13 @@ async def get_store_detail(
     two_weeks_ago = datetime.utcnow() - timedelta(days=14)
     daily_rev_q = await session.execute(
         select(
-            func.date(Order.created_at).label("day"),
+            date_only(Order.created_at).label("day"),
             func.sum(Order.total_amount).label("rev"),
             func.count(Order.id).label("cnt")
         ).where(
             Order.shop_id == slug,
             Order.created_at >= two_weeks_ago
-        ).group_by(func.date(Order.created_at)).order_by(func.date(Order.created_at))
+        ).group_by(date_only(Order.created_at)).order_by(date_only(Order.created_at))
     )
     daily_data = [{"date": str(row.day), "revenue": float(row.rev or 0), "orders": row.cnt} for row in daily_rev_q.all()]
 
@@ -392,12 +393,12 @@ async def revenue_analytics(
     since = datetime.utcnow() - timedelta(days=days)
     q = await session.execute(
         select(
-            func.date(Order.created_at).label("day"),
+            date_only(Order.created_at).label("day"),
             func.sum(Order.total_amount).label("revenue"),
             func.count(Order.id).label("orders")
         ).where(Order.created_at >= since)
-        .group_by(func.date(Order.created_at))
-        .order_by(func.date(Order.created_at))
+        .group_by(date_only(Order.created_at))
+        .order_by(date_only(Order.created_at))
     )
     return [{"date": str(r.day), "revenue": float(r.revenue or 0), "orders": r.orders} for r in q.all()]
 

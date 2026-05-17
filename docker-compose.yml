@@ -18,6 +18,25 @@ services:
       timeout: 3s
       retries: 20
 
+  # [DBM-07] PG 호환성 검증용 PostgreSQL 서비스.
+  # 기존 mysql 서비스와 동시 운영 가능. backend1/2/worker 는 그대로 mysql 사용.
+  # PG 검증 시: DATABASE_URL=postgresql+asyncpg://qraku:qraku@postgres:5432/qraku 로 부팅.
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: qraku
+      POSTGRES_PASSWORD: qraku
+      POSTGRES_DB: qraku
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qraku"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     ports:
@@ -85,3 +104,4 @@ services:
 
 volumes:
   mysql_data:
+  pg_data:

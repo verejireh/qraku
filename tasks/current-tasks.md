@@ -25,18 +25,18 @@
 
 | ID | 제목 | Phase | 우선순위 | Owner | 모델 | 상태 |
 |---|---|---|---|---|---|---|
-| DBM-01 | MySQL-isms 호환성 감사 | A | 🔴 P0 | db-migration-architect | **opus** | TODO |
-| DBM-02 | Cloud SQL 사이징 + 도구 + 컷오버 전략 결정 | A | 🔴 P0 | db-migration-architect | **opus** | TODO |
-| DBM-03 | ADR 006/007/008 작성 | A | 🔴 P0 | db-migration-architect | **opus** | TODO |
-| DBM-04 | 의존성 + DATABASE_URL 추상화 | B | 🔴 P0 | postgres-specialist | **sonnet** | TODO |
-| DBM-05 | `migration_sqls` ANSI 호환화 + 트랜잭션 항목별 분리 | B | 🔴 P0 | postgres-specialist | **sonnet** | TODO |
-| DBM-05b | `routers/demo.py` raw SQL 백틱 제거 | B | 🟠 P1 | postgres-specialist | **sonnet** | TODO |
-| DBM-05c | `routers/stats.py` MySQL 날짜 함수 PG 호환화 | B | 🔴 P0 | postgres-specialist | **sonnet** | TODO |
-| DBM-06 | Alembic env.py + workers/db.py 양 DB 지원 | B | 🔴 P0 | postgres-specialist | **sonnet** | TODO |
-| DBM-07 | docker-compose 에 postgres 서비스 추가 | B | 🟠 P1 | postgres-specialist | **sonnet** | TODO |
-| DBM-08 | PG 빈 인스턴스 schema 생성 + 비교 | C | 🔴 P0 | postgres-specialist | **sonnet** | TODO |
-| DBM-09 | pgloader config + 스테이징 1회 실행 | D | 🔴 P0 | data-migration-engineer | **sonnet** | TODO |
-| DBM-10 | 데이터 정합성 검증 스크립트 | D | 🔴 P0 | data-migration-engineer | **sonnet** | TODO |
+| DBM-01 | MySQL-isms 호환성 감사 | A | 🔴 P0 | db-migration-architect | **opus** | ✅ DONE |
+| DBM-02 | Cloud SQL 사이징 + 도구 + 컷오버 전략 결정 | A | 🔴 P0 | db-migration-architect | **opus** | ✅ DONE |
+| DBM-03 | ADR 006/007/008 작성 | A | 🔴 P0 | db-migration-architect | **opus** | ✅ DONE |
+| DBM-04 | 의존성 + DATABASE_URL 추상화 | B | 🔴 P0 | postgres-specialist | **sonnet** | ✅ DONE |
+| DBM-05 | `migration_sqls` ANSI 호환화 + 트랜잭션 항목별 분리 | B | 🔴 P0 | postgres-specialist | **sonnet** | ✅ DONE |
+| DBM-05b | `routers/demo.py` raw SQL 백틱 제거 | B | 🟠 P1 | postgres-specialist | **sonnet** | ✅ DONE |
+| DBM-05c | `routers/stats.py` MySQL 날짜 함수 PG 호환화 | B | 🔴 P0 | postgres-specialist | **sonnet** | ✅ DONE |
+| DBM-06 | Alembic env.py + workers/db.py 양 DB 지원 | B | 🔴 P0 | postgres-specialist | **sonnet** | ✅ DONE |
+| DBM-07 | docker-compose 에 postgres 서비스 추가 | B | 🟠 P1 | postgres-specialist | **sonnet** | ✅ DONE |
+| DBM-08 | PG 빈 인스턴스 schema 생성 + 비교 | C | 🔴 P0 | postgres-specialist | **sonnet** | TODO (운영자 docker 환경 필요) |
+| DBM-09 | pgloader config + 스테이징 1회 실행 | D | 🔴 P0 | data-migration-engineer | **sonnet** | ⏸️ 코드 DONE / 실행 운영자 환경 대기 |
+| DBM-10 | 데이터 정합성 검증 스크립트 | D | 🔴 P0 | data-migration-engineer | **sonnet** | ⏸️ 코드 DONE / 실행 운영자 환경 대기 |
 | DBM-11 | Cloud SQL 인스턴스 + Auth Proxy + deployment.md | E | 🔴 P0 | (operator) + postgres-specialist | **sonnet** | TODO |
 | DBM-12 | 컷오버 룬북 + 실행 | F | 🔴 P0 | db-migration-architect → data-migration-engineer | **opus → sonnet** | TODO |
 | DBM-13 | MySQL 의존 정리 + 최적화 | G | 🟡 P2 | postgres-specialist | **sonnet** | TODO |

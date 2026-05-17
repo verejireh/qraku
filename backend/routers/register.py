@@ -23,6 +23,7 @@ from models import (
     GuestProfile, TabehoudaiSession, MenuGroup,
 )
 from utils.jwt import require_staff_or_admin
+from utils.db_compat import date_only
 from datetime import datetime, date
 import uuid
 import json
@@ -418,7 +419,7 @@ async def get_today_sales(
     stmt = select(Order).where(
         Order.shop_id.in_(shop_variants),
         Order.payment_status == "paid",
-        func.date(Order.created_at) == today,
+        date_only(Order.created_at) == today,
     )
     result = await session.execute(stmt)
     paid_orders = result.scalars().all()
@@ -481,7 +482,7 @@ async def get_takeout_orders(
         Order.status != "served",
         (
             (Order.payment_status == "unpaid") |
-            (func.date(Order.created_at) == today)
+            (date_only(Order.created_at) == today)
         ),
     ).order_by(
         # 픽업시간 있는 것부터 시간 순, 그 다음 생성시간 순

@@ -30,12 +30,15 @@ except ImportError:
     pass
 
 # DATABASE_URL → sync 드라이버 치환 (Alembic 은 sync 엔진 사용).
+# [DBM-06] to_sync_url() 헬퍼로 MySQL+aiomysql / PostgreSQL+asyncpg 양 DB 지원.
+from backend.utils.db import to_sync_url
+
 raw_url = os.environ.get("DATABASE_URL")
 if not raw_url:
     raise RuntimeError(
         "DATABASE_URL 환경변수가 필요합니다. backend/.env 또는 셸 환경에서 설정하세요."
     )
-url = raw_url.replace("mysql+aiomysql://", "mysql+pymysql://")
+url = to_sync_url(raw_url)
 
 config = context.config
 config.set_main_option("sqlalchemy.url", url)

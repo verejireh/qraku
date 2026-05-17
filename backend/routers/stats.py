@@ -6,6 +6,7 @@ from database import get_session
 from models import Order, OrderItem, Menu, Store
 from datetime import datetime, date, timedelta
 from utils.jwt import require_admin
+from utils.db_compat import hour, year, month, day_of_week, date_only
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
@@ -68,16 +69,16 @@ async def get_daily_sales(
     since = datetime.utcnow() - timedelta(days=days)
 
     query = select(
-        func.date(Order.created_at).label("day"),
+        date_only(Order.created_at).label("day"),
         func.coalesce(func.sum(Order.total_amount), 0).label("sales"),
         func.count(Order.id).label("orders")
     ).where(
         Order.shop_id == shop_id,
         Order.created_at >= since
     ).group_by(
-        func.date(Order.created_at)
+        date_only(Order.created_at)
     ).order_by(
-        func.date(Order.created_at)
+        date_only(Order.created_at)
     )
 
     result = await session.execute(query)
@@ -100,15 +101,15 @@ async def get_hourly_orders(
     today = date.today()
 
     query = select(
-        func.hour(Order.created_at).label("hour"),
+        hour(Order.created_at).label("hour"),
         func.count(Order.id).label("count")
     ).where(
         Order.shop_id == shop_id,
-        func.date(Order.created_at) == today
+        date_only(Order.created_at) == today
     ).group_by(
-        func.hour(Order.created_at)
+        hour(Order.created_at)
     ).order_by(
-        func.hour(Order.created_at)
+        hour(Order.created_at)
     )
 
     result = await session.execute(query)
@@ -260,12 +261,12 @@ async def get_hourly_guests(
     d = date.fromisoformat(target_date) if target_date else date.today()
 
     query = select(
-        func.hour(Order.created_at).label("hour"),
+        hour(Order.created_at).label("hour"),
         func.count(func.distinct(Order.table_number)).label("guests")
     ).where(
         Order.shop_id == shop_id,
-        func.date(Order.created_at) == d
-    ).group_by(func.hour(Order.created_at)).order_by(func.hour(Order.created_at))
+        date_only(Order.created_at) == d
+    ).group_by(hour(Order.created_at)).order_by(hour(Order.created_at))
 
     result = await session.execute(query)
     rows = result.all()
@@ -289,17 +290,17 @@ async def get_monthly_sales(
     since = datetime.utcnow() - timedelta(days=months * 31)
 
     query = select(
-        func.year(Order.created_at).label("yr"),
-        func.month(Order.created_at).label("mo"),
+        year(Order.created_at).label("yr"),
+        month(Order.created_at).label("mo"),
         func.coalesce(func.sum(Order.total_amount), 0).label("sales"),
         func.count(Order.id).label("orders")
     ).where(
         Order.shop_id == shop_id,
         Order.created_at >= since
     ).group_by(
-        func.year(Order.created_at), func.month(Order.created_at)
+        year(Order.created_at), month(Order.created_at)
     ).order_by(
-        func.year(Order.created_at), func.month(Order.created_at)
+        year(Order.created_at), month(Order.created_at)
     )
 
     result = await session.execute(query)
@@ -322,16 +323,16 @@ async def get_weekly_sales(
     since = datetime.utcnow() - timedelta(days=days)
 
     query = select(
-        func.dayofweek(Order.created_at).label("dow"),
+        day_of_week(Order.created_at).label("dow"),
         func.coalesce(func.sum(Order.total_amount), 0).label("sales"),
         func.count(Order.id).label("orders")
     ).where(
         Order.shop_id == shop_id,
         Order.created_at >= since
     ).group_by(
-        func.dayofweek(Order.created_at)
+        day_of_week(Order.created_at)
     ).order_by(
-        func.dayofweek(Order.created_at)
+        day_of_week(Order.created_at)
     )
 
     result = await session.execute(query)

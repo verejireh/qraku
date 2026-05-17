@@ -1,367 +1,263 @@
 # Architecture — QRaku.com
 
-> QR 기반 레스토랑 주문/결제 SaaS의 현재 아키텍처 + 이번 사이클의 개선 목표 아키텍처.
-> 이 문서는 **무엇이 어디에 있고, 왜 그렇게 두는가**를 설명한다.
+> QR 기반 레스토랑 주문/결제 SaaS의 현재 아키텍처.
+> **무엇이 어디에 있고, 왜 그렇게 두는가**를 설명한다.
+> 주요 설계 결정의 배경은 [`adr/`](./adr/) 에 별도 기록.
 
 ---
 
-## 1. 현재 아키텍처 (As-Is)
+## 1. 현재 아키텍처 (As-Is, 2026-05-10 기준)
 
 ### 1.1 한눈에 보기
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                       GCP VM (단일 서버)                        │
-│  35.213.6.149   ←  qraku.com                                   │
-│                                                                │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ FastAPI (uvicorn)  ── port 8003                           │  │
-│  │  ├─ /api/*  : REST 라우터들 (routers/*.py)                │  │
-│  │  ├─ /ws/*   : WebSocket 엔드포인트 (in-memory manager)    │  │
-│  │  └─ /*      : SPA catch-all → frontend-react/dist/        │  │
-│  └────────────────┬─────────────────────────────────────────┘  │
-│                   │                                            │
-│                   ▼                                            │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ MySQL (aiomysql, pool_size=10, max_overflow=20)           │  │
-│  │  - models.py 단일 진실 공급원                              │  │
-│  │  - database.py: 시작 시 ALTER TABLE 인라인 마이그레이션    │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                      GCP VM (단일 인스턴스, 운영)                     │
+│  35.213.6.149   ←  qraku.com                                        │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │ FastAPI (uvicorn, systemd qrorder.service) ─ port 8003        │   │
+│  │  ├─ /api/*   : REST (routers/*.py)                            │   │
+│  │  ├─ /ws/*    : WebSocket + Redis Pub/Sub 어댑터               │   │
+│  │  ├─ /api/healthz, /api/readyz : 헬스체크                      │   │
+│  │  └─ /*       : SPA catch-all → frontend-react/dist/           │   │
+│  └────┬─────────────────────────────────────────────────────────┘   │
+│       │                                                             │
+│       ├──▶ MySQL (aiomysql, pool 10/20) ── models.py 진실공급원      │
+│       │     - database.py:migration_sqls 인라인 마이그레이션         │
+│       │     - alembic/ (신규 변경부터 사용, 이중 안전망 기간)        │
+│       │                                                             │
+│       └──▶ Redis (asyncio, decode_responses=True)                   │
+│              - WebSocket Pub/Sub (`ws:store:*`)                     │
+│              - Idempotency-Key 잠금 + 결과 캐시                      │
+│              - WS 인증 토큰 단기 저장                                 │
+│              - Dramatiq 큐 브로커 (워커 동작 시)                      │
+└─────────────────────────────────────────────────────────────────────┘
         ▲                                          ▲
         │                                          │
    브라우저 (손님 / 스태프 / 관리자)        외부 (Square, PayPay, Stripe)
 ```
 
-### 1.2 기술 스택
+### 1.2 멀티 인스턴스 대응
+
+코드는 **이미 다중 인스턴스 가능 상태**이지만, 운영은 단일 인스턴스 유지 중.
+
+```
+                       ┌─ Dev 환경 (docker-compose) ─┐
+                       │                              │
+                       │  backend1:8003 ──┐           │
+                       │  backend2:8004 ──┼─ Redis ──┘
+                       │  worker        ──┘
+                       └──────────────────────────────┘
+```
+
+- **WebSocket 메시지 fan-out**: 인스턴스 A 발행 → Redis publish → 인스턴스 B 의 `psubscribe("ws:store:*")` 가 수신 → 로컬 dispatch.
+- **자기 메시지 dedup**: `instance_id` 비교로 발행 인스턴스는 Pub/Sub 수신을 skip (로컬 dispatch 와 중복 방지). 자세한 내용은 [`adr/004-websocket-pubsub-lazy-start.md`](./adr/004-websocket-pubsub-lazy-start.md).
+
+### 1.3 기술 스택
 
 | 레이어 | 기술 | 비고 |
 |---|---|---|
 | 백엔드 | FastAPI + SQLModel + aiomysql | MySQL 강제 (SQLite 런타임 금지) |
-| 프론트 | React 18 + Vite + React Router | 정적 빌드 → FastAPI가 서빙 |
+| 캐시·큐·Pub/Sub | Redis (redis-py asyncio) | [ADR-001](./adr/001-redis-choice.md) |
+| 프론트 | React 18 + Vite + React Router | 정적 빌드 → FastAPI 가 서빙 |
 | 결제 | Square Web Payments / PayPay Direct / Stripe (구독) | Adapter 패턴 (`services/pos/`) |
-| 실시간 | 네이티브 WebSocket | `utils/websocket.ConnectionManager` (in-process dict) |
-| 배포 | GCP VM 단일 인스턴스 + `deploy.py` (paramiko) | systemd / nginx 등 미사용 |
+| 실시간 | 네이티브 WebSocket + Redis Pub/Sub | `utils/websocket.ConnectionManager` |
+| 백그라운드 워커 | Dramatiq + Redis | [ADR-002](./adr/002-dramatiq-over-celery.md) |
+| 마이그레이션 | `database.py:migration_sqls` (인라인) + Alembic (신규) | [ADR-003](./adr/003-inline-migration-coexistence.md) |
+| 배포 | GCP VM 단일 인스턴스 + `deploy.py` (paramiko) + systemd | 자세한 내용은 [`deployment.md`](./deployment.md) |
 
-### 1.3 라우터 도메인 분포
+### 1.4 라우터 도메인 분포
 
 라우터 파일은 도메인별 1파일 (`backend/routers/*.py`). 자세한 책임 분리는 [`coding-rules.md` 규칙 3](./coding-rules.md#규칙-3--라우터-책임-경계).
 
-### 1.4 인증 구조
+### 1.5 인증 구조
 
 ```
-staff API  (/api/staff/*)   → 마스터PIN 세션 또는 require_admin (JWT)
-register   (/api/register/*) → 마스터PIN 세션 또는 require_admin
-orders     (/api/orders/*)   → 공개 생성만 허용, 수정/삭제는 인증 필수
-admin      (/api/admin/*)    → require_admin (JWT) + store_id 교차 검증
-ws         (/ws/*)          → 현재 인증 없음 (개선 대상)
+staff API   (/api/staff/*)    → 마스터PIN 세션 또는 require_admin (JWT)
+register    (/api/register/*) → 마스터PIN 세션 또는 require_admin
+orders      (/api/orders/*)   → 공개 생성, 수정/삭제는 인증 필수
+admin       (/api/admin/*)    → require_admin (JWT) + store_id 교차 검증
+ws          (/ws/*)           → 단기 토큰 인증 (?token=...)  [ADR-005]
+ws/token    (/api/ws/token/*) → 토큰 발급 (admin/staff/customer 분기)
+webhooks    (/api/webhooks/*) → 서명 검증 + WebhookEvent UNIQUE 멱등성
 ```
 
-### 1.5 결제 3-Track
+### 1.6 결제 3-Track + Webhook
 
 | 트랙 | 동작 |
 |---|---|
 | **Square 결제** | Square Web Payments 카드 / PayPay (Square 통합) + Square POS 연동 |
 | **PAY_AT_COUNTER** | 주문만 생성, 계산대 직접 결제 |
-| **PayPay Direct** | PayPay API 직접 호출, 낮은 수수료 |
+| **PayPay Direct** | PayPay API 직접 호출. 콜백 페이지 + webhook **이중 안전망** (멱등성 보장) |
 
 자세한 멱등성·webhook 규칙은 [`payment-rules.md`](./payment-rules.md).
 
-### 1.6 알려진 한계 (As-Is)
+### 1.7 백그라운드 워커
 
-1. **단일 서버 의존**: 서버 1대 죽으면 서비스 전체 중단. WebSocket 모두 끊김.
-2. **WebSocket 상태가 인메모리**: 다중 인스턴스 운영 불가. (자세한 건 [`websocket-rules.md`](./websocket-rules.md))
-3. **Redis 미존재**: 캐시 / Pub/Sub / 락 / 큐 모두 없음. 매번 DB hit.
-4. **백그라운드 워커 없음**: 번역, 결제 재시도, POS 동기화 등 동기 처리 — 응답 지연.
-5. **이벤트 / 감사 로그 없음**: 누가 언제 무엇을 했는지 추적 불가.
-6. **PayPay Webhook 미수신**: 손님이 콜백 페이지 닫으면 주문 미생성 가능.
-7. **환불 라우터 미구현**: `RefundLog` 모델만 있고 엔드포인트 없음.
-8. **DB 마이그레이션이 인라인 ALTER**: 서버 시작에 의존. Alembic 등 도구 없음.
+```
+backend/workers/
+├─ broker.py             ← Dramatiq Redis 브로커 등록
+├─ db.py                 ← sync 엔진 (mysql+pymysql)
+└─ translate_tasks.py    ← 메뉴 자동 번역 (Gemini)
+```
+
+- 워커는 FastAPI lifecycle 외부 → `manager.broadcast` 사용 금지.
+- WebSocket 이벤트 발행은 **sync Redis publish + WS-02 envelope 형식 일치**. 백엔드 인스턴스의 `_pubsub_listener` 가 fan-out.
+- 메뉴 등록 응답 시간 < 200ms (번역은 워커가 처리 후 `TRANSLATION_COMPLETED` 이벤트 발행).
 
 ---
 
-## 2. 목표 아키텍처 (To-Be)
-
-이번 개선 사이클의 목적은 **"단일 서버 + 인메모리 상태"에서 "운영 가능한 SaaS 인프라"로 전환**하는 것.
-단, 한 번에 다 가지 않고 **3개 레이어로 나눠 단계적 도입**한다.
-
-### 2.1 한눈에 보기 (최종 목표)
-
-```
-                        ┌──────────────────────┐
-                        │      Nginx (TLS)      │
-                        └────────┬─────────────┘
-                                 │
-              ┌──────────────────┼──────────────────┐
-              ▼                  ▼                  ▼
-         ┌────────┐         ┌────────┐         ┌────────┐
-         │FastAPI │         │FastAPI │  ...    │FastAPI │   (수평 확장)
-         │  app1  │         │  app2  │         │  appN  │
-         └───┬────┘         └───┬────┘         └───┬────┘
-             │                  │                  │
-             └──────┬───────────┴──────────────────┘
-                    │
-        ┌───────────┴──────────┐
-        ▼                      ▼
-   ┌─────────┐           ┌──────────┐
-   │  MySQL  │           │  Redis   │  ← Pub/Sub + 캐시 + 큐 + 락
-   │  (RDS)  │           │ (single) │
-   └─────────┘           └─────┬────┘
-                               │
-                          ┌────┴─────┐
-                          ▼          ▼
-                    ┌─────────┐ ┌─────────┐
-                    │ Worker  │ │ Worker  │   (Dramatiq)
-                    │   #1    │ │   #2    │
-                    └─────────┘ └─────────┘
-```
-
-### 2.2 도입 컴포넌트
-
-#### Redis (이번 사이클 P1)
-
-용도:
-1. **WebSocket Pub/Sub** — 다중 FastAPI 인스턴스 간 이벤트 전달 (`channel: ws:store:{store_id}`)
-2. **캐시** — 메뉴 / 매장 설정 / 번역 / 활성 食べ放題 세션
-3. **분산 락** — 주문 생성 멱등성, webhook 중복 처리 방지
-4. **큐 브로커** — Dramatiq 백엔드
-5. **Idempotency Key 저장** — 단기 TTL (24h)로 중복 요청 차단
-
-**미도입 시점**: 자체 구축한 simple in-memory 캐시는 사용 금지 (인스턴스 늘리면 비일관 발생).
-
-#### Background Worker (이번 사이클 P2)
-
-선택: **Dramatiq + Redis**
-- Celery 대비 가볍고 FastAPI와 잘 맞음
-- 작업 정의: `backend/workers/<domain>_tasks.py`
-- 실행: `dramatiq workers.translate_tasks workers.payment_retry_tasks ...`
-
-대상 작업:
-- 메뉴 자동 번역 (Gemini API 호출)
-- 결제 webhook 도착 후 후처리
-- POS 동기화 재시도
-- 영수증 PDF 생성
-- 사진 NSFW 검사 (Vision API)
-- 마케팅 메시지 발송 (LINE / 이메일)
-
-#### Event Log (이번 사이클 P1)
-
-새 모델 `EventLog` (`models.py`에 append):
-```python
-class EventLog(SQLModel, table=True):
-    id: int = Field(primary_key=True)
-    store_id: int = Field(index=True)
-    actor_type: str  # customer | staff | admin | system | webhook
-    actor_id: Optional[str] = None
-    action: str  # order.created, order.cancelled, refund.issued, ...
-    target_type: Optional[str] = None  # order | refund | session | ...
-    target_id: Optional[int] = None
-    payload_json: Optional[str] = None  # 작업 컨텍스트
-    external_payload_raw: Optional[str] = Field(default=None, sa_column=Column(Text))
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
-```
-
-자세한 사용 규칙은 [`coding-rules.md` 규칙 8](./coding-rules.md#규칙-8--로깅--감사-audit-규칙).
-
-#### 멀티 인스턴스 / Docker (이번 사이클 P3)
-
-이번 사이클의 **목표는 "준비"까지**. 실제 인스턴스 증설은 트래픽이 늘 때.
-
-준비 작업:
-1. `Dockerfile` (백엔드용) + `docker-compose.yml` (개발/스테이징용 — backend, mysql, redis, worker)
-2. 모든 인메모리 상태 제거 (WebSocket Pub/Sub로 이전, 메뉴 캐시 Redis로)
-3. 헬스체크 엔드포인트 (`GET /api/healthz`, `GET /api/readyz`)
-4. 환경변수 기반 설정 일원화
-
-#### Alembic (이번 사이클 P2)
-
-`database.py` 인라인 마이그레이션을 영구적으로 두면 안 됨. **Alembic 도입**:
-- 기존 `migration_sqls`는 그대로 유지 (이미 운영 중인 환경 보호)
-- **새 스키마 변경부터** Alembic 리비전으로 작성
-- 기존 항목은 시간을 두고 점진적으로 Alembic 리비전으로 이관
-
----
-
-## 3. 단계별 도입 순서 (Sequencing)
-
-### Phase 1 — Reliability Foundation (이번 사이클 핵심)
-
-| # | 항목 | 산출물 |
-|---|---|---|
-| 1 | Redis 도입 (단일 인스턴스, 캐시 + 분산 락) | `utils/redis.py`, 환경변수 `REDIS_URL` |
-| 2 | EventLog 모델 + 헬퍼 (`utils/event_log.py`) | 모든 상태 변경 작업에 적용 |
-| 3 | 멱등성 강화 (Idempotency-Key 헤더 + Redis TTL) | `utils/idempotency.py` |
-| 4 | PayPay Webhook 엔드포인트 | `routers/webhooks.py`에 PayPay 추가 |
-| 5 | 환불 라우터 (`POST /api/admin/orders/{id}/refund`) | `routers/admin.py` 또는 신규 `routers/refunds.py` |
-| 6 | 멀티테넌시 감사 (모든 라우터 grep + 누락 보강) | `agents/backend-reliability.md`가 수행 |
-
-### Phase 2 — Realtime Robustness
-
-| # | 항목 | 산출물 |
-|---|---|---|
-| 1 | WebSocket Redis Pub/Sub | `utils/websocket.py` 리팩토링 (Pub/Sub 어댑터) |
-| 2 | WebSocket 인증 토큰 (path/쿼리에 단기 토큰) | `routers/ws.py` + 토큰 발급 엔드포인트 |
-| 3 | WebSocket 메시지 스키마 정의 | `docs/websocket-rules.md` 참고 |
-| 4 | 헬스체크 엔드포인트 | `main.py`에 `/api/healthz`, `/api/readyz` |
-
-### Phase 3 — Scale-Out Preparation
-
-| # | 항목 | 산출물 |
-|---|---|---|
-| 1 | Dramatiq + Redis 큐 도입 | `workers/` 디렉토리 + 첫 작업(번역) 이전 |
-| 2 | Dockerfile + docker-compose | 개발 환경부터 |
-| 3 | Alembic 도입 (신규 변경부터) | `alembic/` 디렉토리, `database.py`와 병행 |
-| 4 | 결제 재시도 / POS 동기화 워커화 | 동기 호출 → 큐에 enqueue |
-
----
-
-## 4. 컴포넌트 위치 규약
+## 2. 컴포넌트 위치 규약
 
 새로 추가하는 모든 코드의 **표준 위치**:
 
 ```
 backend/
-├─ main.py                  ← 라우터 등록만
+├─ main.py                  ← 라우터 등록 + lifecycle 훅
 ├─ models.py                ← 모든 모델 (단일 진실 공급원)
 ├─ database.py              ← MySQL 엔진 + 인라인 마이그레이션
 ├─ routers/
 │  └─ <domain>.py           ← 라우터 (도메인별 1파일)
 ├─ services/
-│  ├─ pos/                  ← 결제/POS 어댑터 (기존)
-│  └─ <domain>/             ← 새 도메인 서비스 (필요 시)
+│  ├─ pos/                  ← 결제/POS 어댑터
+│  └─ <domain>/             ← 새 도메인 서비스
 ├─ utils/
-│  ├─ auth.py               ← (기존)
-│  ├─ jwt.py                ← (기존)
-│  ├─ crypto.py             ← (기존)
-│  ├─ refunds.py            ← (기존)
-│  ├─ websocket.py          ← (기존, Phase 2에서 Pub/Sub로 리팩토링)
-│  ├─ redis.py              ← ★신규 (Phase 1)
-│  ├─ event_log.py          ← ★신규 (Phase 1)
-│  ├─ idempotency.py        ← ★신규 (Phase 1)
-│  └─ cache.py              ← ★신규 (Phase 1, Redis 래퍼)
-└─ workers/                 ← ★신규 (Phase 3)
-   ├─ __init__.py
+│  ├─ auth.py / jwt.py / crypto.py / refunds.py  ← (기존)
+│  ├─ websocket.py          ← Redis Pub/Sub 어댑터 포함
+│  ├─ redis.py              ← redis-py asyncio 싱글톤
+│  ├─ event_log.py          ← 감사 로그 헬퍼
+│  ├─ idempotency.py        ← Redis SETNX 잠금 + 결과 캐시
+│  └─ events.py             ← WebSocket envelope 표준화
+└─ workers/
    ├─ broker.py             ← Dramatiq 브로커 설정
-   ├─ translate_tasks.py
-   ├─ payment_retry_tasks.py
-   └─ pos_sync_tasks.py
+   ├─ db.py                 ← 워커 sync DB 엔진
+   └─ <domain>_tasks.py
 ```
 
 **신규 디렉토리는 위 트리에만 생성한다.** 기존 모듈 위치 변경 금지.
 
 ---
 
-## 5. 데이터 모델 변화 요약 (이번 사이클)
+## 3. 데이터 모델 (현재 시점)
 
-| 모델 | 변경 | 비고 |
-|---|---|---|
-| `EventLog` | **신규** | 감사 로그 (모든 상태 변경) |
-| `WebhookEvent` | **신규** | 외부 webhook 수신 기록 + 멱등성 키 |
-| `Order` | `idempotency_key VARCHAR(64) NULL UNIQUE` 추가 | 클라이언트 재시도 차단 |
-| `Order` | `dispatch_state VARCHAR(32) DEFAULT 'pending'` | 워커 처리 상태 (Phase 3) |
-| `RefundLog` | (기존) — 라우터에서 사용 시작 | |
+| 모델 | 비고 |
+|---|---|
+| `Store` / `Menu` / `Order` / `OrderItem` / `Table` 등 | 도메인 핵심 |
+| `EventLog` | 모든 상태 변경 작업의 감사 로그 |
+| `WebhookEvent` | 외부 webhook 수신 기록 + `(provider, event_id)` UNIQUE |
+| `Order.idempotency_key VARCHAR(64) UNIQUE` | 클라이언트 재시도 차단 |
+| `RefundLog` | 부분/전액 환불 기록 |
+| `StaffMember` / `StaffAttendance` | 스태프 + 출퇴근 |
+| `TabehoudaiMenuGroup` / `TabehoudaiSession` | 食べ放題 / 飲み放題 |
 
-신규 마이그레이션은 모두 `database.py`의 `migration_sqls` 리스트 끝에 `# [2026-05-XX] 목적` 주석과 함께 append.
+신규 마이그레이션은 `database.py:migration_sqls` + Alembic revision **양쪽**에 추가 (이중 안전망 기간).
 
 ---
 
-## 6. 환경변수 추가 (이번 사이클)
+## 4. 환경변수
 
-| 변수 | 용도 | 도입 Phase |
+| 변수 | 용도 | 필수도 |
 |---|---|---|
-| `REDIS_URL` | Redis 연결 (예: `redis://localhost:6379/0`) | Phase 1 |
-| `DRAMATIQ_BROKER_URL` | 워커 브로커 (보통 `REDIS_URL`과 같음) | Phase 3 |
-| `WS_AUTH_TOKEN_TTL_SECONDS` | WebSocket 인증 토큰 TTL (기본 300) | Phase 2 |
-| `IDEMPOTENCY_TTL_SECONDS` | Idempotency-Key Redis TTL (기본 86400) | Phase 1 |
-| `EVENT_LOG_RETENTION_DAYS` | 감사 로그 보존 기간 (기본 365) | Phase 1 |
+| `DATABASE_URL` | MySQL 연결 (`mysql+aiomysql://...`) | 🔴 필수 |
+| `REDIS_URL` | Redis 연결 (`redis://...`) | 🔴 필수 |
+| `SECRET_KEY` | JWT 서명 | 🔴 필수 |
+| `ENCRYPTION_KEY` | Fernet 키 (운영자 발급) | 🔴 필수 |
+| `FRONTEND_BASE_URL` | PayPay 콜백 베이스 | 🔴 필수 |
+| `DRAMATIQ_BROKER_URL` | 워커 브로커 (보통 `REDIS_URL` 동일) | 🟠 워커 가동 시 |
+| `PAYPAY_WEBHOOK_SECRET` | PayPay webhook 서명 키 | 🟠 |
+| `WS_AUTH_TOKEN_TTL_SECONDS` | WS 인증 토큰 TTL (기본 300) | 🟡 옵션 |
+| `IDEMPOTENCY_TTL_SECONDS` | Idempotency 결과 캐시 TTL (기본 86400) | 🟡 옵션 |
+| `INSTANCE_ID` | WS Pub/Sub 인스턴스 식별자 | 🟡 옵션 (디버깅) |
+| `VITE_LINE_LIFF_ID` | LINE LIFF (스탬프/포토리뷰) | 🟠 |
+| `VISION_API_KEY` | GCP Vision (NSFW 차단) | 🟡 옵션 |
 
 `.env.example` 파일에 동시 추가 ([`coding-rules.md` 규칙 9](./coding-rules.md#규칙-9--의존성--환경변수-추가)).
 
 ---
 
-## 7. ChatGPT 피드백 8개 항목 vs 본 문서 매핑
+## 5. 마이그레이션 운영 (Alembic + 인라인 공존)
 
-| ChatGPT 항목 | 본 문서 대응 |
-|---|---|
-| ① SQLite 위험 | ❌ 사실 오류 — 이미 MySQL. `database.py`는 SQLite 런타임 금지. (단, `pool_size` 모니터링은 필요) |
-| ② Redis 미존재 | §2.2 Redis (Phase 1) |
-| ③ 멱등성 | [`payment-rules.md`](./payment-rules.md) + Phase 1 항목 #3 |
-| ④ 이벤트 로그 | §2.2 EventLog (Phase 1) |
-| ⑤ AI 기능 고도화 | **이번 사이클 범위 외** — 인프라 안정화 후 |
-| ⑥ 단일 서버 의존 | Phase 3 (이번 사이클은 "준비"까지) |
-| ⑦ 백그라운드 큐 | §2.2 Dramatiq (Phase 3) |
-| ⑧ 멀티테넌시 검증 | Phase 1 #6 (감사 작업) |
+자세한 결정 배경은 [`adr/003-inline-migration-coexistence.md`](./adr/003-inline-migration-coexistence.md).
 
----
-
-## 8. 비범위 (Out of Scope) — 이번 사이클에 하지 않는 것
-
-- **PostgreSQL 이전** — MySQL이 잘 동작 중. 트래픽이 한계에 닿으면 별도 사이클.
-- **AI 매출 분석 / 마케팅 Agent** — 다음 사이클.
-- **Smaregi / AirRegi 어댑터 본격 구현** — placeholder 유지.
-- **Kubernetes / 자동 스케일링** — Phase 3에서도 Docker Compose 단계까지만.
-- **로그 수집기(ELK/Loki)** — 일단 stdout + 파일 로테이션으로.
-
----
-
-## 9. Alembic 운영 가이드 (OPS-03)
-
-기존 마이그레이션 흐름과 Alembic을 **공존**시키는 전략. 두 시스템이 충돌하지 않도록 규칙을 엄격히 지킨다.
-
-### 9.1 두 마이그레이션 시스템
+### 5.1 두 시스템 공존
 
 | 시스템 | 위치 | 역할 |
 |---|---|---|
-| `migration_sqls` (인라인) | `backend/database.py` | **운영 안정성** — 서버 startup마다 실행되는 멱등 SQL 리스트. 기존 컬럼 추가 등 모든 과거 변경의 단일 진실 공급원 |
-| Alembic | `alembic/`, `alembic.ini` | **신규 변경부터** — 정식 마이그레이션 도구. autogenerate / revision 관리 |
+| `migration_sqls` (인라인) | `backend/database.py` | 서버 startup 마다 실행되는 멱등 SQL. 기존/현재 운영의 단일 진실공급원 |
+| Alembic | `alembic/`, `alembic.ini` | 신규 변경부터 — 정식 마이그레이션 도구 |
 
-**중요**: 둘 중 하나만 사용하지 않는다. **이중 안전망 기간** 동안 같은 변경을 양쪽에 모두 추가한다.
+**이중 안전망 기간**: 같은 변경을 양쪽에 모두 추가한다. 충분한 운영 검증 후 `migration_sqls` 를 단계적으로 deprecate.
 
-### 9.2 Baseline (최초 1회)
+### 5.2 Baseline (최초 1회)
 
-- **신규 dev 환경**: `init_db()` 가 SQLModel.metadata.create_all 로 모든 테이블을 생성한 뒤, `uv run alembic stamp head` 1회 실행하여 baseline 마킹.
-- **기존 운영 환경 (GCP VM)**: 운영자가 첫 배포 시 1회 `uv run alembic stamp head` 수동 실행. `tasks/current-tasks.md` 의 OPR-07 액션 참조.
-- **Baseline revision** (`alembic/versions/0001_baseline.py`) 은 의도적으로 **no-op**. 단지 "현 schema 상태"를 의미.
+- **신규 dev 환경**: `init_db()` 가 `metadata.create_all` 후 `uv run alembic stamp head` 1회.
+- **기존 운영 환경**: 운영자가 첫 배포 시 1회 `uv run alembic stamp head` 수동 실행 (OPR-07).
+- `alembic/versions/0001_baseline.py` 는 의도적으로 **no-op**.
 
-### 9.3 신규 스키마 변경 절차
+### 5.3 신규 스키마 변경 절차
 
 ```bash
 # 1. backend/models.py 수정
 # 2. autogenerate
 uv run alembic revision --autogenerate -m "add staff_phone column"
 
-# 3. 생성된 alembic/versions/xxxx_add_staff_phone_column.py 파일을 수기 검토
-#    - Enum / JSON-텍스트 컬럼 노이즈 제거
-#    - 운영 DB에 안전하게 적용 가능한지 확인
+# 3. 생성된 alembic/versions/xxxx_*.py 수기 검토
+#    - Enum / JSON-as-TEXT 노이즈 제거
+#    - 운영 안전성 확인
 
-# 4. 같은 SQL을 backend/database.py:migration_sqls 에도 추가 (이중 안전망)
+# 4. 같은 SQL 을 backend/database.py:migration_sqls 에도 추가
 #    "# [YYYY-MM-DD] 설명"
 #    "ALTER TABLE staffmember ADD COLUMN phone VARCHAR(32) NULL",
 
 # 5. 커밋
 ```
 
-### 9.4 자동 실행하지 않음
+### 5.4 자동 실행하지 않음
 
-- `backend/main.py` 의 startup 훅에서 `alembic upgrade head` 를 호출하지 **않는다**. 이중 적용 위험.
-- 운영 배포 시 마이그레이션 적용은 운영자 수동 또는 별도 deploy 카드에서 처리한다 (현재 deploy.py 는 변경하지 않음).
+- `backend/main.py` startup 에서 `alembic upgrade head` 호출 안 함.
+- `deploy.py` 도 마이그레이션 자동 실행 안 함 — 운영자 수동.
 
-### 9.5 Autogenerate 한계
+### 5.5 Autogenerate 한계
 
-- **SQLModel Enum 컬럼**: String 으로 매핑되어 Enum 값 변경이 추적되지 않음 → 수기 검토 필수.
-- **JSON-as-TEXT 필드** (`Menu.options`, `Store.extra_translations` 등): 매번 차이로 검출됨 → 생성된 revision 파일에서 노이즈 라인 제거.
-- **인덱스 누락**: `migration_sqls` 의 일부 인덱스(`CREATE INDEX IF NOT EXISTS ...`)는 SQLModel metadata 에 없을 수 있음 → autogenerate 가 인덱스를 다시 만들려고 시도할 수 있으니 검토.
+- **SQLModel Enum 컬럼**: String 매핑 → Enum 변경 추적 X. 수기 검토 필수.
+- **JSON-as-TEXT** (`Menu.options`, `Store.extra_translations`): 매번 차이 검출 → 노이즈 제거 필수.
+- **인덱스 누락**: `migration_sqls` 의 일부 인덱스가 SQLModel metadata 에 없을 수 있음.
 
-### 9.6 DATABASE_URL 드라이버
+### 5.6 DATABASE_URL 드라이버
 
-`alembic/env.py` 가 `mysql+aiomysql://` → `mysql+pymysql://` 자동 치환. Alembic 은 sync 엔진이 필요하다.
+`alembic/env.py` 와 `workers/db.py` 가 `mysql+aiomysql://` → `mysql+pymysql://` 자동 치환 (sync 엔진 필요).
 
 ---
 
-## 10. 참고 문서
+## 6. 비범위 (Out of Scope) — 현재 의도적으로 안 하는 것
+
+- **PostgreSQL 이전** — MySQL 정상 동작 중. 트래픽 한계 시 별도 사이클.
+- **Kubernetes / 자동 스케일링** — Docker Compose 단계까지만.
+- **로그 수집기 (ELK / Loki)** — stdout + 파일 로테이션 유지.
+- **APM (Sentry / Datadog)** — 운영 트래픽 늘면 검토.
+- **AI 매출 분석 / 마케팅 Agent** — 다음 사이클 후보.
+- **Smaregi / AirRegi 어댑터 본격 구현** — placeholder 유지.
+
+---
+
+## 7. 알려진 한계 (As-Is)
+
+1. **단일 서버 운영** — 코드는 멀티 인스턴스 가능. Nginx + 2 backend 실배포는 다음 사이클.
+2. **PayPay Direct E2E 미검증** — sandbox 계정으로 실 결제 흐름 테스트 필요.
+3. **Smaregi / AirRegi adapter** — placeholder.
+4. **테스트 스위트 없음** — 단위/통합 테스트 도입은 별도 사이클.
+5. **로그 수집기 없음** — stdout + `~/qr-order-system/backend.log` 파일.
+
+---
+
+## 8. 참고 문서
 
 - 코딩 규칙: [`coding-rules.md`](./coding-rules.md)
 - WebSocket 설계: [`websocket-rules.md`](./websocket-rules.md)
 - 결제 규칙: [`payment-rules.md`](./payment-rules.md)
+- 배포: [`deployment.md`](./deployment.md)
+- 설계 결정: [`adr/`](./adr/)
 - 작업 카드: [`../tasks/current-tasks.md`](../tasks/current-tasks.md)
+- 직전 사이클 산출물: [`../tasks/archive/2026-05-saas-infra-cycle.md`](../tasks/archive/2026-05-saas-infra-cycle.md)
 - 에이전트 정의: [`../agents/`](../agents/)

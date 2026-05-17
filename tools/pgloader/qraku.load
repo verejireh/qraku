@@ -1,0 +1,123 @@
+-- ============================================================================
+-- pgloader configuration — QRaku MySQL → PostgreSQL (Cloud SQL)
+--
+-- 카드: DBM-09 (data-migration-engineer, sonnet)
+-- 입력: ADR-007 (pgloader 선택), audit.md §5 (데이터 타입 매핑), §13 (Cloud SQL 결정)
+-- 사용: 스테이징 리허설 + 운영 컷오버 (DBM-12) 에 동일 파일 재사용
+--
+-- 실행:
+--   1. 환경 변수 설정 (또는 아래 FROM/INTO 줄 직접 편집):
+--        export MYSQL_URL="mysql://kios_user:PASS@127.0.0.1:3306/kiospad"
+--        export PG_URL="postgresql://qraku:PASS@127.0.0.1:5432/qraku"
+--   2. envsubst < qraku.load > qraku.load.run
+--   3. pgloader qraku.load.run
+--
+--   또는 직접:
+--        pgloader \
+--          --with "data only" \
+--          mysql://kios_user:PASS@host/kiospad \
+--          postgresql://qraku:PASS@host/qraku
+--
+-- 주의:
+--   - 운영 컷오버 시 `--single-transaction` 옵션 권장 (pgloader CLI 에서)
+--   - 운영 MySQL dump 를 staging mysql 에 복원 후 거기서 pgloader 실행 권장
+--     (운영 DB read 부하 방지)
+-- ============================================================================
+
+LOAD DATABASE
+     FROM      ${MYSQL_URL}
+     INTO      ${PG_URL}
+
+-- ─── 옵션 ─────────────────────────────────────────────────────────────────────
+WITH include drop,            -- target 의 동일 테이블 존재 시 DROP 후 재생성
+     create tables,           -- DDL 자동 생성 (audit §5 type cast 적용)
+     create indexes,          -- 인덱스 / UNIQUE 자동 이전
+     reset sequences,         -- AUTO_INCREMENT → PG sequence 매핑 + max(id)+1 보정
+     foreign keys,            -- FK 제약 이전
+     downcase identifiers,    -- 식별자 소문자화 (PG 표준)
+     workers = 4,
+     concurrency = 1,
+     multiple readers per thread,
+     rows per range = 50000,
+     batch rows = 5000,
+     prefetch rows = 50000
+
+-- ─── 양 DB 파라미터 튜닝 ──────────────────────────────────────────────────────
+SET PostgreSQL PARAMETERS
+    maintenance_work_mem to '256MB',
+    work_mem             to '24MB',
+    search_path          to 'public'
+
+SET MySQL PARAMETERS
+    net_read_timeout  = '600',
+    net_write_timeout = '600'
+
+-- ─── 데이터 타입 캐스팅 (audit.md §5 매핑 표) ──────────────────────────────────
+CAST
+    -- DATETIME → TIMESTAMP (현재도 TZ 정보 없음, 의미 유지)
+    type datetime to "timestamp without time zone"
+         drop default drop not null
+         using zero-dates-to-null,
+
+    -- DATE → DATE (zero-date 처리)
+    type date drop not null drop default
+         using zero-dates-to-null,
+
+    -- TINYINT(1) → BOOLEAN
+    type tinyint when (= precision 1) to boolean drop typemod
+         using tinyint-to-boolean,
+
+    -- MySQL JSON → PG TEXT (코드가 str 로 다룸, jsonb 는 별도 사이클 MNU)
+    type json to text drop typemod using identity,
+
+    -- DECIMAL → NUMERIC (현재 미사용이지만 안전 매핑)
+    type decimal to numeric keep typemod,
+
+    -- ENUM(...) 인라인 → VARCHAR(50) (TableStatus 만 해당)
+    type enum to "varchar(50)" drop typemod
+
+-- ─── 뷰 / 트리거 / 프로시저 미사용 ────────────────────────────────────────────
+MATERIALIZE VIEWS none
+
+-- ─── 제외 테이블 ──────────────────────────────────────────────────────────────
+-- alembic_version 은 PG 측에서 새로 생성 (OPR-07 stamp 후) → MySQL 측 무시
+EXCLUDING TABLE NAMES MATCHING 'alembic_version'
+
+-- ─── 사전 작업 (대상 PG) ──────────────────────────────────────────────────────
+BEFORE LOAD DO
+$$ create schema if not exists public; $$,
+$$ -- DBM-05 호환화 마이그레이션이 만들어둔 컬럼 / 인덱스가 pgloader 의
+   -- create tables 와 충돌하지 않도록, target PG 는 빈 인스턴스여야 함.
+   -- (include drop 옵션으로 기존 테이블은 자동 DROP)
+   set client_min_messages to warning; $$
+
+-- ─── 사후 작업 (대상 PG) ──────────────────────────────────────────────────────
+AFTER LOAD DO
+$$ -- 시퀀스 보정 안전망: pgloader 가 reset sequences 옵션으로 처리하지만
+   -- 한 번 더 확인. 각 테이블의 id 컬럼에 대해 sequence value ≥ MAX(id)+1 보장.
+   -- ※ pg_catalog 기반 자동 생성 — 테이블 추가 시 자동으로 포함됨.
+   do $body$
+   declare r record;
+   begin
+     for r in
+       select c.relname as seq, t.relname as tbl, a.attname as col
+       from pg_class c
+       join pg_depend d on d.objid = c.oid
+       join pg_class t on d.refobjid = t.oid
+       join pg_attribute a on a.attrelid = t.oid and a.attnum = d.refobjsubid
+       where c.relkind = 'S' and t.relkind = 'r'
+     loop
+       execute format(
+         'select setval(%L, coalesce((select max(%I) from %I), 0) + 1, false)',
+         r.seq, r.col, r.tbl
+       );
+     end loop;
+   end
+   $body$; $$,
+$$ -- VACUUM ANALYZE 로 통계 갱신 → 컷오버 직후 쿼리 플래너 정확도 확보
+   analyze; $$
+
+-- ─── 인코딩 / 콜레이션 ────────────────────────────────────────────────────────
+-- PG target 은 UTF-8 (Cloud SQL 기본). MySQL utf8mb4 데이터 그대로 이전.
+-- 한국어 / 일본어 문자열은 별도 변환 불필요 (양쪽 모두 UTF-8 호환).
+;

@@ -11,6 +11,32 @@ from utils.jwt import require_admin
 
 router = APIRouter(prefix="/qr", tags=["qr"])
 
+
+# ── Ownership helpers (SEC-01 follow-up: IDOR defense) ──────────────────────
+async def _resolve_owned_store(store_id: str, admin_store: Store, session: AsyncSession) -> Store:
+    """매장을 슬러그/숫자 ID로 조회하고 admin_store 소유권을 검증한다."""
+    if store_id.isdigit():
+        store = await session.get(Store, int(store_id))
+    else:
+        result = await session.execute(select(Store).where(Store.slug == store_id))
+        store = result.scalar_one_or_none()
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    if store.id != admin_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
+    return store
+
+
+async def _resolve_owned_table(table_id: int, admin_store: Store, session: AsyncSession) -> Table:
+    """테이블을 조회하고 admin_store 소유권을 검증한다."""
+    table = await session.get(Table, table_id)
+    if not table:
+        raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != admin_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: table belongs to another store")
+    return table
+
+
 # Theme Color Mapping (from main.css)
 THEME_COLORS = {
     "sakura": "#ffc0cb",
@@ -26,44 +52,35 @@ THEME_COLORS = {
     "modern": "#1a1a1a"
 }
 
-@router.get("/generate/{table_id}")
-async def generate_themed_qr(table_id: int, session: AsyncSession = Depends(get_session)):
-    # Fetch Table and Store info
-    table_res = await session.get(Table, table_id)
-    if not table_res:
-        raise HTTPException(status_code=404, detail="Table not found")
-    
-    store = await session.get(Store, table_res.store_id)
-    if not store:
-        raise HTTPException(status_code=404, detail="Store not found")
-    
+async def _render_themed_qr_png(table: Table, store: Store, session: AsyncSession) -> bytes:
+    """단일 테이블 QR 카드 PNG 렌더링. HTTP 인증과 분리된 순수 함수."""
     theme_color = THEME_COLORS.get(store.theme, "#1a1a1a")
     
     # Dynamic Base URL from DB
     config = await session.get(SystemConfig, "QR_BASE_URL")
     base_url = config.value if config else "http://localhost:5173"
     
-    qr_url = f"{base_url.rstrip('/')}/shop/{store.id}/table/{table_res.table_number}/menu?token={table_res.qr_token}"
-    
+    qr_url = f"{base_url.rstrip('/')}/shop/{store.id}/table/{table.table_number}/menu?token={table.qr_token}"
+
     # 1. Generate QR Code
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
     qr.add_data(qr_url)
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color=theme_color, back_color="white").convert('RGB')
-    
+
     # 2. Create Card Background (Pillow)
     card_width = 400
     card_height = 550
     card = Image.new('RGB', (card_width, card_height), color='white')
     draw = ImageDraw.Draw(card)
-    
+
     # Draw Border (Themed)
     draw.rectangle([10, 10, card_width-10, card_height-10], outline=theme_color, width=5)
-    
+
     # Paste QR Code
     qr_img_resized = qr_img.resize((300, 300))
     card.paste(qr_img_resized, (50, 100))
-    
+
     try:
         font_main = ImageFont.truetype("fonts/NotoSansKR-Regular.ttf", 26)
         font_sub = ImageFont.truetype("fonts/NotoSansKR-Regular.ttf", 16)
@@ -75,7 +92,7 @@ async def generate_themed_qr(table_id: int, session: AsyncSession = Depends(get_
 
     # Labels (Restaurant Name & Table No)
     draw.text((card_width//2, 50), store.name, fill=theme_color, font=font_main, anchor="mm")
-    draw.text((card_width//2, 420), "Table No. " + str(table_res.table_number), fill="#333", font=font_main, anchor="mm")
+    draw.text((card_width//2, 420), "Table No. " + str(table.table_number), fill="#333", font=font_main, anchor="mm")
 
     # Multilingual Scan Instruction
     y_pos = 460
@@ -88,9 +105,22 @@ async def generate_themed_qr(table_id: int, session: AsyncSession = Depends(get_
     # Save to Buffer
     buf = BytesIO()
     card.save(buf, format="PNG")
-    buf.seek(0)
-    
-    return Response(content=buf.getvalue(), media_type="image/png")
+    return buf.getvalue()
+
+
+@router.get("/generate/{table_id}")
+async def generate_themed_qr(
+    table_id: int,
+    admin_store: Store = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """단일 테이블 QR 카드 PNG. 관리자만, 본인 매장만."""
+    table = await _resolve_owned_table(table_id, admin_store, session)
+    store = await session.get(Store, table.store_id)
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    png = await _render_themed_qr_png(table, store, session)
+    return Response(content=png, media_type="image/png")
 
 import uuid
 from reportlab.pdfgen import canvas
@@ -125,20 +155,20 @@ async def batch_generate_tables(
     return {"message": f"Successfully generated {len(new_tables)} tables."}
 
 @router.get("/export-pdf/{store_id}")
-async def export_pdf(store_id: str, session: AsyncSession = Depends(get_session)):
-    # 1. Fetch Store and its Tables
-    if store_id.isdigit():
-        store = await session.get(Store, int(store_id))
-    else:
-        result = await session.execute(select(Store).where(Store.slug == store_id))
-        store = result.scalar_one_or_none()
-        
-    if not store:
-        raise HTTPException(status_code=404, detail="Store not found")
-        
-    tables_res = await session.execute(select(Table).where(Table.store_id == store_id).order_by(Table.table_number))
+async def export_pdf(
+    store_id: str,
+    admin_store: Store = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """매장 전체 QR PDF. 관리자만, 본인 매장만."""
+    store = await _resolve_owned_store(store_id, admin_store, session)
+
+    # store.id (int)로 조회 — 기존에는 store_id(str) 전달로 비교 실패하던 버그
+    tables_res = await session.execute(
+        select(Table).where(Table.store_id == store.id).order_by(Table.table_number)
+    )
     tables = tables_res.scalars().all()
-    
+
     if not tables:
         raise HTTPException(status_code=400, detail="No tables found for this store")
 
@@ -146,32 +176,30 @@ async def export_pdf(store_id: str, session: AsyncSession = Depends(get_session)
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
-    
+
     # 3. Layout params (4 cards per page: 2x2)
     card_w, card_h = 90*mm, 130*mm
     margin_x, margin_y = 10*mm, 15*mm
     gap = 5*mm
-    
+
     idx = 0
     for table in tables:
         # Calculate Position
         col = idx % 2
         row = (idx // 2) % 2
-        
+
         x = margin_x + col * (card_w + gap)
         y = height - margin_y - (row + 1) * card_h - row * gap
-        
+
         # --- Draw Card (Themed) ---
         theme_color = THEME_COLORS.get(store.theme, "#1a1a1a")
         c.setStrokeColor(theme_color)
         c.setLineWidth(2)
         c.roundRect(x, y, card_w, card_h, 4, stroke=1, fill=0) # Outer border
-        
-        # QR Code Image (Mocking for reportlab - easier to generate the themed PNG and paste it)
-        # Note: c.drawInlineImage is slow for many images, but okay for 4-20.
-        # However, we already have generate_themed_qr logic. Let's reuse it.
-        png_res = await generate_themed_qr(table.id, session)
-        png_buf = BytesIO(png_res.body)
+
+        # 내부 헬퍼 직접 호출 — HTTP 인증 우회 안 함 (이미 위에서 admin/소유 검증됨)
+        png_bytes = await _render_themed_qr_png(table, store, session)
+        png_buf = BytesIO(png_bytes)
         
         from reportlab.lib.utils import ImageReader
         img_reader = ImageReader(png_buf)
@@ -193,10 +221,8 @@ async def export_pdf(store_id: str, session: AsyncSession = Depends(get_session)
 
 @router.post("/refresh/{table_id}")
 async def refresh_table_token(table_id: int, admin_store: Store = Depends(require_admin), session: AsyncSession = Depends(get_session)):
-    table = await session.get(Table, table_id)
-    if not table:
-        raise HTTPException(status_code=404, detail="Table not found")
-    
+    table = await _resolve_owned_table(table_id, admin_store, session)
+
     table.qr_token = str(uuid.uuid4())
     session.add(table)
     await session.commit()
@@ -228,16 +254,8 @@ async def checkout_table(table_id: int, session: AsyncSession = Depends(get_sess
     await session.commit()
     await session.refresh(table)
     
-    # Optional: Notify Admin/POS via WS
-    from utils.websocket import manager
-    import json
-    msg = json.dumps({
-        "type": "CHECKOUT_REQUEST",
-        "table_id": table.id,
-        "table_number": table.table_number,
-        "store_id": table.store_id
-    })
-    await manager.broadcast(msg, table.store_id)
+    from utils.events import emit_checkout_request
+    await emit_checkout_request(session, table.store_id, table)
     
     return {"message": "Checkout requested and token invalidated", "new_token": table.qr_token}
 
@@ -245,10 +263,8 @@ async def checkout_table(table_id: int, session: AsyncSession = Depends(get_sess
 async def reset_table(table_id: int, refresh_token: bool = False, admin_store: Store = Depends(require_admin), session: AsyncSession = Depends(get_session)):
     from models import TableStatus
     import uuid
-    table = await session.get(Table, table_id)
-    if not table:
-        raise HTTPException(status_code=404, detail="Table not found")
-    
+    table = await _resolve_owned_table(table_id, admin_store, session)
+
     table.status = TableStatus.READY
     if refresh_token:
         table.qr_token = str(uuid.uuid4())
@@ -281,14 +297,9 @@ class BatchGenerateRequest(BaseModel):
 
 @router.post("/generate-batch/{store_id}")
 async def generate_batch_qr_signs(store_id: str, payload: BatchGenerateRequest, admin_store: Store = Depends(require_admin), session: AsyncSession = Depends(get_session)):
-    # 1. Resolve store
-    if store_id.isdigit():
-        store = await session.get(Store, int(store_id))
-    else:
-        store = await session.execute(select(Store).where(Store.slug == store_id)).scalar_one_or_none()
-        
-    if not store:
-        raise HTTPException(status_code=404, detail="Store not found")
+    # 1. Resolve store + ownership check
+    # (기존: 슬러그 분기에서 `await session.execute(...).scalar_one_or_none()` 으로 코루틴에 .scalar_one_or_none() 호출 → 런타임 AttributeError)
+    store = await _resolve_owned_store(store_id, admin_store, session)
 
     # 2. Determine target table numbers
     table_numbers = []

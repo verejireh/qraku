@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
+import { isAdminLoggedIn } from './useAdminApi';
 
 export function useDisplayGuard(viewType) {
     const { shop_id } = useParams();
     const [searchParams] = useSearchParams();
+    const navigate = useNavigate();
     const [isAllowed, setIsAllowed] = useState(null); // null: checking, true: allowed, false: blocked
     const [loading, setLoading] = useState(true);
 
@@ -16,6 +18,13 @@ export function useDisplayGuard(viewType) {
         const isTempDemoStore = typeof shop_id === 'string' && shop_id.startsWith('demo_tmp_');
         const isDemoMode = searchParams.get('demo') === '1' && isTempDemoStore;
         if (isDemoMode) {
+            setIsAllowed(true);
+            setLoading(false);
+            return;
+        }
+
+        // Admin bypass — admins can preview pages regardless of display toggle
+        if (isAdminLoggedIn()) {
             setIsAllowed(true);
             setLoading(false);
             return;
@@ -46,6 +55,13 @@ export function useDisplayGuard(viewType) {
         checkAccess();
         return () => { isMounted = false; };
     }, [shop_id, viewType, searchParams]);
+
+    // Auto-redirect to home when access is blocked
+    useEffect(() => {
+        if (isAllowed === false) {
+            navigate(`/${shop_id}/home`);
+        }
+    }, [isAllowed, shop_id, navigate]);
 
     return { isAllowed, loading, shop_id };
 }

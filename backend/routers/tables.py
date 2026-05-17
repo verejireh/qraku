@@ -17,8 +17,7 @@ from reportlab.lib.utils import ImageReader
 from pydantic import BaseModel
 from typing import Optional
 import pytz
-from utils.websocket import manager
-import json
+from utils.events import emit_table_update, emit_staff_call
 
 router = APIRouter(tags=["tables"])
 
@@ -55,18 +54,7 @@ async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, ses
     await session.commit()
     await session.refresh(table)
     
-    # Broadcast status change to the Register POS
-    try:
-        msg = json.dumps({
-            "type": "TABLE_UPDATE",
-            "table_id": table.id,
-            "table_number": table.table_number,
-            "status": table.status.value,
-            "guest_count": table.guest_count
-        })
-        await manager.broadcast(msg, table.store_id)
-    except Exception as e:
-        print("WS Broadcast exception:", e)
+    await emit_table_update(session, table.store_id, table)
 
     return table
 
@@ -83,17 +71,7 @@ async def close_table(table_id: int, session: AsyncSession = Depends(get_session
     await session.commit()
     await session.refresh(table)
 
-    # Broadcast status change to the Register POS
-    try:
-        msg = json.dumps({
-            "type": "TABLE_UPDATE",
-            "table_id": table.id,
-            "table_number": table.table_number,
-            "status": table.status.value
-        })
-        await manager.broadcast(msg, table.store_id)
-    except Exception as e:
-        print("WS Broadcast exception:", e)
+    await emit_table_update(session, table.store_id, table)
 
     return table
 
@@ -131,20 +109,8 @@ async def renew_qr_timer(table_id: int, session: AsyncSession = Depends(get_sess
     await session.commit()
     await session.refresh(table)
 
-    # Broadcast
-    try:
-        from routers.ws import manager
-        import json
-        msg = json.dumps({
-            "type": "TABLE_UPDATE",
-            "table_id": table.id,
-            "table_number": table.table_number,
-            "status": table.status.value,
-            "join_window_end": table.join_window_end.isoformat() if table.join_window_end else None,
-        })
-        await manager.broadcast(msg, table.store_id)
-    except Exception as e:
-        print("WS Broadcast exception:", e)
+    jwe = table.join_window_end.isoformat() if table.join_window_end else None
+    await emit_table_update(session, table.store_id, table, extra={"join_window_end": jwe})
 
     return table
 
@@ -213,19 +179,8 @@ async def transfer_table(table_id: int, body: TableTransferRequest, session: Asy
     session.add(target)
     await session.commit()
 
-    # Broadcast update
-    try:
-        for t in [source, target]:
-            msg = json.dumps({
-                "type": "TABLE_UPDATE",
-                "table_id": t.id,
-                "table_number": t.table_number,
-                "status": t.status.value if hasattr(t.status, 'value') else t.status,
-                "guest_count": t.guest_count
-            })
-            await manager.broadcast(msg, t.store_id)
-    except Exception as e:
-        print("WS Broadcast exception:", e)
+    for t in [source, target]:
+        await emit_table_update(session, t.store_id, t)
 
     return {"message": f"Transferred {moved_count} orders from table {source.table_number} to {target.table_number}"}
 
@@ -240,17 +195,7 @@ async def update_guest_count(table_id: int, body: GuestCountRequest, session: As
     await session.commit()
     await session.refresh(table)
 
-    try:
-        msg = json.dumps({
-            "type": "TABLE_UPDATE",
-            "table_id": table.id,
-            "table_number": table.table_number,
-            "status": table.status.value,
-            "guest_count": table.guest_count
-        })
-        await manager.broadcast(msg, table.store_id)
-    except Exception as e:
-        print("WS Broadcast exception:", e)
+    await emit_table_update(session, table.store_id, table)
 
     return table
 
@@ -282,16 +227,7 @@ async def mark_served(table_id: int, session: AsyncSession = Depends(get_session
         count += 1
     await session.commit()
 
-    try:
-        msg = json.dumps({
-            "type": "TABLE_UPDATE",
-            "table_id": table.id,
-            "table_number": table.table_number,
-            "status": table.status.value if hasattr(table.status, 'value') else table.status
-        })
-        await manager.broadcast(msg, table.store_id)
-    except Exception as e:
-        print("WS Broadcast exception:", e)
+    await emit_table_update(session, table.store_id, table)
 
     return {"message": f"Marked {count} orders as served"}
 
@@ -308,17 +244,7 @@ async def acknowledge_call(table_id: int, session: AsyncSession = Depends(get_se
     await session.commit()
     await session.refresh(table)
 
-    try:
-        msg = json.dumps({
-            "type": "TABLE_UPDATE",
-            "table_id": table.id,
-            "table_number": table.table_number,
-            "status": table.status.value if hasattr(table.status, 'value') else table.status,
-            "call_staff": False
-        })
-        await manager.broadcast(msg, table.store_id)
-    except Exception as e:
-        print("WS Broadcast exception:", e)
+    await emit_table_update(session, table.store_id, table, extra={"call_staff": False})
 
     return {"status": "acknowledged"}
 
@@ -335,16 +261,8 @@ async def call_staff(table_id: int, session: AsyncSession = Depends(get_session)
     await session.commit()
     await session.refresh(table)
 
-    try:
-        msg = json.dumps({
-            "type": "CALL_STAFF",
-            "table_id": table.id,
-            "table_number": table.table_number,
-            "status": table.status.value if hasattr(table.status, 'value') else table.status
-        })
-        await manager.broadcast(msg, table.store_id)
-    except Exception as e:
-        print("WS Broadcast exception:", e)
+    status_val = table.status.value if hasattr(table.status, "value") else table.status
+    await emit_staff_call(session, table.store_id, table.table_number, table_id=table.id, status=status_val)
 
     return {"status": "called"}
 
@@ -515,18 +433,8 @@ async def request_checkout(table_id: int, req: TokenRequest, session: AsyncSessi
     await session.commit()
     await session.refresh(table)
     
-    # Broadcast status change to the Register POS
-    try:
-        msg = json.dumps({
-            "type": "TABLE_UPDATE",
-            "table_id": table.id,
-            "table_number": table.table_number,
-            "status": table.status.value
-        })
-        await manager.broadcast(msg, table.store_id)
-    except Exception as e:
-        print("WS Broadcast exception:", e)
-        
+    await emit_table_update(session, table.store_id, table)
+
     return {"status": "success", "table_status": table.status.value}
 
 @router.post("/customer/tables/{table_id}/join")

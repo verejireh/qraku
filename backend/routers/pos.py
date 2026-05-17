@@ -147,25 +147,10 @@ async def complete_payment(
     session.add(table)
     await session.commit()
 
-    # Broadcast payment complete + table closed
-    try:
-        from utils.websocket import manager
-        import json
-        msg = json.dumps({
-            "type": "PAYMENT_COMPLETE",
-            "table_id": table.id,
-            "table_number": table.table_number
-        })
-        await manager.broadcast(msg, table.store_id)
-        msg2 = json.dumps({
-            "type": "TABLE_UPDATE",
-            "table_id": table.id,
-            "table_number": table.table_number,
-            "status": "ready",
-            "guest_count": None
-        })
-        await manager.broadcast(msg2, table.store_id)
-    except Exception as e:
-        print("WS Broadcast exception:", e)
+    from utils.events import emit_payment_completed, emit_table_update
+    order = orders[0] if orders else None
+    if order:
+        await emit_payment_completed(session, table.store_id, order)
+    await emit_table_update(session, table.store_id, table, extra={"status": "ready", "guest_count": None})
 
     return {"message": "Payment completed and table closed", "new_token": table.qr_token}

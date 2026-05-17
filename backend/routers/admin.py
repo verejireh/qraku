@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlmodel import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from typing import List, Dict, Any, Optional
 from database import get_session
-from models import Store, Table, Order, Menu, StaffMember, PaymentSettings, PaymentMethodType, StaffAttendance
+from models import Store, Table, Order, Menu, StaffMember, PaymentSettings, PaymentMethodType, StaffAttendance, RefundLog
 from datetime import datetime
 import uuid
 from utils.jwt import require_admin
@@ -184,14 +185,8 @@ async def update_display_settings(store_id: int, settings: DisplaySettingsUpdate
     await session.commit()
     await session.refresh(display_settings)
     
-    # 설정 변경 브로드캐스팅 시도
-    try:
-        from utils.websocket import manager
-        import json
-        msg = json.dumps({"type": "CONFIG_UPDATE", "store_id": store.id})
-        await manager.broadcast(msg, store.id)
-    except Exception as e:
-        print(f"WS Broadcast failed: {e}")
+    from utils.events import emit_config_update
+    await emit_config_update(session, store.id)
     
     return {"status": "success", "display_settings": display_settings}
 
@@ -489,3 +484,92 @@ async def update_payment_settings(
     session.add(ps)
     await session.commit()
     return {"status": "ok"}
+
+
+# ── 환불 ────────────────────────────────────────────────────────
+
+from pydantic import BaseModel as _RefundBase
+
+class RefundRequest(_RefundBase):
+    amount: float
+    reason: str = ""
+
+
+@router.post("/orders/{order_id}/refund")
+async def refund_order(
+    order_id: int,
+    body: RefundRequest,
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    admin_store: Store = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    from utils.idempotency import with_idempotency, IDEMPOTENCY_TTL_SECONDS
+    from utils.event_log import log_event
+    from utils.refunds import perform_refund
+
+    async def _do_refund():
+        order = await session.get(Order, order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # 멀티테넌시: 다른 매장 주문 접근 차단
+        shop_id = order.shop_id
+        if shop_id.isdigit():
+            owner_match = int(shop_id) == admin_store.id
+        else:
+            owner_match = shop_id == admin_store.slug
+        if not owner_match:
+            raise HTTPException(status_code=404, detail="Not found")
+
+        if order.payment_status != "paid":
+            raise HTTPException(status_code=400, detail="결제 완료 상태가 아닙니다")
+
+        if body.amount <= 0 or body.amount > order.total_amount:
+            raise HTTPException(status_code=400, detail="환불 금액이 유효하지 않습니다")
+
+        # 결제 설정 로드 (PAY_AT_COUNTER 거부 + perform_refund 어댑터용)
+        store_full = await session.get(
+            Store, admin_store.id,
+            options=[selectinload(Store.payment_settings)],
+        )
+        ps = store_full.payment_settings if store_full else None
+        if ps and str(ps.payment_method_type) == str(PaymentMethodType.PAY_AT_COUNTER):
+            raise HTTPException(status_code=400, detail="PAY_AT_COUNTER는 자동 환불을 지원하지 않습니다")
+
+        result = await perform_refund(
+            session, store_full or admin_store, order,
+            amount=body.amount,
+            reason=body.reason,
+            admin_user_id=str(admin_store.id),
+        )
+        if result["status"] != "ok":
+            raise HTTPException(status_code=502, detail="환불 처리에 실패했습니다")
+
+        # perform_refund가 내부적으로 commit하므로 order 상태 업데이트는 별도 commit
+        if body.amount >= order.total_amount:
+            order.payment_status = "refunded"
+        else:
+            order.payment_status = "partial_refund"
+
+        await log_event(
+            session,
+            store_id=admin_store.id,
+            actor_type="admin",
+            actor_id=str(admin_store.id),
+            action="refund.issued",
+            target_type="order",
+            target_id=order.id,
+            payload={"amount": body.amount, "reason": body.reason},
+        )
+        await session.commit()
+
+        from utils.events import emit_refund_issued
+        await emit_refund_issued(session, admin_store.id, order)
+
+        return {"refund_id": result.get("refund_id"), "amount": body.amount, "status": "ok"}
+
+    return await with_idempotency(
+        key=f"refund:{admin_store.id}:{idempotency_key}",
+        ttl=IDEMPOTENCY_TTL_SECONDS,
+        fn=_do_refund,
+    )

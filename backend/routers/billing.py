@@ -71,6 +71,8 @@ async def get_subscription_status(
     session: AsyncSession = Depends(get_session)
 ):
     store = await _get_store_by_id_or_slug(store_id, session)
+    if store.id != admin_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
 
     expires_at = store.subscription_expires_at
     days_remaining = None
@@ -116,6 +118,8 @@ async def create_checkout_session(
         raise HTTPException(status_code=400, detail="Invalid plan")
 
     store = await _get_store_by_id_or_slug(store_id, session)
+    if store.id != admin_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
 
     price_id = _resolve_price_id(plan, data_open)
     if not price_id:

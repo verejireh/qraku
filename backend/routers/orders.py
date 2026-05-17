@@ -539,17 +539,8 @@ async def create_order(
         use_kitchen = store.display_settings.use_kitchen_page
         
     if use_kitchen:
-        try:
-            from utils.websocket import manager
-            msg = json.dumps({
-                "type": "NEW_ORDER",
-                "order_id": db_order.id,
-                "table_number": db_order.table_number,
-                "order_type": order_type,
-            })
-            await manager.broadcast(msg, store.id)
-        except Exception as e:
-            print("WS Broadcast exception:", e)
+        from utils.events import emit_order_created
+        await emit_order_created(session, store.id, db_order)
 
     # ── 9. Async Background POS dispatch (Square, Smaregi, AirRegi) ──
     async def dispatch_pos_background(store_id: int, order_id: int, items_payload: list):
@@ -670,16 +661,8 @@ async def update_order_status(
                     notify_store = None
 
             if notify_store:
-                msg = json.dumps({
-                    "type": "order_completed",
-                    "order_id": order.id,
-                    "table_number": order.table_number,
-                    "items": item_names
-                })
-                await manager.broadcast_to_customer(msg, notify_store.id, order.table_number)
-                print(f"[WS] Broadcast order_completed to store {notify_store.id} table {order.table_number}")
-            else:
-                print(f"[WS] Could not resolve store for shop_id={order.shop_id}")
+                from utils.events import emit_order_completed_customer
+                await emit_order_completed_customer(session, notify_store.id, order.table_number, order, item_names)
         except Exception as e:
             print("Customer WS Broadcast exception:", e)
 
@@ -744,28 +727,11 @@ async def pay_order(
     await session.commit()
     await session.refresh(order)
 
-    # Broadcast to staff screens
     if store:
-        try:
-            from utils.websocket import manager
-            import json
-            msg = json.dumps({
-                "type": "PAYMENT_COMPLETE",
-                "order_id": order.id,
-                "table_number": order.table_number
-            })
-            await manager.broadcast(msg, store.id)
-            if closed_table:
-                msg2 = json.dumps({
-                    "type": "TABLE_UPDATE",
-                    "table_id": closed_table.id,
-                    "table_number": closed_table.table_number,
-                    "status": "ready",
-                    "guest_count": None
-                })
-                await manager.broadcast(msg2, store.id)
-        except Exception as e:
-            print("WS Broadcast exception:", e)
+        from utils.events import emit_payment_completed, emit_table_update
+        await emit_payment_completed(session, store.id, order)
+        if closed_table:
+            await emit_table_update(session, store.id, closed_table, extra={"status": "ready", "guest_count": None})
 
     return order
 
@@ -811,55 +777,24 @@ async def update_item_status(
 
     await session.commit()
 
-    # Broadcast to kitchen + staff screens
     if order:
-        try:
-            from utils.websocket import manager
-            from models import Store
-            import json
-            store_result = await session.execute(select(Store).where(Store.slug == order.shop_id))
-            store = store_result.scalar_one_or_none()
-            if not store:
-                try:
-                    store = await session.get(Store, int(order.shop_id))
-                except (ValueError, TypeError):
-                    store = None
-
-            if store:
-                msg = json.dumps({
-                    "type": "ITEM_STATUS_UPDATE",
-                    "item_id": item.id,
-                    "order_id": item.order_id,
-                    "table_number": order.table_number,
-                    "item_status": body.status,
-                    "order_status": order.status
-                })
-                await manager.broadcast(msg, store.id)
-
-                # Notify customer when cooking complete
-                if body.status == "cooking_complete":
-                    menu_result = await session.execute(select(Menu).where(Menu.id == int(item.menu_item_id)))
-                    menu = menu_result.scalar_one_or_none()
-                    customer_msg = json.dumps({
-                        "type": "item_ready",
-                        "item_id": item.id,
-                        "name_jp": menu.name_jp if menu else None,
-                        "name_ko": menu.name_ko if menu else None,
-                        "name_en": menu.name_en if menu else None,
-                        "quantity": item.quantity
-                    })
-                    await manager.broadcast_to_customer(customer_msg, store.id, order.table_number)
-
-                # Notify takeout customer when ALL items are pickup_ready
-                if body.status == "pickup_ready" and all_pickup_ready and order.pickup_code:
-                    pickup_msg = json.dumps({
-                        "type": "pickup_ready",
-                        "order_id": order.id,
-                        "pickup_code": order.pickup_code
-                    })
-                    await manager.broadcast_to_customer(pickup_msg, store.id, order.table_number)
-        except Exception as e:
-            print(f"WS broadcast exception (item status): {e}")
+        from models import Store
+        from utils.events import emit_item_status_update, emit_item_ready_customer, emit_pickup_ready_customer
+        store_result = await session.execute(select(Store).where(Store.slug == order.shop_id))
+        store = store_result.scalar_one_or_none()
+        if not store:
+            try:
+                store = await session.get(Store, int(order.shop_id))
+            except (ValueError, TypeError):
+                store = None
+        if store:
+            await emit_item_status_update(session, store.id, item, order)
+            if body.status == "cooking_complete":
+                menu_result = await session.execute(select(Menu).where(Menu.id == int(item.menu_item_id)))
+                menu = menu_result.scalar_one_or_none()
+                await emit_item_ready_customer(session, store.id, order.table_number, item, menu)
+            if body.status == "pickup_ready" and all_pickup_ready and order.pickup_code:
+                await emit_pickup_ready_customer(session, store.id, order.table_number, order)
 
     return {"item_id": item.id, "status": body.status, "order_status": order.status if order else None}
 
@@ -899,26 +834,20 @@ async def bulk_mark_items_served(
 
     await session.commit()
 
-    # Broadcast
     if affected_order_ids:
-        try:
-            from utils.websocket import manager
-            from models import Store
-            import json
-            sample_order = await session.get(Order, list(affected_order_ids)[0])
-            if sample_order:
-                store_result = await session.execute(select(Store).where(Store.slug == sample_order.shop_id))
-                store = store_result.scalar_one_or_none()
-                if not store:
-                    try:
-                        store = await session.get(Store, int(sample_order.shop_id))
-                    except (ValueError, TypeError):
-                        store = None
-                if store:
-                    msg = json.dumps({"type": "ITEMS_SERVED", "item_ids": item_ids})
-                    await manager.broadcast(msg, store.id)
-        except Exception as e:
-            print(f"WS broadcast exception (bulk served): {e}")
+        from models import Store
+        from utils.events import emit_items_served
+        sample_order = await session.get(Order, list(affected_order_ids)[0])
+        if sample_order:
+            store_result = await session.execute(select(Store).where(Store.slug == sample_order.shop_id))
+            store = store_result.scalar_one_or_none()
+            if not store:
+                try:
+                    store = await session.get(Store, int(sample_order.shop_id))
+                except (ValueError, TypeError):
+                    store = None
+            if store:
+                await emit_items_served(session, store.id, item_ids)
 
     return {"message": f"Marked {len(item_ids)} items as served"}
 

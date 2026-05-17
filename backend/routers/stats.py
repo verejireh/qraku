@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
@@ -10,10 +10,17 @@ from utils.jwt import require_admin
 router = APIRouter(prefix="/stats", tags=["stats"])
 
 
+def _assert_store_access(admin_store: Store, shop_id: str) -> None:
+    """요청 shop_id가 인증된 admin_store와 일치하는지 검증 (IDOR 방어)"""
+    if shop_id.isdigit():
+        if int(shop_id) != admin_store.id:
+            raise HTTPException(status_code=403, detail="Access denied: store mismatch")
+    elif shop_id != (admin_store.slug or ""):
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
+
+
 async def _resolve_shop_id(shop_id: str, session: AsyncSession) -> Optional[str]:
     """slug 혹은 숫자 ID 문자열 그대로 Order.shop_id 형식으로 반환"""
-    # Order.shop_id에는 Store.slug 또는 str(store.id)가 저장됩니다
-    # → 보내온 shop_id를 그대로 사용 가능
     return shop_id
 
 
@@ -25,6 +32,7 @@ async def get_summary(
     session: AsyncSession = Depends(get_session)
 ):
     """KPI 요약: 총 매출, 주문 수, 평균 객단가 (기간 필터 포함)"""
+    _assert_store_access(admin_store, shop_id)
     since = datetime.utcnow() - timedelta(days=days)
 
     q_sales = select(
@@ -56,6 +64,7 @@ async def get_daily_sales(
     session: AsyncSession = Depends(get_session)
 ):
     """기간별 일별 매출 집계"""
+    _assert_store_access(admin_store, shop_id)
     since = datetime.utcnow() - timedelta(days=days)
 
     query = select(
@@ -87,6 +96,7 @@ async def get_hourly_orders(
     session: AsyncSession = Depends(get_session)
 ):
     """오늘 시간대별 주문 수 (0~23시)"""
+    _assert_store_access(admin_store, shop_id)
     today = date.today()
 
     query = select(
@@ -120,6 +130,7 @@ async def get_top_menus(
     session: AsyncSession = Depends(get_session)
 ):
     """기간 내 인기 메뉴 Top N (판매량 기준)"""
+    _assert_store_access(admin_store, shop_id)
     since = datetime.utcnow() - timedelta(days=days)
 
     # OrderItem.menu_item_id는 str이므로 int 캐스팅 후 Menu와 조인
@@ -169,6 +180,7 @@ async def get_sales_by_category(
     session: AsyncSession = Depends(get_session)
 ):
     """카테고리별 매출 집계"""
+    _assert_store_access(admin_store, shop_id)
     since = datetime.utcnow() - timedelta(days=days)
 
     query = select(
@@ -201,6 +213,7 @@ async def get_sales_by_menu(
     session: AsyncSession = Depends(get_session)
 ):
     """메뉴별 매출 집계"""
+    _assert_store_access(admin_store, shop_id)
     since = datetime.utcnow() - timedelta(days=days)
 
     query = select(
@@ -243,6 +256,7 @@ async def get_hourly_guests(
     session: AsyncSession = Depends(get_session)
 ):
     """시간대별 손님수 (유니크 테이블 수 기준)"""
+    _assert_store_access(admin_store, shop_id)
     d = date.fromisoformat(target_date) if target_date else date.today()
 
     query = select(
@@ -271,6 +285,7 @@ async def get_monthly_sales(
     session: AsyncSession = Depends(get_session)
 ):
     """월별 매출 집계"""
+    _assert_store_access(admin_store, shop_id)
     since = datetime.utcnow() - timedelta(days=months * 31)
 
     query = select(
@@ -303,6 +318,7 @@ async def get_weekly_sales(
     session: AsyncSession = Depends(get_session)
 ):
     """요일별 매출 집계 (0=월~6=일)"""
+    _assert_store_access(admin_store, shop_id)
     since = datetime.utcnow() - timedelta(days=days)
 
     query = select(

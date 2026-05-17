@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
+import json
 import os
 import stripe
 from database import get_session
-from models import Order, Table, Store
+from models import Order, Table, Store, WebhookEvent
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -93,17 +95,111 @@ async def fulfill_checkout(session_obj, db_session: AsyncSession):
     # Commit all changes atomically
     await db_session.commit()
     
-    # Broadcast to Kitchen and POS WebSocket
+    if store:
+        from utils.events import emit
+        await emit(db_session, store.id, "NEW_ORDER", {
+            "order_id": order_id,
+            "table_number": table_number_str,
+        })
+
+
+@router.post("/paypay")
+async def paypay_webhook(
+    request: Request,
+    x_signature: str = Header(...),
+    session: AsyncSession = Depends(get_session),
+):
+    raw = await request.body()
+
+    from services.pos.adapters.paypay_direct_adapter import verify_paypay_signature
+    if not verify_paypay_signature(raw, x_signature):
+        raise HTTPException(status_code=401, detail="invalid signature")
+
     try:
-        if store:
-            from utils.websocket import manager
-            import json
-            msg = json.dumps({
-                "type": "NEW_ORDER", 
-                "order_id": order_id, 
-                "table_number": table_number_str
-            })
-            await manager.broadcast(msg, store.id)
-            print(f"WS Broadcast NEW_ORDER sent for Store {store.id}")
-    except Exception as e:
-        print("WS Broadcast exception in webhook:", e)
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+
+    notification_id = payload.get("notification_id") or payload.get("notificationId", "")
+    merchant_payment_id = payload.get("merchant_payment_id") or payload.get("merchantPaymentId", "")
+    state = payload.get("state", "")
+
+    if not notification_id:
+        raise HTTPException(status_code=400, detail="notification_id missing")
+
+    # 멱등성: 동일 notification_id 두 번 수신 시 즉시 반환
+    event = WebhookEvent(
+        provider="paypay",
+        event_id=notification_id,
+        signature_valid=True,
+        payload_raw=raw.decode("utf-8"),
+    )
+    session.add(event)
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        return {"status": "duplicate"}
+
+    order = None
+    store_id_for_log = None
+
+    # merchant_payment_id 형식: qraku_{store_id}_{random} — store_id 추출
+    parts = merchant_payment_id.split("_") if merchant_payment_id else []
+    if len(parts) >= 3 and parts[0] == "qraku":
+        try:
+            store_id_for_log = int(parts[1])
+        except (ValueError, IndexError):
+            pass
+
+    if state == "COMPLETED":
+        paypay_payment_id = payload.get("paymentId") or payload.get("payment_id")
+        if paypay_payment_id:
+            res = await session.execute(
+                select(Order).where(Order.square_payment_id == paypay_payment_id).limit(1)
+            )
+            order = res.scalar_one_or_none()
+
+        from utils.event_log import log_event
+        if order:
+            if order.payment_status != "paid":
+                order.payment_status = "paid"
+            await log_event(
+                session,
+                store_id=store_id_for_log or 0,
+                actor_type="webhook",
+                action="payment.completed",
+                target_type="order",
+                target_id=order.id,
+                external_payload_raw=raw.decode("utf-8"),
+            )
+        elif store_id_for_log:
+            # 안전망: 결제는 완료됐으나 Order 미생성 — 수동 처리 필요
+            await log_event(
+                session,
+                store_id=store_id_for_log,
+                actor_type="webhook",
+                action="payment.completed.order_missing",
+                external_payload_raw=raw.decode("utf-8"),
+            )
+            event.processed = False
+
+    elif state in ("CANCELED", "FAILED") and store_id_for_log:
+        from utils.event_log import log_event
+        await log_event(
+            session,
+            store_id=store_id_for_log,
+            actor_type="webhook",
+            action="payment.failed",
+            external_payload_raw=raw.decode("utf-8"),
+        )
+
+    if event.processed is not False:
+        event.processed = True
+    await session.commit()
+
+    if state == "COMPLETED" and order and store_id_for_log:
+        from utils.events import emit_payment_completed
+        await emit_payment_completed(session, store_id_for_log, order)
+
+    return {"status": "ok"}

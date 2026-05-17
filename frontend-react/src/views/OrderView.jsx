@@ -22,6 +22,7 @@ import CamelliaThemeView from './themes/CamelliaThemeView'
 import BambooThemeView from './themes/BambooThemeView'
 import TakeoutTimeQueryView from './TakeoutTimeQueryView'
 import TabehoudaiBanner from '../components/TabehoudaiBanner'
+import { useWebSocket } from '../hooks/useWebSocket'
 
 const TAKEOUT_CAT = '🥡 テイクアウト'
 
@@ -122,7 +123,6 @@ export default function OrderView({ orderType: propOrderType } = {}) {
 
     // 요리완료 모달 상태
     const [completedModal, setCompletedModal] = useState(null) // { items: [...] }
-    const wsCustomerRef = useRef(null)
 
     const { cart, addToCart, removeFromCart, updateQuantity, clearCart, totalQuantity, totalAmount } = useCart()
 
@@ -386,49 +386,19 @@ export default function OrderView({ orderType: propOrderType } = {}) {
     }, [tableData?.id, isTakeOut])
 
     // 손님 WebSocket 연결 (요리완료 알림 수신용) — audioUnlocked 이후에만 연결
-    useEffect(() => {
-        if (!storeId || !tableNumber || !audioUnlocked) return
-
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const host = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? `${window.location.hostname}:8003`
-            : window.location.host
-
-        let ws = null
-        const connectCustomerWS = async () => {
-            try {
-                const storeRes = await import('axios').then(m => m.default.get(`/api/stores/${storeId}`))
-                const numericId = storeRes.data.id
-                const wsUrl = `${protocol}//${host}/api/ws/customer/${numericId}/${tableNumber}`
-                ws = new WebSocket(wsUrl)
-                wsCustomerRef.current = ws
-
-                ws.onmessage = (event) => {
-                    try {
-                        const data = JSON.parse(event.data)
-                        if (data.type === 'order_completed') {
-                            // audioCtxRef 재사용 — 브라우저 정책 우회
-                            playDingDong()
-                            // 모달 표시 후 5초 뒤 자동 닫힘
-                            setCompletedModal({ items: data.items || [] })
-                            setTimeout(() => setCompletedModal(null), 5000)
-                        }
-                    } catch (e) { console.error('Customer WS msg error', e) }
-                }
-
-                ws.onerror = (e) => console.error('Customer WS error', e)
-                ws.onclose = () => {
-                    // 연결 끊기면 5초 후 자동 재연결
-                    setTimeout(() => connectCustomerWS(), 5000)
-                }
-            } catch (e) {
-                console.error('Customer WS connect failed', e)
+    // storeData.id (numeric) comes from StoreLayout outlet context
+    useWebSocket({
+        audience: 'customer',
+        storeId: audioUnlocked ? storeData?.id : null,
+        tableNumber,
+        onEvent: useCallback((event) => {
+            if (event.type === 'order_completed') {
+                playDingDong()
+                setCompletedModal({ items: event.items || event.data?.items || [] })
+                setTimeout(() => setCompletedModal(null), 5000)
             }
-        }
-
-        connectCustomerWS()
-        return () => { if (wsCustomerRef.current) wsCustomerRef.current.close() }
-    }, [storeId, tableNumber, audioUnlocked, playDingDong])
+        }, [playDingDong]),
+    })
 
     // Duplicate theme param code here is removed.
 

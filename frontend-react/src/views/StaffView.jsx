@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
-import { useDisplayGuard, BlockedScreen } from '../hooks/useDisplayGuard'
+import { useDisplayGuard } from '../hooks/useDisplayGuard'
 import { useStaffAuth } from '../components/StaffLoginGate'
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav'
+import { useWebSocket } from '../hooks/useWebSocket'
 
 export default function StaffView() {
     const { shop_id } = useParams()
@@ -11,7 +12,6 @@ export default function StaffView() {
     const { isAllowed, loading: guardLoading } = useDisplayGuard('staff')
     const [searchParams] = useSearchParams()
     const { isAuthenticated: portalAuth } = useStaffAuth()
-    const wsRef = useRef(null)
 
     const [tables, setTables] = useState([])
     const [allOrders, setAllOrders] = useState([])
@@ -142,35 +142,16 @@ export default function StaffView() {
     }
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
-    useEffect(() => {
-        if (!storeData) return
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const host = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? `${window.location.hostname}:8003` : window.location.host
-        const wsUrl = `${protocol}//${host}/api/ws/admin/${storeData.id}`
-
-        let reconnectTimer = null
-        const connect = () => {
-            const ws = new WebSocket(wsUrl)
-            wsRef.current = ws
-            ws.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data)
-                    if (data.type === 'CALL_STAFF') {
-                        try { new Audio('/chime.mp3').play().catch(() => {}) } catch (e) {}
-                    }
-                } catch (e) {}
-                fetchAll()
+    useWebSocket({
+        audience: 'admin',
+        storeId: storeData?.id,
+        onEvent: useCallback((event) => {
+            if (event.type === 'CALL_STAFF') {
+                try { new Audio('/chime.mp3').play().catch(() => {}) } catch (e) {}
             }
-            ws.onclose = () => { reconnectTimer = setTimeout(connect, 3000) }
-            ws.onerror = () => ws.close()
-        }
-        connect()
-        return () => {
-            if (reconnectTimer) clearTimeout(reconnectTimer)
-            if (wsRef.current) wsRef.current.close()
-        }
-    }, [storeData, fetchAll])
+            fetchAll()
+        }, [fetchAll]),
+    })
 
     // ── Helpers ────────────────────────────────────────────────────────────────
     const getTableOrders = (table) => {
@@ -459,9 +440,7 @@ export default function StaffView() {
         )
     }
 
-    if (isAllowed === false) {
-        return <BlockedScreen shop_id={shop_id} viewName="홀 직원용 화면 (Staff)" />
-    }
+    if (isAllowed === false) return null;
 
     // ── DETAIL VIEW: Table Card (Bento style) ─────────────────────────────────
     const renderDetailCard = (table) => {

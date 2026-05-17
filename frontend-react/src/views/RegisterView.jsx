@@ -5,6 +5,8 @@ import staffApi from '../hooks/useStaffApi'
 import { ShoppingCart, Plus, Minus, X } from 'lucide-react'
 import { useStaffAuth } from '../components/StaffLoginGate'
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav'
+import { useWebSocket } from '../hooks/useWebSocket'
+import { useDisplayGuard } from '../hooks/useDisplayGuard'
 
 /* ── ユーティリティ ─────────────────────────────────────── */
 
@@ -34,6 +36,7 @@ export default function RegisterView() {
     const navigate = useNavigate()
     const [searchParams] = useSearchParams()
     const { isAuthenticated: portalAuth, logout: staffLogout } = useStaffAuth()
+    const { isAllowed: guardAllowed, loading: guardLoading } = useDisplayGuard('register')
     const hideNav = searchParams.get('hidenav') === '1'
 
     /* ── データステート ─────────────────────────────────── */
@@ -155,15 +158,11 @@ export default function RegisterView() {
     }
 
     /* ── WebSocket ─────────────────────────────────────── */
-    useEffect(() => {
-        if (!storeInfo?.id) return
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const host = ['localhost', '127.0.0.1'].includes(window.location.hostname)
-            ? `${window.location.hostname}:8000` : window.location.host
-        const ws = new WebSocket(`${protocol}//${host}/api/ws/${storeInfo.id}`)
-        ws.onmessage = () => fetchAll()
-        return () => ws.close()
-    }, [storeInfo?.id, fetchAll])
+    useWebSocket({
+        audience: 'admin',
+        storeId: storeInfo?.id,
+        onEvent: useCallback(() => fetchAll(), [fetchAll]),
+    })
 
     /* ── マージデータ ─────────────────────────────────── */
     const merged = staffTables.map(st => {
@@ -245,7 +244,7 @@ export default function RegisterView() {
     }
 
     /* ── ローディング ─────────────────────────────────── */
-    if (loading) return (
+    if (loading || guardLoading) return (
         <div className="fixed inset-0 bg-[#fcf8fb] flex items-center justify-center">
             <div className="text-center space-y-3">
                 <div className="w-10 h-10 border-4 border-[#b80035] border-t-transparent rounded-full animate-spin mx-auto" />
@@ -253,6 +252,8 @@ export default function RegisterView() {
             </div>
         </div>
     )
+
+    if (guardAllowed === false) return null;
 
     const activeTakeout = takeoutOrders.filter(o => o.payment_status !== 'paid' || !['served'].includes(o.payment_status))
 

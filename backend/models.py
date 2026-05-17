@@ -1,5 +1,6 @@
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
+from sqlalchemy import Column, Text
 from datetime import datetime, timedelta
 import uuid
 
@@ -385,6 +386,7 @@ class Order(SQLModel, table=True):
     discount_amount: float = Field(default=0.0)
     status: str = Field(default="pending_payment")
     needs_serving: bool = Field(default=True)  # 새 주문: True → 서빙 완료 시 False
+    idempotency_key: Optional[str] = Field(default=None, max_length=64, unique=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     items: List["OrderItem"] = Relationship(back_populates="order")
@@ -603,3 +605,32 @@ class Announcement(SQLModel, table=True):
     content: str
     is_important: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ── INF-02: 감사 로그 ────────────────────────────────────────────────────────
+
+class EventLog(SQLModel, table=True):
+    """모든 상태 변경 작업의 감사 로그. 절대 삭제하지 않는다."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    store_id: int = Field(index=True)
+    actor_type: str = Field(max_length=32)   # customer | staff | admin | system | webhook
+    actor_id: Optional[str] = Field(default=None, max_length=64)
+    action: str = Field(max_length=64, index=True)  # order.created, refund.issued, ...
+    target_type: Optional[str] = Field(default=None, max_length=32)
+    target_id: Optional[int] = Field(default=None, index=True)
+    payload_json: Optional[str] = Field(default=None, sa_column=Column(Text))
+    external_payload_raw: Optional[str] = Field(default=None, sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+# ── INF-04: 외부 Webhook 수신 기록 ──────────────────────────────────────────
+
+class WebhookEvent(SQLModel, table=True):
+    """외부 결제사(Stripe/PayPay/Square) webhook 수신 기록. 멱등성 키 역할."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    provider: str = Field(max_length=32, index=True)   # stripe | paypay | square
+    event_id: str = Field(max_length=128, index=True, unique=True)
+    received_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    signature_valid: bool = Field(default=False)
+    processed: bool = Field(default=False)
+    payload_raw: Optional[str] = Field(default=None, sa_column=Column(Text))

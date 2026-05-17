@@ -87,66 +87,15 @@ async def create_menu(menu: Menu, admin_store: Store = Depends(require_admin), s
     if not menu.image_url:
         menu.image_url = DEFAULT_MENU_IMAGE
 
-    # Fetch DeepL API Key from DB for auto-translation
-    config = await session.get(SystemConfig, "GEMINI_API_KEY")
-    api_key = config.value if config else None
-
-    # Auto-Translation Logic
-    if menu.name_jp:
-        if not menu.name_ko:
-            menu.name_ko = translate_text(menu.name_jp, 'ko', api_key=api_key)
-        if not menu.name_en:
-            menu.name_en = translate_text(menu.name_jp, 'en', api_key=api_key)
-        if not menu.name_zh:
-            menu.name_zh = translate_text(menu.name_jp, 'zh', api_key=api_key)
-
-    if menu.description_jp:
-        if not menu.description_ko:
-            menu.description_ko = translate_text(menu.description_jp, 'ko', api_key=api_key)
-        if not menu.description_en:
-            menu.description_en = translate_text(menu.description_jp, 'en', api_key=api_key)
-        if not menu.description_zh:
-            menu.description_zh = translate_text(menu.description_jp, 'zh', api_key=api_key)
-
-    # Translate options if present
-    import json
-    if menu.options and menu.options != "[]":
-        try:
-            options_data = json.loads(menu.options)
-            # Example structure: [{"group_name": "Size", "choices": [{"name": "Large", "extra_price": 100}]}]
-            for opt_group in options_data:
-                orig_group = opt_group.get('group_name', '')
-                if orig_group:
-                    # Translate group name to ko, en, zh if missing
-                    # To keep it simple, we store translated group names in a translations dict inside the group
-                    if 'translations' not in opt_group:
-                        opt_group['translations'] = {}
-                    if 'ko' not in opt_group['translations']:
-                        opt_group['translations']['ko'] = translate_text(orig_group, 'ko', api_key=api_key)
-                    if 'en' not in opt_group['translations']:
-                        opt_group['translations']['en'] = translate_text(orig_group, 'en', api_key=api_key)
-                    if 'zh' not in opt_group['translations']:
-                        opt_group['translations']['zh'] = translate_text(orig_group, 'zh', api_key=api_key)
-                
-                for choice in opt_group.get('choices', []):
-                    orig_choice = choice.get('name', '')
-                    if orig_choice:
-                        if 'translations' not in choice:
-                            choice['translations'] = {}
-                        if 'ko' not in choice['translations']:
-                            choice['translations']['ko'] = translate_text(orig_choice, 'ko', api_key=api_key)
-                        if 'en' not in choice['translations']:
-                            choice['translations']['en'] = translate_text(orig_choice, 'en', api_key=api_key)
-                        if 'zh' not in choice['translations']:
-                            choice['translations']['zh'] = translate_text(orig_choice, 'zh', api_key=api_key)
-            
-            menu.options = json.dumps(options_data, ensure_ascii=False)
-        except Exception as e:
-            print(f"Error parsing/translating options: {e}")
-
     session.add(menu)
     await session.commit()
     await session.refresh(menu)
+
+    # 번역은 Dramatiq 워커에 위임 (응답 시간 < 200ms 보장).
+    # 워커가 완료 시 WS `TRANSLATION_COMPLETED` 이벤트로 클라이언트에 통지.
+    from backend.workers.translate_tasks import translate_menu as translate_menu_task
+    translate_menu_task.send(menu.id)
+
     return menu
 
 @router.post("/{store_id}/translate-all")

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
@@ -41,6 +41,32 @@ app.add_middleware(SecurityHeadersMiddleware)
 @app.on_event("startup")
 async def on_startup():
     await init_db()
+    from utils.redis import init_redis
+    await init_redis()
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    from utils.redis import close_redis
+    await close_redis()
+
+
+# ── 인프라 헬스체크 (INF-05) ─────────────────────────────────────────
+from sqlalchemy import text as _sql_text
+
+@app.get("/api/healthz", tags=["infra"])
+async def healthz():
+    return {"status": "ok"}
+
+@app.get("/api/readyz", tags=["infra"])
+async def readyz(session: AsyncSession = Depends(get_session)):
+    try:
+        await session.execute(_sql_text("SELECT 1"))
+        from utils.redis import get_redis
+        await get_redis().ping()
+        return {"status": "ready"}
+    except Exception:
+        raise HTTPException(status_code=503, detail="not ready")
+
 
 # ── 1) 모든 API 라우터를 /api prefix로 통합 ──────────────────────────
 # 프론트엔드에서 axios.get('/api/stores/...') 형태로 호출하므로
@@ -50,7 +76,7 @@ from routers import (
     billing, pos, reviews, ai, super_admin, loyalty_analytics,
     sessions, translate, tables, guests, oauth, demo, webhooks, square_oauth,
     register, discover, takeout, staff_auth, paypay, messaging, menu_groups, tabehoudai,
-    beta
+    beta, ws_token
 )
 
 api_router = APIRouter(prefix="/api")
@@ -83,6 +109,8 @@ api_router.include_router(messaging.router)
 api_router.include_router(menu_groups.router)
 api_router.include_router(beta.router)
 api_router.include_router(tabehoudai.router)
+api_router.include_router(webhooks.router)
+api_router.include_router(ws_token.router)
 
 app.include_router(api_router)
 

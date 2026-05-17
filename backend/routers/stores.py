@@ -332,14 +332,8 @@ async def update_store(store_id: str, store_update: dict, admin_store: Store = D
     await session.commit()
     await session.refresh(store)
     
-    # Broadcast config update to Kitchen
-    try:
-        from utils.websocket import manager
-        import json
-        msg = json.dumps({"type": "CONFIG_UPDATE", "store_id": store.id})
-        await manager.broadcast(msg, store.id)
-    except Exception as e:
-        print(f"WS Broadcast failed: {e}")
+    from utils.events import emit_config_update
+    await emit_config_update(session, store.id)
         
     return store
 

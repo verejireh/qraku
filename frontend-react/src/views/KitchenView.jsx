@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { CheckCircle, Clock, Bell, X, Eye, LayoutGrid, List, Layers } from 'lucide-react';
-import { useDisplayGuard, BlockedScreen } from '../hooks/useDisplayGuard';
+import { useDisplayGuard } from '../hooks/useDisplayGuard';
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 // ─── Print CSS ────────────────────────────────────────────────────────────────
 const PRINT_STYLE = `
@@ -85,7 +86,6 @@ export default function KitchenView() {
 
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [wsConnected, setWsConnected] = useState(false);
     const [menus, setMenus] = useState({});
     const [allMenus, setAllMenus] = useState([]);
     const [numericStoreId, setNumericStoreId] = useState(null);
@@ -141,9 +141,7 @@ export default function KitchenView() {
     }, []);
 
     // ── Data Fetching ─────────────────────────────────────────────────────────
-    const wsRef = useRef(null);
     const pollingRef = useRef(null);
-    const reconnectAttemptRef = useRef(0);
 
     const fetchData = useCallback(async () => {
         try {
@@ -210,6 +208,17 @@ export default function KitchenView() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
+    // ── [2] WebSocket ──────────────────────────────────────────────────────────
+    const { status: wsStatus } = useWebSocket({
+        audience: 'kitchen',
+        storeId: numericStoreId,
+        onEvent: useCallback((event) => {
+            if (event.type === 'NEW_ORDER') playDingDong();
+            fetchData();
+        }, [fetchData, playDingDong]),
+    });
+    const wsConnected = wsStatus === 'connected';
+
     // ── [1] Adaptive Polling: fast when offline, slow when online ─────────────
     useEffect(() => {
         const startPolling = () => {
@@ -224,16 +233,9 @@ export default function KitchenView() {
     // ── [3] Page Visibility: instant refresh when tab/screen becomes active ───
     useEffect(() => {
         const handleVisibility = () => {
-            if (document.visibilityState === 'visible') {
-                fetchData();
-                // Also force WebSocket reconnect if disconnected
-                if (wsRef.current && wsRef.current.readyState !== WebSocket.OPEN && wsRef.current.readyState !== WebSocket.CONNECTING) {
-                    wsRef.current.close();
-                }
-            }
+            if (document.visibilityState === 'visible') fetchData();
         };
         document.addEventListener('visibilitychange', handleVisibility);
-        // Also handle mobile wake-up via online event
         const handleOnline = () => { fetchData(); };
         window.addEventListener('online', handleOnline);
         return () => {
@@ -241,55 +243,6 @@ export default function KitchenView() {
             window.removeEventListener('online', handleOnline);
         };
     }, [fetchData]);
-
-    // ── [2] WebSocket with exponential backoff reconnect ──────────────────────
-    useEffect(() => {
-        if (!numericStoreId) return;
-        let reconnectTimer = null;
-        let disposed = false;
-
-        const connect = () => {
-            if (disposed) return;
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const host = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-                ? `${window.location.hostname}:8003` : window.location.host;
-            const ws = new WebSocket(`${protocol}//${host}/api/ws/kitchen/${numericStoreId}`);
-            wsRef.current = ws;
-
-            ws.onopen = () => {
-                setWsConnected(true);
-                reconnectAttemptRef.current = 0; // Reset backoff on success
-                fetchData(); // Immediately sync data on reconnect
-            };
-
-            ws.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    if (data.type === 'NEW_ORDER') { playDingDong(); }
-                } catch (e) {}
-                fetchData();
-            };
-
-            ws.onclose = () => {
-                if (disposed) return;
-                setWsConnected(false);
-                // Exponential backoff: 1s → 2s → 4s → 8s → max 10s
-                const attempt = reconnectAttemptRef.current;
-                const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
-                reconnectAttemptRef.current = attempt + 1;
-                reconnectTimer = setTimeout(connect, delay);
-            };
-
-            ws.onerror = () => ws.close();
-        };
-
-        connect();
-        return () => {
-            disposed = true;
-            if (wsRef.current) wsRef.current.close();
-            if (reconnectTimer) clearTimeout(reconnectTimer);
-        };
-    }, [numericStoreId, fetchData, playDingDong]);
 
     // ── Actions ───────────────────────────────────────────────────────────────
     const handleItemComplete = async (itemId) => {
@@ -504,7 +457,7 @@ export default function KitchenView() {
         </div>
     );
 
-    if (isAllowed === false) return <BlockedScreen shop_id={actualStoreId} viewName="주방 (Kitchen KDS)" />;
+    if (isAllowed === false) return null;
 
     // ── Audio Unlock Overlay ──────────────────────────────────────────────────
     if (!audioUnlocked) {

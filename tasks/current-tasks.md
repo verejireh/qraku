@@ -36,8 +36,8 @@
 | DBM-07 | docker-compose 에 postgres 서비스 추가 | B | 🟠 P1 | postgres-specialist | **sonnet** | ✅ DONE |
 | DBM-08 | PG 빈 인스턴스 schema 생성 + 비교 | C | 🔴 P0 | postgres-specialist | **opus** | ✅ DONE (2026-05-18, Cloud SQL `postgre-sql`) |
 | DBM-08b | PG 환경 통합 부팅 + `/api/readyz` 200 | C | 🟠 P1 | postgres-specialist | **sonnet** | TODO (DBM-09 후 실행 예정) |
-| DBM-09 | pgloader config + 스테이징 1회 실행 | D | 🔴 P0 | data-migration-engineer | **sonnet** | ⏸️ 코드 DONE / 실행 운영자 환경 대기 |
-| DBM-10 | 데이터 정합성 검증 스크립트 | D | 🔴 P0 | data-migration-engineer | **sonnet** | ⏸️ 코드 DONE / 실행 운영자 환경 대기 |
+| DBM-09 | 데이터 이전 (pgloader → pg_data_migrator) + 스테이징 1회 | D | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, 28테이블/466행/3초) |
+| DBM-10 | 데이터 정합성 검증 (migration_check.py 7항목) | D | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, 7/7 PASS) |
 | DBM-11 | Cloud SQL 인스턴스 + Auth Proxy + deployment.md | E | 🔴 P0 | (operator) + postgres-specialist | **sonnet** | TODO |
 | DBM-12 | 컷오버 룬북 + 실행 | F | 🔴 P0 | db-migration-architect → data-migration-engineer | **opus → sonnet** | TODO |
 | DBM-13 | MySQL 의존 정리 + 최적화 | G | 🟡 P2 | postgres-specialist | **sonnet** | TODO |

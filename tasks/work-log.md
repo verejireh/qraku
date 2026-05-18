@@ -1061,3 +1061,57 @@ uv run python tools/migration_check.py --mysql ... --pg ... --skip seq,index
 
 - 핸드오프 doc 의 명령 예시가 `PG_PASSWORD/PG_USER/PG_DB` env 변수 사용으로 잘못 적혀있어, 1차 실행 시 `[FAIL] DATABASE_URL 환경변수 필요` 출력 → 핸드오프 doc 갱신 (`DATABASE_URL` 한 개로 정정) 후 재실행 성공.
 - 비번 특수문자 (`:`, `#`) URL 인코딩 필요 — 핸드오프 함정 표에도 반영.
+
+---
+
+## DBM-09 — pgloader 시도 실패 → 커스텀 Python migrator 로 데이터 이전 완료
+
+**완료**: 2026-05-19 / **owner**: data-migration-engineer (claude-opus-4-7)
+**의존**: DBM-08 (PG schema 생성), 운영 mysqldump 또는 직접 stream
+
+### pgloader 시도 (실패)
+
+- 운영 VM 에 pgloader 3.6.7 (Ubuntu apt) 설치 + Cloud SQL Auth Proxy 우회 (authorized network 임시 추가, prod VM IP 35.213.6.149/32) + Cloud SQL CA cert 시스템 trust store 등록.
+- SSL/인증 문제 모두 해결됐으나 **MySQL 8 default auth plugin 핸드셰이크에서 abort**: `QMYND:MYSQL-UNSUPPORTED-AUTHENTICATION`. mysql_native_password 사용자 (`pgloader_temp`) 생성해도 동일 — 서버 초기 핸드셰이크 단계에서 caching_sha2_password 협상하다가 client 가 abort.
+- pgloader 3.6.x 시리즈의 근본적 MySQL 8 비호환. 새 버전 빌드는 시간 ROI 낮음.
+
+### 대체 — `tools/pg_data_migrator.py` 신규
+
+- ~180 LOC Python 스크립트: SQLAlchemy + PyMySQL + psycopg2.
+- 흐름: MySQL schema reflect → PG 측 테이블 확인 → FK 순서로 TRUNCATE (역순) + INSERT (정순) → 시퀀스 재설정 → ANALYZE.
+- 타입 매핑은 SQLAlchemy 가 자동 처리. dict/list (PyMySQL 자동 파싱한 JSON) 는 `json.dumps` 후 INSERT (PG TEXT 컬럼 호환).
+- DBM-12 컷오버에서도 동일 스크립트 재사용 가능 (옵션: `--dry-run`, `--tables`, `--no-truncate`, `--batch`).
+
+### 실행 결과
+
+- **28 테이블 / 466 행 / 3.01초**
+- 시퀀스 전부 재설정 완료
+- ANALYZE 통과
+
+### DBM-10 검증 결과 (tools/migration_check.py)
+
+- 7/7 항목 모두 PASS (행 수, MAX(id), 시퀀스, FK orphan, 인코딩, JSON, 인덱스)
+- 단 **인덱스 보강** 후 통과 — MySQL 이 FK 컬럼에 자동 생성하던 인덱스 10건이 SQLModel 에서 누락되어있었음.
+
+### 산출물
+
+- `tools/pg_data_migrator.py` 신규
+- `backend/database.py` `migration_sqls` 에 인덱스 10건 append
+- `tasks/db-migration-audit.md` §8.5 추가
+
+### 후속 / 트레이드 오프
+
+- ADR-007 (pgloader 선택) 은 superseded — pg_data_migrator 가 대체. 새 ADR 작성 검토 가능 (별도 카드).
+- 본 사이클은 리허설. 운영 컷오버 (DBM-12) 에서는:
+  1. PG 현재 데이터 TRUNCATE
+  2. 운영 MySQL → PG 다시 한번 pg_data_migrator 실행
+  3. backend `DATABASE_URL` 을 PG 로 교체 + 재시작
+
+### 임시 권한 / 자원 (작업 후 자이라가 정리)
+
+- ✅ pgloader_temp MySQL 사용자 — DROP 완료
+- ⏸ Cloud SQL authorized network `35.213.6.149/32` — 제거 대기 (자이라)
+- ⏸ Cloud SQL `ilhae` 비번 — 채팅 노출 ×2 (DBM-08 + DBM-09), 로테이션 필요
+- ⏸ MySQL root 비번 — 채팅 노출 1회, 로테이션 필요
+- ⏸ 운영 VM `0.0.0.0/0` 22 포트 룰 — 자이라 IP 로 좁히기
+

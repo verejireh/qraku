@@ -216,6 +216,18 @@ async def init_db():
         # [2026-05-09] INF-03: Order 클라이언트 Idempotency-Key (중복 주문 차단)
         'ALTER TABLE "order" ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(64) NULL',
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_order_idem_key ON "order"(idempotency_key)',
+        # [2026-05-19] DBM-09 후속: MySQL 이 FK 컬럼에 자동 생성하던 인덱스를
+        # SQLModel 가 PG 에서 자동 생성하지 않음 → 검증 도구가 누락 보고. 수동 보강.
+        'CREATE INDEX IF NOT EXISTS idx_globalreview_store ON globalreview(store_id)',
+        'CREATE INDEX IF NOT EXISTS idx_globalreview_customer ON globalreview(customer_id)',
+        'CREATE INDEX IF NOT EXISTS idx_globalreview_order ON globalreview(order_id)',
+        'CREATE INDEX IF NOT EXISTS idx_menu_store ON menu(store_id)',
+        'CREATE INDEX IF NOT EXISTS idx_orderitem_order ON orderitem(order_id)',
+        'CREATE INDEX IF NOT EXISTS idx_pointhistory_related_order ON pointhistory(related_order_id)',
+        'CREATE INDEX IF NOT EXISTS idx_pointhistory_store ON pointhistory(store_id)',
+        'CREATE INDEX IF NOT EXISTS idx_pointhistory_customer ON pointhistory(customer_id)',
+        'CREATE INDEX IF NOT EXISTS idx_tabehoudaisession_group ON tabehoudaisession(group_id)',
+        'CREATE INDEX IF NOT EXISTS idx_table_store ON "table"(store_id)',
     ]
 
     # PG 에서 무시할 에러 SQLSTATE 코드 + MySQL 메시지

@@ -1,0 +1,47 @@
+[Unit]
+# Cloud SQL Auth Proxy systemd unit — DBM-11
+# 설치: /etc/systemd/system/cloud-sql-proxy.service
+# 활성화: sudo systemctl enable --now cloud-sql-proxy
+#
+# 전제:
+#   - /usr/local/bin/cloud-sql-proxy 바이너리 설치됨
+#   - VM service account 가 Cloud SQL Client (roles/cloudsql.client) 보유
+#   - VM scope 가 cloud-platform 포함 (또는 --credentials-file 사용)
+Description=Cloud SQL Auth Proxy for postgre-sql (hotel-management-484115)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=verejireh
+Group=verejireh
+
+# 기본: GCE 메타데이터 서비스의 SA 자격 사용 (cloud-platform scope 필요)
+# 대안: --credentials-file=/etc/cloud-sql-proxy/sa-key.json
+ExecStart=/usr/local/bin/cloud-sql-proxy \
+    --port=5432 \
+    --address=127.0.0.1 \
+    --health-check \
+    --http-port=9090 \
+    --structured-logs \
+    hotel-management-484115:asia-northeast1:postgre-sql
+
+# 안정화 옵션
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+# 보안
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+# 로깅 — journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cloud-sql-proxy
+
+[Install]
+WantedBy=multi-user.target

@@ -383,18 +383,97 @@ DATABASE_URL=postgresql+asyncpg://qraku:***@127.0.0.1:5432/qraku
 - Alembic / dramatiq 워커는 `backend/utils/db.py:to_sync_url()` 가 자동으로 `postgresql+psycopg2://` 로 치환.
 - 비밀번호는 16자 이상 random. secret manager 또는 `.env` (chmod 600) 에만 보관.
 
-### 11.4 DBM-11 에서 보강될 항목 (TODO)
+### 11.4 Cloud SQL Auth Proxy 설치 (DBM-11)
 
-- [ ] GCP 콘솔에서 Cloud SQL PostgreSQL 인스턴스 생성 절차 (스크린샷 또는 단계별 캡션)
-- [ ] `cloud-sql-proxy` binary 다운로드 + `/etc/systemd/system/cloud-sql-proxy.service` 설정 파일 예시
-- [ ] IAM 권한 (Cloud SQL Client 역할) 부여 절차
-- [ ] 트러블슈팅
-  - 연결 실패 (`could not connect to server`)
-  - IAM 권한 오류 (`PERMISSION_DENIED`)
-  - 백업 / PITR 복구 절차
-  - Auth Proxy 자동 재시작 안 됨
-- [ ] PG 측 백업 / dump / 복구 명령 (8.1 / 8.3 의 PG 버전)
-- [ ] `journalctl -u cloud-sql-proxy.service -f` 등 모니터링 명령
+#### 11.4.1 사전 조건
+
+- Cloud SQL 인스턴스 (`postgre-sql`, asia-northeast1) 생성됨 — ✅ 2026-05 (이미 완료)
+- 운영 VM service account 가 다음 권한 보유 필요:
+  - **IAM 역할**: `roles/cloudsql.client` (또는 상위)
+  - **VM scope**: `cloud-platform` 또는 `sqlservice.admin` (현재 scope 부재 — DBM-11 에서 수정)
+
+#### 11.4.2 인증 경로 선택
+
+| 경로 | VM 다운타임 | 키 관리 | 권장 |
+|---|---|---|---|
+| **A. VM scope 확장** | 1-2분 (stop/start) | 불필요 | ✅ 영구 운영용 |
+| **B. SA 키 파일 (`--credentials-file`)** | 0 | 키 파일 보관 + 로테이션 책임 | 다운타임 회피 시 |
+
+#### 11.4.3 경로 A 절차 (권장)
+
+```powershell
+# 1. VM 정지
+gcloud compute instances stop hajime --zone=asia-northeast1-a --project=hotel-management-484115
+
+# 2. scope 확장
+gcloud compute instances set-service-account hajime --zone=asia-northeast1-a --project=hotel-management-484115 `
+  --scopes=cloud-platform,storage-ro,logging-write,monitoring-write,service-management,servicecontrol
+
+# 3. SA 에 Cloud SQL Client 역할 부여
+$SA_EMAIL = (gcloud compute instances describe hajime --zone=asia-northeast1-a --project=hotel-management-484115 --format="value(serviceAccounts[0].email)")
+gcloud projects add-iam-policy-binding hotel-management-484115 `
+  --member="serviceAccount:$SA_EMAIL" --role="roles/cloudsql.client"
+
+# 4. VM 재시작
+gcloud compute instances start hajime --zone=asia-northeast1-a --project=hotel-management-484115
+```
+
+#### 11.4.4 cloud-sql-proxy 바이너리 + systemd 설치
+
+`tools/cloud-sql-proxy.service` (이번 PR 산출) 를 운영 VM 으로 scp 후:
+
+```bash
+ssh -i D:/myproject/qraku verejireh@35.213.6.149 bash <<'REMOTE'
+# 바이너리 영구 설치
+curl -sLo /tmp/cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.13.0/cloud-sql-proxy.linux.amd64
+sudo install -m 0755 /tmp/cloud-sql-proxy /usr/local/bin/cloud-sql-proxy
+
+# systemd unit 설치 + 기동
+sudo install -m 0644 ~/cloud-sql-proxy.service /etc/systemd/system/cloud-sql-proxy.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now cloud-sql-proxy.service
+sleep 5
+sudo systemctl status cloud-sql-proxy --no-pager | head -15
+REMOTE
+```
+
+#### 11.4.5 검증
+
+```bash
+ssh -i D:/myproject/qraku verejireh@35.213.6.149 bash -c "
+PGPASSWORD='***' psql 'host=127.0.0.1 port=5432 dbname=qraku user=ilhae' -c 'SELECT version();'
+curl -s http://127.0.0.1:9090/readiness && echo
+"
+```
+
+기대:
+- psql → `PostgreSQL 16.13 ...`
+- readiness → `ok`
+
+#### 11.4.6 트러블슈팅
+
+| 증상 | 원인 | 해결 |
+|---|---|---|
+| `systemctl status` 가 active 인데 `psql` 실패 | proxy 가 instance 인증 못 함 | `journalctl -u cloud-sql-proxy -n 50` → `PERMISSION_DENIED` 확인 → SA 에 cloud-sql.client 권한 추가 |
+| `error fetching default credentials` | VM scope 에 `cloud-platform` 없음 | 11.4.3 절차 A 재실행 or 키 파일 경로 (경로 B) 로 전환 |
+| `address already in use` (port 5432) | 다른 PG 클라이언트가 5432 사용 중 | `--port` 옵션을 5433 등으로 변경 + backend `.env` 도 같이 |
+| 컷오버 후 readiness 정상이지만 backend 연결 실패 | asyncpg URL 의 SSL 옵션 불필요 (proxy 가 mTLS 처리) | URL: `postgresql+asyncpg://user:pass@127.0.0.1:5432/qraku` (sslmode/ssl 파라미터 X) |
+| Auth Proxy 가 자주 재시작 | network-online.target wait 실패 | systemd unit 의 `After=network-online.target` 확인 |
+
+#### 11.4.7 운영 명령
+
+```bash
+# 로그 실시간
+sudo journalctl -u cloud-sql-proxy -f
+
+# 상태
+sudo systemctl status cloud-sql-proxy
+
+# health check
+curl http://127.0.0.1:9090/readiness     # 살아있고 연결 가능
+curl http://127.0.0.1:9090/liveness      # 프로세스 살아있음
+curl http://127.0.0.1:9090/startup       # 부팅 완료
+```
 
 ### 11.5 운영자 액션 (OPR-09 ~ OPR-12)
 

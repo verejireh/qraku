@@ -39,7 +39,7 @@
 | OPS-05 | 운영 VM 코드 배포 + systemctl restart loop fix + Redis 설치 | - | 🔴 P0 | (operator) + ops-specialist | **sonnet** | TODO (2026-05-19 발견) |
 | DBM-09 | 데이터 이전 (pgloader → pg_data_migrator) + 스테이징 1회 | D | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, 28테이블/466행/3초) |
 | DBM-10 | 데이터 정합성 검증 (migration_check.py 7항목) | D | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, 7/7 PASS) |
-| DBM-11 | Cloud SQL 인스턴스 + Auth Proxy + deployment.md | E | 🔴 P0 | (operator) + postgres-specialist | **sonnet** | TODO |
+| DBM-11 | Cloud SQL Auth Proxy systemd + deployment.md (인스턴스는 이미 생성됨) | E | 🔴 P0 | (operator) + postgres-specialist | **opus** | 🟡 자료 준비 DONE (2026-05-19) / 실 설치 대기 |
 | DBM-12 | 컷오버 룬북 (Phase F-1) + 실행 (F-2) | F | 🔴 P0 | db-migration-architect → data-migration-engineer | **opus → sonnet** | 🟡 룬북 DONE (F-1, 2026-05-19) / 실행 대기 (F-2) |
 | DBM-12b | `tools/rollback_resync.py` 신규 (PG→MySQL 역동기화) | F | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, self-loopback 검증) |
 | DBM-13 | MySQL 의존 정리 + 최적화 | G | 🟡 P2 | postgres-specialist | **sonnet** | TODO |
@@ -917,49 +917,96 @@ audit.md §9 에 한 번 실행한 결과 (스테이징) 기록해줘.
 **Priority**: 🔴 P0
 **Depends on**: DBM-02 의 사이징 결정
 
-### 운영자 액션 (OPR-09, OPR-10)
+### 현황 (2026-05-19)
 
-1. **GCP 콘솔에서 Cloud SQL PostgreSQL 인스턴스 생성**
-   - 사양: ADR-006 + audit.md §6.1 따름
-   - 리전: `asia-northeast1-b` (GCP VM 동일)
-   - PG 16
-   - 기본 사용자 `qraku`, 비밀번호 발급
-   - 백업 / PITR 활성화
+- ✅ Cloud SQL 인스턴스 `postgre-sql` 이미 생성됨 (asia-northeast1, PG 16.13, qraku DB)
+- ✅ DBM-08 schema, DBM-09 데이터 모두 적용됨
+- ⏸ Cloud SQL Auth Proxy 영구 설치 미완 — 본 카드의 핵심 작업
+- ⏸ 운영 VM service account 의 Cloud SQL Client 권한 미부여 (현재 scope: `devstorage.read_only`, `logging.write`, `monitoring.write`, `service.management.readonly`, `servicecontrol` — cloud-platform 부재)
 
-2. **GCP VM 에 Cloud SQL Auth Proxy 설치**
-   ```bash
-   ssh -i qraku verejireh@35.213.6.149
-   wget https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.x.x/cloud-sql-proxy.linux.amd64 \
-        -O cloud-sql-proxy
-   chmod +x cloud-sql-proxy
-   sudo mv cloud-sql-proxy /usr/local/bin/
+### 두 가지 인증 경로 (자이라 선택)
 
-   # systemd 서비스 작성
-   sudo tee /etc/systemd/system/cloud-sql-proxy.service ...
-   sudo systemctl enable --now cloud-sql-proxy.service
-   ```
+#### 경로 A — VM scope 확장 (1-2분 다운타임, 가장 깔끔)
 
-### 허용 파일 (sonnet 측)
+```powershell
+# 1. VM 정지
+gcloud compute instances stop hajime --zone=asia-northeast1-a --project=hotel-management-484115
 
-- `docs/deployment.md` (Cloud SQL 섹션 추가 + 트러블슈팅)
+# 2. scope 확장 (cloud-platform 추가)
+gcloud compute instances set-service-account hajime --zone=asia-northeast1-a --project=hotel-management-484115 `
+  --scopes=cloud-platform,storage-ro,logging-write,monitoring-write,service-management,servicecontrol
+
+# 3. SA 에 Cloud SQL Client 역할 부여 (이미 있을 수 있음 — 확인)
+$SA_EMAIL = (gcloud compute instances describe hajime --zone=asia-northeast1-a --project=hotel-management-484115 --format="value(serviceAccounts[0].email)")
+gcloud projects add-iam-policy-binding hotel-management-484115 `
+  --member="serviceAccount:$SA_EMAIL" --role="roles/cloudsql.client"
+
+# 4. VM 재시작
+gcloud compute instances start hajime --zone=asia-northeast1-a --project=hotel-management-484115
+```
+
+#### 경로 B — SA 키 파일 (다운타임 0, 키 관리 부담)
+
+1. GCP 콘솔 → IAM → service accounts → `compute-sa` (또는 default-sa) → keys → "Add key" → JSON 다운로드
+2. 키 파일을 운영 VM 으로 scp: `scp -i qraku ~/Downloads/sa-key.json verejireh@35.213.6.149:/tmp/sa-key.json`
+3. 보안: `sudo mkdir -p /etc/cloud-sql-proxy && sudo mv /tmp/sa-key.json /etc/cloud-sql-proxy/sa-key.json && sudo chown root:root /etc/cloud-sql-proxy/sa-key.json && sudo chmod 600 /etc/cloud-sql-proxy/sa-key.json`
+4. systemd unit 의 ExecStart 에 `--credentials-file=/etc/cloud-sql-proxy/sa-key.json` 플래그 추가
+
+### 공통 설치 절차 (인증 경로 결정 후)
+
+```bash
+ssh -i D:/myproject/qraku verejireh@35.213.6.149 bash <<'REMOTE'
+set -e
+
+# 1. cloud-sql-proxy 바이너리 영구 설치 (~/cloud-sql-proxy → /usr/local/bin)
+if [ -f ~/cloud-sql-proxy ]; then
+  sudo mv ~/cloud-sql-proxy /usr/local/bin/cloud-sql-proxy
+else
+  curl -sLo /tmp/cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.13.0/cloud-sql-proxy.linux.amd64
+  sudo install -m 0755 /tmp/cloud-sql-proxy /usr/local/bin/cloud-sql-proxy
+fi
+/usr/local/bin/cloud-sql-proxy --version
+
+# 2. systemd unit 설치 (tools/cloud-sql-proxy.service 에서 scp 했다고 가정)
+# 로컬에서: scp -i D:/myproject/qraku tools/cloud-sql-proxy.service verejireh@35.213.6.149:~/cloud-sql-proxy.service
+sudo install -m 0644 ~/cloud-sql-proxy.service /etc/systemd/system/cloud-sql-proxy.service
+
+# 3. 기동 + auto-start
+sudo systemctl daemon-reload
+sudo systemctl enable --now cloud-sql-proxy.service
+sleep 5
+sudo systemctl status cloud-sql-proxy.service --no-pager | head -15
+
+# 4. 연결 검증
+PGPASSWORD='__현재_ilhae_비번__' psql 'host=127.0.0.1 port=5432 dbname=qraku user=ilhae' -c "SELECT 'auth proxy OK' AS s;"
+
+# 5. health check 엔드포인트 (proxy 내장)
+curl -s http://127.0.0.1:9090/readiness
+echo ""
+REMOTE
+```
+
+### 산출물 (이번 사이클)
+
+- `tools/cloud-sql-proxy.service` — systemd unit 파일 (이미 작성됨)
+- `docs/deployment.md` §12 — Cloud SQL Auth Proxy 섹션 추가 (별도 작업)
 
 ### 수용 기준
 
-- [ ] 운영자 콘솔 작업 완료
-- [ ] GCP VM 에서 `psql postgres://qraku:***@127.0.0.1:5432/qraku -c "select 1"` 성공 (Auth Proxy 경유)
-- [ ] `deployment.md` 에 Cloud SQL 섹션 + Auth Proxy systemd 절차 추가
+- [ ] 자이라 인증 경로 선택 (A or B) 후 설치 완료
+- [ ] `systemctl status cloud-sql-proxy` → `active (running)`
+- [ ] `psql 'host=127.0.0.1 port=5432 dbname=qraku user=ilhae'` 성공 (auth proxy 경유)
+- [ ] `curl http://127.0.0.1:9090/readiness` 200
+- [ ] backend `.env` 의 PG `DATABASE_URL` 을 `postgresql+asyncpg://ilhae:***@127.0.0.1:5432/qraku` 로 작성 (외부 IP / SSL 옵션 불필요)
+- [ ] DBM-12 컷오버 룬북 §3 의 Auth Proxy 옵션 (A) 가 동작
 
 ### 사용자 지시 프롬프트
 
 ```
-DBM-11 의 문서 작업을 postgres-specialist 에이전트(sonnet)로 진행해줘.
-docs/deployment.md 에 다음을 추가:
-- Cloud SQL 인스턴스 생성 절차 (콘솔 화면 단계별, 사양은 ADR-006 따름)
-- Cloud SQL Auth Proxy 설치 + systemd 서비스 작성
-- 트러블슈팅 (연결 실패, IAM 권한 오류 등)
-- backend/.env 의 DATABASE_URL 형식
-
-실제 인스턴스 생성은 내가(운영자) 처리할 거야 — 문서만 작성하면 OK.
+DBM-11 실행. 본 카드의 "공통 설치 절차" 명령 순서대로 진행.
+인증 경로는 A (scope 확장, VM 재시작) 또는 B (SA 키 파일) 중 자이라 선택.
+경로 A 면 운영 VM 다운타임 1-2분 동반 — 매장 비영업 시간대 선호.
+설치 후 위 수용 기준 5가지 모두 ✅ 인지 확인.
 ```
 
 ---

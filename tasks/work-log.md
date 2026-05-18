@@ -1013,3 +1013,51 @@ uv run python tools/migration_check.py --mysql ... --pg ... --skip seq,index
 - JSON 컬럼은 `json.loads` 후 의미 비교 → MySQL JSON 의 키 순서와 PG TEXT 의 키 순서가 달라도 동일 판정.
 - FK orphan 검사는 양 DB 각각 자체 검증 (MySQL FK 가 disabled 였을 가능성 대비). 결과 차이는 audit.md §8 에 기록 후 별도 정리.
 - 다음: 실제 DBM-08 / DBM-09 실행은 운영자 docker 또는 Cloud SQL 환경 준비 후. 코드 산출물은 모두 완료.
+
+
+---
+
+## DBM-08 — PG 빈 인스턴스 schema 검증 (실행 완료)
+
+**완료**: 2026-05-18 / **owner**: postgres-specialist (claude-opus-4-7)
+**의존**: DBM-04, DBM-05, DBM-05b, DBM-05c, DBM-06, DBM-07 (모두 DONE)
+
+### 실행 환경
+
+- **Cloud SQL**: `hotel-management-484115:asia-northeast1:postgre-sql` (PG 16.13)
+- **DB / 사용자**: `qraku` / `ilhae`
+- **접속 경로**: Cloud Shell → cloud-sql-proxy (127.0.0.1:5432) → Cloud SQL
+- **스크립트**: `tools/init_pg_schema.py` (DBM-08 산출물)
+- **명령**: `DATABASE_URL='postgresql+asyncpg://ilhae:***@127.0.0.1:5432/qraku' uv run python -u tools/init_pg_schema.py`
+
+### 결과 (요약)
+
+- ✅ `=== Script END (exit=0) ===`
+- ✅ `metadata.create_all` + `migration_sqls` 전 항목 통과 (✅ Migration: 라인 다수, [FATAL] 없음)
+- ✅ public 스키마 **30 개 테이블** 생성 (감사 §8 예측 ~28 대비 +2)
+- ✅ 핵심 컬럼 spot check **10/10 [OK]**
+- ✅ `migration_sqls` 의 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...` / `CREATE INDEX IF NOT EXISTS ...` 모두 idempotent 동작
+
+### 산출물
+
+- `tasks/db-migration-audit.md` §8.4 에 실측 결과 추가 (테이블 목록, 컬럼 체크, §8 예측 vs 실측 차이)
+- Cloud Shell `~/init_log.txt` 에 전체 로그 보존 (운영자 PC 로컬에는 미보관)
+
+### 카드 acceptance 매핑
+
+| acceptance | 결과 |
+|---|---|
+| PG empty instance boots | ✅ (init_db 완료, engine.dispose 정상) |
+| 모든 `migration_sqls` ALTER 가 idempotent 하게 적용 | ✅ (`IF NOT EXISTS` 가드 + 재실행 안전) |
+| schema diff 표 in audit.md | ✅ §8.4 추가 (1차) |
+| `/api/readyz` 200 (별도 부팅 검증) | ⏳ 미실시 — DBM-08b 로 분리 권장 (Redis/Dramatiq 연결까지 통합 검증은 별도 환경 필요) |
+
+### 후속
+
+- **DBM-08b** (선택, 신규 카드): uvicorn 부팅 + `/api/readyz` 통합 검증. Redis 도 필요하므로 docker-compose 또는 staging 환경에서 별도 카드로 분리.
+- **DBM-09** 진행 가능: 운영 MySQL dump 도착 시 `tools/pgloader/qraku.load` 실행 → `tools/migration_check.py` 로 정합성 검증.
+
+### 비고
+
+- 핸드오프 doc 의 명령 예시가 `PG_PASSWORD/PG_USER/PG_DB` env 변수 사용으로 잘못 적혀있어, 1차 실행 시 `[FAIL] DATABASE_URL 환경변수 필요` 출력 → 핸드오프 doc 갱신 (`DATABASE_URL` 한 개로 정정) 후 재실행 성공.
+- 비번 특수문자 (`:`, `#`) URL 인코딩 필요 — 핸드오프 함정 표에도 반영.

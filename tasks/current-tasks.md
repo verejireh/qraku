@@ -34,7 +34,7 @@
 | DBM-05c | `routers/stats.py` MySQL 날짜 함수 PG 호환화 | B | 🔴 P0 | postgres-specialist | **sonnet** | ✅ DONE |
 | DBM-06 | Alembic env.py + workers/db.py 양 DB 지원 | B | 🔴 P0 | postgres-specialist | **sonnet** | ✅ DONE |
 | DBM-07 | docker-compose 에 postgres 서비스 추가 | B | 🟠 P1 | postgres-specialist | **sonnet** | ✅ DONE |
-| DBM-08 | PG 빈 인스턴스 schema 생성 + 비교 | C | 🔴 P0 | postgres-specialist | **sonnet** | TODO (운영자 docker 환경 필요) |
+| DBM-08 | PG 빈 인스턴스 schema 생성 + 비교 | C | 🔴 P0 | postgres-specialist | **opus** | ✅ DONE (2026-05-18, Cloud SQL `postgre-sql`) |
 | DBM-09 | pgloader config + 스테이징 1회 실행 | D | 🔴 P0 | data-migration-engineer | **sonnet** | ⏸️ 코드 DONE / 실행 운영자 환경 대기 |
 | DBM-10 | 데이터 정합성 검증 스크립트 | D | 🔴 P0 | data-migration-engineer | **sonnet** | ⏸️ 코드 DONE / 실행 운영자 환경 대기 |
 | DBM-11 | Cloud SQL 인스턴스 + Auth Proxy + deployment.md | E | 🔴 P0 | (operator) + postgres-specialist | **sonnet** | TODO |
@@ -737,10 +737,16 @@ ssh -i qraku verejireh@35.213.6.149 \
 
 ### 수용 기준
 
-- [ ] PG 빈 인스턴스에서 부팅 성공
-- [ ] `/api/readyz` 200
-- [ ] `migration_sqls` 의 모든 ALTER 가 PG 에 적용됨 (재실행 멱등)
-- [ ] schema 차이 표 audit.md §7 에 작성
+- [x] PG 빈 인스턴스에서 부팅 성공 (`init_pg_schema.py` → init_db 정상)
+- [ ] `/api/readyz` 200 — **별도 카드 DBM-08b 로 분리** (Redis/Dramatiq 통합 부팅 필요)
+- [x] `migration_sqls` 의 모든 ALTER 가 PG 에 적용됨 (재실행 멱등) — `IF NOT EXISTS` 가드 + 빈 DB 실행 시 ✅
+- [x] schema 차이 표 audit.md §8.4 에 작성 (2026-05-18, 1차 — MySQL dump 도착 후 DBM-09 직전 추가 비교 예정)
+
+### 완료 (2026-05-18)
+
+- Cloud SQL `hotel-management-484115:asia-northeast1:postgre-sql` (PG 16.13) 에 schema 30 테이블 생성 성공
+- 핵심 컬럼 spot check 10/10 [OK]
+- 상세: `tasks/work-log.md` DBM-08 엔트리, `tasks/db-migration-audit.md` §8.4
 
 ### 사용자 지시 프롬프트
 

@@ -544,6 +544,62 @@ DBM-08 에서:
 - UNIQUE 제약 비교
 - 컬럼 nullable / default 비교
 
+### 8.4 DBM-08 실측 결과 (2026-05-18) ✅
+
+**실행 환경**: Cloud SQL `hotel-management-484115:asia-northeast1:postgre-sql` (PG 16.13), DB `qraku`, 사용자 `ilhae`. Cloud Shell + Auth Proxy (127.0.0.1:5432). 스크립트: [tools/init_pg_schema.py](tools/init_pg_schema.py).
+
+**결과**: `=== Script END (exit=0) ===` — 전체 성공.
+
+#### 8.4.1 migration_sqls 전체 적용
+
+`migration_sqls` 전 항목이 `✅ Migration: ...` 로 통과. 의도된 skip (UPDATE ENUM cast) 없음 — 빈 DB 라 UPDATE 자체가 idempotent 한 패턴으로 처리됨 (`IF NOT EXISTS` 가드 + 데이터 0건).
+
+#### 8.4.2 생성된 테이블 (총 30 개, public 스키마)
+
+```
+announcement, betaapplication, customer, customerpoint, devicesession,
+eventlog, globalreview, guestprofile, menu, menugroup, menugroupitem,
+message, order, orderitem, paymentsettings, photoreview, pointhistory,
+refundlog, rewardcoupon, staffattendance, staffmember, stampcard, store,
+storedisplaysettings, systemconfig, tabehoudaisession, table,
+takeouttimequery, translationcache, webhookevent
+```
+
+§8 예측 ("~28 개") 대비 +2. 정확 비교는 MySQL 운영 schema dump (DBM-09 입력) 받은 후 가능.
+
+#### 8.4.3 핵심 컬럼 spot check (10/10 [OK])
+
+| 테이블.컬럼 | 출처 카드 | 결과 |
+|---|---|---|
+| `"order".guest_uuid` | 게스트 식별 | [OK] |
+| `"order".order_type` | order_type ENUM | [OK] |
+| `"order".idempotency_key` | INF-03 | [OK] |
+| `orderitem.is_tabehoudai` | 食べ放題 | [OK] |
+| `store.stamp_active` | 스탬프 카드 | [OK] |
+| `menu.options` | 옵션 JSON (PG에선 TEXT) | [OK] |
+| `menu.is_takeout_available` | 테이크아웃 | [OK] |
+| `"table".guest_count` | 인원수 | [OK] |
+| `staffmember.clock_in_at` | StaffAttendance | [OK] |
+| `eventlog.action` | EventLog | [OK] |
+
+#### 8.4.4 §8 예측 vs 실측 차이
+
+| 예측 항목 (§8.2) | 실측 결과 |
+|---|---|
+| `Order.idempotency_key` UNIQUE 인덱스 이름 보강 필요 | ✅ migration_sqls 의 `CREATE UNIQUE INDEX IF NOT EXISTS idx_order_idem_key` 가 명시적으로 생성 → 이름 일치 |
+| `Table.status` 컬럼 → VARCHAR | (검증 대기 — 컬럼 단위는 별도 dump 필요) |
+| `Menu.options` 컬럼 → TEXT | 컬럼 존재 [OK]. 타입은 별도 `\d menu` 로 확인 권장 |
+
+#### 8.4.5 후속 (DBM-09 직전 보강 검증)
+
+DBM-09 (pgloader) 실행 전 MySQL 운영 schema dump 와 본 PG schema 의 다음 항목 1:1 비교 필요:
+
+- 모든 인덱스 이름 (`SELECT indexname FROM pg_indexes WHERE schemaname='public'`)
+- FK 제약 (`pg_constraint` vs `INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS`)
+- 컬럼 nullable / default 정확도 (`information_schema.columns`)
+
+→ DBM-09 운영 dump 도착 시 별도 비교 노트로 첨부 예정.
+
 ---
 
 ## 9. DBM-04~06 작업 가능성 자기 검증 ✅

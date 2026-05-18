@@ -41,6 +41,7 @@
 | DBM-11 | Cloud SQL 인스턴스 + Auth Proxy + deployment.md | E | 🔴 P0 | (operator) + postgres-specialist | **sonnet** | TODO |
 | DBM-12 | 컷오버 룬북 + 실행 | F | 🔴 P0 | db-migration-architect → data-migration-engineer | **opus → sonnet** | TODO |
 | DBM-13 | MySQL 의존 정리 + 최적화 | G | 🟡 P2 | postgres-specialist | **sonnet** | TODO |
+| OPS-04 | 운영 VM 디스크 관리 (cleanup + 모니터링) | - | 🔴 P0 | (operator) | **sonnet** | TODO (2026-05-18 disk-full 사태로 발견) |
 
 > **우선순위 표기**: 🔴 P0 (사이클 필수) / 🟠 P1 (바람직) / 🟡 P2 (사이클 후반)
 
@@ -1283,6 +1284,60 @@ JSON → jsonb 마이그레이션은 별도 카드로 두고 본 카드에서는
 | 6 | **SRC** (텍스트 검색) | 🟡 매장 수 ~50 | 발견성 보강 |
 | 7 | **REV** (후기 시스템) | 🟢 매장 수 ~100 | 신뢰 자산 누적 |
 | 8 | **ANA** (데이터 인사이트) | 🟢 출시 6개월+ | 데이터 누적 후 |
+
+---
+
+## 🟥 OPS-04 — 운영 VM 디스크 관리 (cleanup + 모니터링)
+
+**Owner**: operator + postgres-specialist (실행)
+**Priority**: 🔴 P0
+**발견 경위**: 2026-05-18 DBM-09 mysqldump 시도 중 SSH 안 됨 → 시리얼 로그에 `No space left on device` 반복 → VM 재부팅 + 디스크 10G → 29G 확장으로 임시 복구.
+
+### 즉시 회수 가능 (총 ~4.5G, 서비스 영향 0)
+
+```bash
+# 1. snapd 자체 제거 (서버에 불필요, 2.5G)
+sudo systemctl stop snapd && sudo apt-get purge --yes snapd && sudo rm -rf /var/lib/snapd /var/cache/snapd /snap
+
+# 2. journald 사이즈 제한 + 정리 (800M → ~200M)
+sudo journalctl --vacuum-size=200M
+sudo bash -c 'cat > /etc/systemd/journald.conf.d/size-limit.conf <<EOF
+[Journal]
+SystemMaxUse=200M
+SystemKeepFree=1G
+EOF'
+sudo systemctl restart systemd-journald
+
+# 3. rsyslog 강제 rotate + 압축 (800M+)
+sudo logrotate -f /etc/logrotate.d/rsyslog
+
+# 4. Playwright 캐시 삭제 (~/.cache/ms-playwright, 622M, 운영 무관)
+rm -rf ~/.cache/ms-playwright
+```
+
+### 장기 보강
+
+- [ ] **모니터링 알람**: GCP Monitoring 에서 디스크 사용률 > 80% 알람 (Cloud Monitoring → Alerting Policy)
+- [ ] **logrotate 점검**: `/etc/logrotate.d/` 의 앱 로그 (nginx, uvicorn) rotate 주기 확인 + 압축 활성
+- [ ] **systemd-journald 설정 영구화**: `SystemMaxUse=200M` 유지
+- [ ] **apt 캐시 자동 정리**: `cron.daily` 또는 `unattended-upgrades` 설정
+
+### 수용 기준
+
+- [ ] 디스크 사용률 < 50% (현재 32%, 더 줄이기)
+- [ ] 모니터링 알람 1개 이상 설정됨
+- [ ] journald + rsyslog 사이즈 cap 영구 적용
+- [ ] (선택) snapd 제거 또는 의도적 잔존 결정
+
+### 사용자 지시 프롬프트
+
+```
+OPS-04 운영 VM 디스크 cleanup + 모니터링 진행.
+ssh -i D:/myproject/qraku verejireh@35.213.6.149 로 들어가서
+위 즉시 회수 가능 4개 명령 실행 후 df -h 결과 확인.
+이후 GCP Monitoring 알람 정책 1개 추가 (디스크 80% 임계).
+결과는 tasks/work-log.md 에 OPS-04 엔트리 append.
+```
 
 ---
 

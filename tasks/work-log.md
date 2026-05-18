@@ -1115,3 +1115,45 @@ uv run python tools/migration_check.py --mysql ... --pg ... --skip seq,index
 - ⏸ MySQL root 비번 — 채팅 노출 1회, 로테이션 필요
 - ⏸ 운영 VM `0.0.0.0/0` 22 포트 룰 — 자이라 IP 로 좁히기
 
+
+---
+
+## DBM-12 Phase F-1 — 컷오버 룬북 작성 완료
+
+**완료**: 2026-05-19 / **owner**: db-migration-architect (claude-opus-4-7)
+**의존**: DBM-09 (검증된 마이그레이션 명령), DBM-10 (검증 항목 정의)
+
+### 산출물
+
+- `tasks/db-migration-runbook.md` (신규, ~250 LOC)
+- 13개 섹션: 사전 체크 → T-30~T+24h 순서별 명령 → 롤백 절차 → 사후 모니터링
+
+### 룬북 주요 명령
+
+DBM-09 리허설의 실측 명령을 그대로 복사 가능하도록 정리:
+- T-20: 안전 mysqldump (이전 dump 명령과 동일)
+- T-10: pg_data_migrator.py 실행 (dry-run + 실제, 5초 취소 여유)
+- T-5: migration_check.py 7항목 검증
+- T=0: `.env` 백업 + DATABASE_URL sed 교체 + systemctl restart
+- T+5: healthz / readyz / 메뉴 API smoke test
+- 롤백: `.env.mysql_backup_*` 복원 + restart
+
+### 신규 발견 — DBM-12b 카드 분리
+
+룬북 §9.3 작성 중 발견: 컷오버 ~ 롤백 사이에 PG 에 들어간 신규 행을 MySQL 로 역동기화할 스크립트 (`tools/rollback_resync.py`) 미존재. 컷오버 실행 (Phase F-2) 전 필수.
+
+→ `tasks/current-tasks.md` 에 DBM-12b 카드 추가 (P0, sonnet, DBM-12 F-2 전).
+
+### Phase F-2 (실제 컷오버) 사전 요건
+
+- DBM-11 (Auth Proxy systemd) — 권장
+- DBM-12b (rollback_resync) — 필수
+- 운영자 + 매장 측 컷오버 시간 합의
+- 컷오버 D-1 dry-run 1회 (스테이징 또는 PG 비파괴 모드)
+
+### 비고
+
+- 룬북의 비번 자리 (`__컷오버_당일_새_비번__`) 는 실행 직전에 운영자가 채움 (채팅 노출 방지).
+- ssl 옵션: psycopg2 는 `sslmode=require`, asyncpg 는 `ssl=require` (다름, 주의).
+- backend systemd 서비스 이름은 운영 VM 의 실제 명을 사용 (예시는 `qrorder`).
+

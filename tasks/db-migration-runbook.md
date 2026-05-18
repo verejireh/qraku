@@ -295,18 +295,36 @@ REMOTE
 
 컷오버 후 ~ 롤백 결정 시점 사이에 PG 에 들어간 신규 행이 있을 수 있음. 이 데이터를 MySQL 로 다시 복사해야 데이터 손실 없음.
 
-**현재 상태**: `tools/rollback_resync.py` **미구현**. 운영 컷오버 전 작성 필요.
+**현재 상태**: `tools/rollback_resync.py` ✅ DBM-12b 에서 작성 완료 (2026-05-19).
 
-**임시 대응** (스크립트 작성 전):
-1. 컷오버 ~ 롤백 사이의 PG 데이터 dump:
-   ```bash
-   pg_dump --data-only --table='public.order' --table='public.orderitem' --table='public.payment*' \
-     "postgresql://ilhae:***@35.200.50.238/qraku?sslmode=require" \
-     > pg_delta_$(date -u +%Y%m%d_%H%M%SZ).sql
-   ```
-2. 운영자 / 엔지니어가 수동으로 MySQL 에 적절히 변환 후 INSERT (시간 소요 大)
+```bash
+ssh -i D:/myproject/qraku verejireh@35.213.6.149 bash <<'REMOTE'
+PY=~/qr-order-system/.venv/bin/python
 
-**권장**: 컷오버 D-1 까지 `tools/rollback_resync.py` 작성 (별도 카드 DBM-12b 로 분리).
+PG_PASS_RAW='__컷오버_당일_새_비번__'
+PG_PASS_ENC=$($PY -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$PG_PASS_RAW")
+SOURCE_URL="postgresql+psycopg2://ilhae:${PG_PASS_ENC}@35.200.50.238:5432/qraku?sslmode=require"
+
+url=$(grep '^DATABASE_URL=' ~/qr-order-system/backend/.env.mysql_backup_* | tail -1 | cut -d= -f2- | tr -d '\r\n')
+TARGET_URL=$(echo "$url" | sed 's|^mysql+aiomysql://|mysql+pymysql://|')
+
+# (a) dry-run 으로 델타 + 잠재 충돌 리포트
+SOURCE_URL="$SOURCE_URL" TARGET_URL="$TARGET_URL" \
+  $PY -u ~/rollback_resync.py --verbose-conflicts | tee ~/rollback_dryrun.log
+
+# (b) 운영자 확인 후 실제 실행
+read -p "Apply? (yes/no): " ans
+[ "$ans" = "yes" ] && \
+  SOURCE_URL="$SOURCE_URL" TARGET_URL="$TARGET_URL" \
+    $PY -u ~/rollback_resync.py --apply | tee ~/rollback_apply.log
+REMOTE
+```
+
+**제한 사항** (스크립트는 INSERT 만 지원):
+- PG 에서 update 된 행 (예: order.status 변경) 은 자동 동기화 X → 리포트에 "잠재 충돌" 로 표시. 운영자가 사후 수동 UPDATE.
+- `guestprofile` (UUID PK), `systemconfig` (key PK) 는 "id PK 없음" 경고 출력 → 수동 점검.
+
+대부분의 케이스 (신규 주문/결제) 는 자동 처리. 잠재 충돌이 있으면 사후 분석에서 dump (`pg_dump --data-only --where='id > N'`) 받아 검토.
 
 ### 9.4 롤백 사후
 

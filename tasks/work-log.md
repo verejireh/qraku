@@ -1157,3 +1157,50 @@ DBM-09 리허설의 실측 명령을 그대로 복사 가능하도록 정리:
 - ssl 옵션: psycopg2 는 `sslmode=require`, asyncpg 는 `ssl=require` (다름, 주의).
 - backend systemd 서비스 이름은 운영 VM 의 실제 명을 사용 (예시는 `qrorder`).
 
+
+---
+
+## DBM-12b — tools/rollback_resync.py 신규 + self-loopback 검증
+
+**완료**: 2026-05-19 / **owner**: data-migration-engineer (claude-opus-4-7)
+**의존**: DBM-09 (pg_data_migrator 패턴 재사용), DBM-12 F-1 (룬북 §9.3 호출 지점)
+
+### 산출물
+
+`tools/rollback_resync.py` (신규, ~200 LOC)
+
+### 동작
+
+- PG → MySQL 방향 (DBM-09 의 역방향)
+- 델타 식별: 각 테이블의 `MAX(id)` 비교 → PG_max > MySQL_max 인 행만 INSERT
+- FK 정순 (sorted_tables) 으로 INSERT
+- MySQL `AUTO_INCREMENT` 도 `MAX(id)+1` 로 보정
+- dict/list 값은 JSON 직렬화 (PG 의 jsonb 가 dict 로 올라오면)
+- 기본 dry-run (잠재 충돌 리포트만) → `--apply` 명시 시 실제 INSERT
+- `--verbose-conflicts`: 오버랩 영역의 row-by-row 비교 (느림)
+- dialect-aware quoting (`src.dialect.identifier_preparer.quote(name)`) — PG / MySQL / SQLite 모두 안전
+
+### 검증 — self-loopback (MySQL ↔ MySQL)
+
+- 28 테이블 reflect → 26 테이블 정상 분석 + 2 테이블 "id PK 없음" 경고
+- 모든 테이블 `신규=0` (SOURCE=TARGET 이므로 당연)
+- 잠재 충돌 0
+- exit=0
+
+### 경고된 2 테이블 (수동 점검 대상)
+
+- `guestprofile` — UUID PK (id 컬럼 없음)
+- `systemconfig` — key 컬럼이 PK
+
+이 두 테이블은 컷오버 윈도우에서 신규 row 들어갈 가능성이 매우 낮음 (guest 식별은 별도, systemconfig 는 어드민 설정으로만 변경). 룬북 §9.3 에 "수동 점검 필요" 명시.
+
+### 제한 사항 (룬북 §9.3 에 명시)
+
+- **INSERT only** — UPDATE 는 별도 분석. PG 에서 update 된 행이 MySQL 의 같은 id 와 다르면 `--verbose-conflicts` 로 리포트만 출력.
+- **id PK 가정** — 복합 PK / UUID PK 테이블은 수동 처리.
+
+### 후속 권장 (DBM-12 F-2 D-1 dry-run 에서)
+
+- 실제 PG → MySQL dry-run 1회 (authorized network 임시 추가 후)
+- 결과를 `tasks/db-migration-runbook.md` §9.3 의 "임시 대응" 절에 반영 (수동 INSERT 케이스 vs 자동화 가능 케이스)
+

@@ -1,185 +1,174 @@
-# 다음 세션 핸드오프 (2026-05-18)
+# 다음 세션 핸드오프 (2026-05-19, 갱신)
 
 > **다음 Claude 세션 시작 시 가장 먼저 이 파일을 읽어주세요.**
-> 자이라 (verejireh@gmail.com) 가 PC 를 옮겨서 새 환경에서 이어 작업합니다.
+> 자이라 (verejireh@gmail.com) 의 PG 마이그레이션 사이클 진행 상황 + 운영 현안.
 
 ---
 
 ## 한 줄 요약
 
-PostgreSQL 마이그레이션 사이클 진행 중 — **Step 3 (DBM-08, PG 빈 인스턴스 schema 검증)** 의 마지막 확인 단계에서 멈춤. 다음 단계는 `init_pg_schema.py` 실행 결과의 끝부분 (`Script END exit=?`) 확인 후 진행.
+PG 마이그레이션 코드 + 데이터 + 룬북 모두 완료. **남은 건 운영자 직접 실행 카드 (OPS-05, DBM-11 install, DBM-12 F-2)** 와 보안 부채 (비번 로테이션, 방화벽 조이기).
 
 ---
 
-## 현재 상태 (2026-05-18 기준)
+## 현재 상태 (2026-05-19 21:30 KST)
 
-### 완료된 카드 (코드 산출물 + 커밋 푸시 완료)
-- DBM-01: MySQL → PG 호환성 감사 보고서 (`tasks/db-migration-audit.md`)
-- DBM-02: Cloud SQL 사양 결정 (audit §13 + `docs/deployment.md` §11)
-- DBM-03: ADR 006/007/008 작성
-- DBM-04: asyncpg + psycopg2-binary 추가, `backend/utils/db.py` 의 `to_sync_url()` 헬퍼
-- DBM-05: `backend/database.py` migration_sqls ANSI 호환화 + 트랜잭션 항목별 분리
-- DBM-05b: `backend/routers/demo.py` 백틱 → 양 DB quote char 동적 결정
-- DBM-05c: `backend/utils/db_compat.py` 신규 + stats/register/super_admin 26건 교체
-- DBM-06: `alembic/env.py` + `backend/workers/db.py` 양 DB 지원
-- DBM-07: `docker-compose.yml` 에 postgres 서비스 추가
-- DBM-09 (코드): `tools/pgloader/qraku.load` 신규
-- DBM-10 (코드): `tools/migration_check.py` 신규
+### 작업 브랜치
 
-### 진행 중
-- **DBM-08 (PG 빈 인스턴스 schema 검증)** — 50% 진행. Cloud SQL 인스턴스에 `init_pg_schema.py` 실행했으나 결과 끝까지 확인 못함.
+- **`claude/infallible-brahmagupta-434ab6`**, 원격 push 완료, 최신 커밋 `0c6eebf`
+- 이번 세션 누적 10개 커밋 (DBM-08, DBM-09, DBM-10, DBM-12 F-1, DBM-12b, DBM-11 prep, OPS-04, OPS-05 등)
+- PR 아직 안 만듦 — main 머지 시점은 자이라가 결정
 
-### 대기 (DBM-08 완료 후)
-- DBM-09 실행 (운영 MySQL dump 필요)
-- DBM-10 실행 (DBM-09 직후)
-- DBM-11: Cloud SQL Auth Proxy 운영 VM 설치 (운영자 작업)
-- DBM-12: 컷오버 룬북 + 실행
-- DBM-13: 컷오버 후 MySQL 정리
+### 카드 진척 (DBM 사이클)
 
----
-
-## 자이라 환경 정보 (다음 세션이 알아야 할 것)
-
-### PC 상태
-- **이전 PC**: Windows VHD 설치, 업데이트 깨짐, VS Code 터미널 안 열림, Git Bash 부분 동작. Z: 드라이브로 네트워크 마운트 가능.
-- **현재 PC** (앞으로 메인): 정상 동작. 새로 GitHub 에서 clone 해서 로컬에 작업 폴더 둠.
-
-### 작업 폴더 (다음 세션의 working directory)
-- 새 PC 로컬: `~/orderservice` 또는 `~/qraku` (자이라가 clone 한 위치). 다음 세션 시작 시 자이라에게 확인.
-- 이전 worktree (Z:) 는 더 이상 사용 안 함.
-
-### GCP / Cloud SQL
-- 프로젝트: **`hotel-management-484115`**
-- Cloud SQL 인스턴스: **`postgre-sql`** (asia-northeast1, PG 16.13)
-- 연결 이름: `hotel-management-484115:asia-northeast1:postgre-sql`
-- DB: `qraku`
-- 사용자: `ilhae` (자이라 본인. 비번은 자이라 메모장 참조)
-- 또 있는 사용자: `postgres` (superuser. 비번도 메모장)
-- 인증: Cloud Shell 의 ADC 사용 (`gcloud sql connect` 또는 cloud-sql-proxy)
-
-### Cloud Shell 작업 폴더
-- `~/qraku` (clone 됨, uv sync 완료, cloud-sql-proxy 다운로드 완료)
-- Auth Proxy 백그라운드 실행 명령:
-  ```bash
-  nohup ~/cloud-sql-proxy --port 5432 \
-    hotel-management-484115:asia-northeast1:postgre-sql \
-    > ~/sql-proxy.log 2>&1 &
-  ```
-
-### Git 원격
-- `git@github.com:verejireh/qraku.git` (또는 https)
-- 현재 작업 브랜치: **`claude/stoic-noyce-74945e`**
-- 마지막 커밋: `f065ac9 WIP: DBM-05C/06/07/08/09/10 ...`
+| 카드 | 상태 | 비고 |
+|---|---|---|
+| DBM-01~07 | ✅ DONE | 이전 세션 (코드 산출) |
+| **DBM-08** | ✅ DONE 2026-05-18 | PG schema 30 테이블, init_pg_schema.py |
+| **DBM-08b** | ⏸️ BLOCKED | OPS-05 선행 필요 |
+| **DBM-09** | ✅ DONE 2026-05-19 | 28 테이블 / 466 행 / 3초, pg_data_migrator |
+| **DBM-10** | ✅ DONE 2026-05-19 | 7/7 PASS (인덱스 보강 후) |
+| **DBM-11** | 🟡 자료 준비 DONE | 실 설치는 자이라 (VM 다운타임 1-2분) |
+| **DBM-12 F-1** | ✅ DONE 2026-05-19 | 컷오버 룬북 (`tasks/db-migration-runbook.md`) |
+| **DBM-12 F-2** | TODO | 실 컷오버 — OPS-05 + DBM-11 + 매장 합의 후 |
+| **DBM-12b** | ✅ DONE 2026-05-19 | rollback_resync.py self-loopback 검증 |
+| DBM-13 | TODO | 컷오버 후 MySQL 정리 |
+| **OPS-04** | 즉시 cleanup ✅ / 모니터링 TODO | 디스크 4.6G 회수, journald cap |
+| **OPS-05** | TODO | prod 코드 배포 + systemctl loop fix + Redis |
 
 ---
 
-## 다음에 해야 할 일 (순서대로)
+## 🔴 자이라가 다음에 해야 할 일 (우선순위 순)
 
-### 1. DBM-08 마저 끝내기 — `init_pg_schema.py` 실행 결과 확인
+### 0. (지금 당장) 보안 부채 정리
 
-**Cloud Shell** 에서 (자이라 PC 의 터미널 상태와 무관하게 동작):
+채팅에 노출된 secrets — 작업 끝났으니 즉시 로테이션 권장.
 
+- [ ] **Cloud SQL `ilhae` 비번 로테이션** (채팅 2회 노출: `KEeLj8:E#HlfmSrk`, `z(o0VD0D2@ijYn&c`)
+  - GCP 콘솔 → Cloud SQL → postgre-sql → 사용자 → ilhae → 비번 변경
+  - 운영자 메모장 갱신
+- [ ] **MySQL root 비번 로테이션** (1회 노출: `forthechrist!!`)
+  - `ssh -i D:/myproject/qraku verejireh@35.213.6.149` → `mysql -u root -p` → `ALTER USER 'root'@'localhost' IDENTIFIED BY '새비번';`
+- [ ] **운영 VM 22 포트 방화벽** 다시 조이기 (`0.0.0.0/0` → `217.178.232.124/32` 자이라 PC IP)
+  - GCP 콘솔 → VPC 네트워크 → 방화벽 → SSH 룰 → 소스 IPv4 편집
+  - 단 자이라 PC IP 가 또 바뀔 수 있음. 안정성 위해 `--tunnel-through-iap` 또는 IAP TCP forwarding 검토 가능 (별도)
+
+### 1. (P0) OPS-05 실행 — 운영 VM 상태 정리
+
+prod VM 이 어수선한 상태:
+
+- 이번 사이클 코드 (DBM-04~10, INF-01~05, OPS-01~03, WS-01~04) **미배포**
+- `qrorder.service` systemctl restart loop (2425+회) — PID 570 이 port 8003 점유
+- Redis 미설치
+
+**해결 절차** (자이라가 SSH 들어가서 실행):
 
 ```bash
-# Auth Proxy 살아있는지 확인
-ps aux | grep cloud-sql-proxy | grep -v grep
-# 없으면 다시 띄움:
-nohup ~/cloud-sql-proxy --port 5432 \
-  hotel-management-484115:asia-northeast1:postgre-sql \
-  > ~/sql-proxy.log 2>&1 &
-sleep 3 && tail -3 ~/sql-proxy.log
+# Phase 1: systemctl loop 정리 (30초 다운타임)
+ssh -i D:/myproject/qraku verejireh@35.213.6.149 bash <<'REMOTE'
+sudo systemctl stop qrorder
+sudo kill 570
+sleep 2; ps aux | grep uvicorn | grep -v grep || echo "uvicorn 정리됨"
+sudo systemctl start qrorder
+sleep 5; sudo systemctl status qrorder --no-pager | head -10
+curl -s -o /dev/null -w "healthz: %{http_code}\n" http://localhost:8003/api/healthz
+REMOTE
 
-# 스키마 init 재실행 (로그 캡처)
-cd ~/qraku
-git pull   # 최신 코드 받기
-# 비번에 : 나 # 있으면 URL 인코딩 필요 (: → %3A, # → %23)
-DATABASE_URL='postgresql+asyncpg://ilhae:URL인코딩된비번@127.0.0.1:5432/qraku' \
-  uv run python -u tools/init_pg_schema.py 2>&1 | tee ~/init_log.txt
+# Phase 2: 최신 코드 배포 (로컬에서 deploy.py)
+# 다운타임 약 30초~1분
+uv run python deploy.py
 
-# 끝부분만 확인
-tail -40 ~/init_log.txt
+# Phase 3: Redis 설치
+ssh -i D:/myproject/qraku verejireh@35.213.6.149 \
+  "sudo apt-get install -y redis-server && sudo systemctl enable --now redis-server && redis-cli ping"
 ```
 
+상세: `tasks/current-tasks.md` OPS-05 카드.
 
+### 2. (P0) DBM-11 실행 — Cloud SQL Auth Proxy 영구 설치
 
-**기대 결과**:
-- `[1/3] init_db 완료` 메시지
-- `[2/3] public 스키마 테이블 목록` 에 28 개 정도 테이블
-- `[3/3] 핵심 컬럼 존재 확인` 의 [OK] 행들
-- `=== Script END (exit=0) ===`
+VM SA scope 확장 (1-2분 다운타임) 후 systemd 서비스로 cloud-sql-proxy 등록.
 
-**알려진 경고 (무시 OK)**:
-- `⚠️ Migration skipped (UPDATE ... 'KDS' WHERE ... 'kds')` 류 7건 — MySQL 시절 데이터 정리 UPDATE, 빈 PG 에 데이터 없으니 skip 되는 게 정상. PG 가 native ENUM 만들어서 대소문자 다른 값 거부함.
+상세: `tasks/current-tasks.md` DBM-11 카드 + `docs/deployment.md` §11.4. systemd unit 파일: `tools/cloud-sql-proxy.service`.
 
-**진짜 에러 (해결 필요)**:
-- `[FATAL] ...` 또는 `=== Script END (exit=1) ===`
-- 또는 `[1/3] init_db 완료` 가 안 보임 → 그 위 traceback 분석
+### 3. (P0) DBM-12 F-2 실행 — 실 컷오버
 
-### 2. DBM-08 성공 시 → audit.md §7 에 결과 기록
+OPS-05 + DBM-11 완료 후. `tasks/db-migration-runbook.md` 그대로 따라감.
 
-`tasks/db-migration-audit.md` 의 §7 (PG 신규 schema 생성 시 예상되는 차이) 에 실제 결과 표 작성:
-- PG 에 생성된 테이블 개수 / 목록
-- MySQL 운영 schema 와의 차이 (운영자가 mysqldump 제공 필요)
-- 일치 / 불일치 항목
+매장 사전 공지 + 비영업 시간대 (예: 새벽 2~5시) 권장.
 
-### 3. 다음 (DBM-09 실행)
+### 4. (P1) OPS-04 모니터링 알람
 
-운영 MySQL dump 가 필요. 자이라가 제공할 명령:
-
-```bash
-ssh -i qraku verejireh@35.213.6.149 \
-  "mysqldump --single-transaction --no-tablespaces -u kios_user -p'***' kiospad" \
-  | gzip > ~/qraku_$(date +%Y%m%d).sql.gz
-```
-
-
-
-dump 받으면 staging mysql 에 복원 → `tools/pgloader/qraku.load` 실행 → `tools/migration_check.py` 로 검증.
+GCP Monitoring 에 디스크 사용률 80% 알람 정책 추가. 별도 OPS-04 카드 §"장기 보강".
 
 ---
 
-## 핸드오프 시 자이라가 할 일
+## 환경 정보 (다음 세션 참고)
 
-**다음 Claude 세션 시작 시** (새 PC 의 로컬 작업 폴더에서):
+### PC
+- 메인 PC: `D:/myproject/orderservice/.claude/worktrees/infallible-brahmagupta-434ab6` (이 worktree)
+- SSH 키: `D:/myproject/qraku` (project root 상위, gitignore 됨)
 
-1. Claude Code 실행 (`claude` 명령 또는 IDE 통합)
-2. 첫 메시지로 이렇게 부탁:
+### GCP
+- 프로젝트: `hotel-management-484115`
+- VM: `hajime` (asia-northeast1-a, 35.213.6.149, qraku.com 도메인)
+- Cloud SQL: `postgre-sql` (asia-northeast1, PG 16.13, qraku DB, ilhae user)
+- 인증: 자이라의 `verejireh@gmail.com` 으로 gcloud auth 됨 (로컬 PC)
 
+### 현재 인증 상태 (작업 후 정리됨)
+- Cloud SQL authorized networks: 비어있음 (DBM-09 시 임시 추가했다가 제거)
+- 운영 VM 22 포트 방화벽: 0.0.0.0/0 (자이라가 좁혀야 함)
+- pgloader_temp MySQL 사용자: DROP 완료
+- kios_user MySQL auth plugin: mysql_native_password (점검 시 이미 그 상태였음 — 우리가 안 바꿈)
 
-```
-이전 세션에서 PostgreSQL 마이그레이션 작업 중이었어.
-tasks/HANDOFF-NEXT-SESSION.md 먼저 읽고 현재 상황 파악한 다음 어디서부터 이어갈지 알려줘.
-```
-
-
-→ Claude 가 이 파일을 읽고 자동으로 다음 작업 안내.
+### Backend 상태
+- Port 8003 PID 570 (오늘 14:44 수동 기동) 이 서빙 중. systemctl 은 restart loop.
+- 코드: 이번 사이클 미반영. healthz/readyz 라우터 부재. migration_sqls 도 MySQL 전용.
 
 ---
 
-## 자주 만나는 함정
+## 다음 세션 시작 시 자이라가 할 일
 
-| 함정 | 회피 |
+새 PC 의 로컬 작업 폴더 (`D:/myproject/orderservice` 또는 worktree) 에서:
+
+```
+이전 세션 핸드오프야. tasks/HANDOFF-NEXT-SESSION.md 읽고 현재 상황 + 다음에 뭘 해야 하는지 알려줘.
+```
+
+→ Claude 가 이 파일을 읽고 다음 우선순위 작업 안내.
+
+---
+
+## 이번 세션 (2026-05-18~19) 커밋 (10개, 모두 push)
+
+| Commit | 내용 |
 |---|---|
-| URL 의 비번 특수문자 인코딩 깨짐 | `init_pg_schema.py` 는 `DATABASE_URL` 만 받음. `:` `#` `@` 등 특수문자는 직접 URL 인코딩 (`:` → `%3A`, `#` → `%23`) |
-| Auth Proxy 가 죽음 | `nohup ... &` 로 백그라운드 실행, `ps aux \| grep cloud-sql-proxy` 로 확인 |
-| Python `print()` 출력 안 보임 | 항상 `python -u` 옵션 + 스크립트는 `flush=True` |
-| Windows 콘솔 인코딩 (cp949/cp932) | 스크립트 상단에 `sys.stdout.reconfigure(encoding='utf-8', errors='replace')` |
-| 이전 PC 의 Z: 드라이브 참조 | 더 이상 사용 안 함. 모든 작업은 새 PC 로컬 폴더 또는 Cloud Shell 에서 |
+| `15f4016` | Merge claude/stoic-noyce-74945e (DBM-01~10 코드) |
+| `0412a33` | HANDOFF-NEXT-SESSION snapshot |
+| `551e399` | DBM-08 PG empty instance schema 검증 결과 |
+| `d8b9ea0` | DBM-08b 카드 신설 (PG 통합 부팅) |
+| `7714c03` | OPS-04 카드 (디스크 관리) |
+| `6b61cda` | **DBM-09/10**: 28테이블/466행 마이그레이션 + pg_data_migrator + FK 인덱스 |
+| `cba5096` | DBM-12 F-1 컷오버 룬북 + DBM-12b 카드 |
+| `c67b670` | **DBM-12b**: rollback_resync.py + self-loopback 검증 |
+| `000177b` | OPS-05 카드 (prod 상태 정리) + DBM-08b BLOCKED |
+| `0c6eebf` | DBM-11 systemd unit + deployment.md §11.4 |
 
 ---
 
 ## 참고 문서
 
-- `tasks/current-tasks.md` — 사이클 카드 정의 (각 DBM 카드 본문)
-- `tasks/work-log.md` — 카드별 완료 기록 (시간순)
-- `tasks/db-migration-audit.md` — DBM-01 호환성 감사 보고서 + §13 결정사항
-- `docs/adr/006-postgresql-migration.md` — PG 이전 결정 ADR
-- `docs/adr/007-pgloader-choice.md` — pgloader 선택 ADR
-- `docs/adr/008-cutover-strategy.md` — big-bang 컷오버 전략 ADR
-- `tools/pgloader/qraku.load` — DBM-09 실행용 pgloader config
-- `tools/migration_check.py` — DBM-10 양 DB 정합성 검증
+- `tasks/current-tasks.md` — 모든 카드 정의
+- `tasks/work-log.md` — 시간순 작업 기록 (이번 세션 분 포함)
+- `tasks/db-migration-audit.md` §8.4, §8.5 — DBM-08, DBM-09/10 실측 결과
+- `tasks/db-migration-runbook.md` — 컷오버 절차서 (DBM-12 F-1)
+- `tools/pg_data_migrator.py` — MySQL → PG 데이터 이전 스크립트
+- `tools/migration_check.py` — 양 DB 정합성 7항목 검증
+- `tools/rollback_resync.py` — PG → MySQL 역동기화 (롤백 시)
+- `tools/cloud-sql-proxy.service` — Auth Proxy systemd unit
+- `docs/deployment.md` §11.4 — Cloud SQL Auth Proxy 설치 절차
 
 ---
 
-**작성**: 2026-05-18, 이전 Claude 세션 (Z: worktree 작업)
-**다음 세션 환경**: 새 PC 로컬, Cloud Shell 병행
+**작성**: 2026-05-19, 본 Claude 세션
+**다음 세션 추정 작업**: 자이라가 OPS-05 / DBM-11 / DBM-12 F-2 실행 후 결과 보고 → 사후 분석 / 미세조정.

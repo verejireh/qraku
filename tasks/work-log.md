@@ -1204,3 +1204,42 @@ DBM-09 리허설의 실측 명령을 그대로 복사 가능하도록 정리:
 - 실제 PG → MySQL dry-run 1회 (authorized network 임시 추가 후)
 - 결과를 `tasks/db-migration-runbook.md` §9.3 의 "임시 대응" 절에 반영 (수동 INSERT 케이스 vs 자동화 가능 케이스)
 
+
+---
+
+## DBM-08b 보류 결정 + OPS-05 신규 (2026-05-19)
+
+DBM-08b (PG 통합 부팅 + /api/readyz 200) 실행하려고 운영 VM 환경 점검 중 발견:
+
+### 발견 1: 운영 VM 코드 미배포
+
+운영 VM 의 `~/qr-order-system/` 에 git repo 부재 (`master` 빈 브랜치). 코드가 rsync/scp 배포본 (deploy.py 산출) 그대로. 본 사이클 (DBM-04~10, INF-01~05, OPS-01~03, WS-01~04) 의 모든 작업이 머지됐지만 **운영 VM 에는 미배포**.
+
+증거:
+- `grep -rE '/api/(healthz|readyz)' ~/qr-order-system/backend/main.py ~/qr-order-system/backend/routers/` → 결과 없음 (INF-05 미반영)
+- journalctl 의 migration_sqls 출력에 백틱 `\`table\``, `MODIFY COLUMN`, `ADD UNIQUE INDEX` 등 MySQL 전용 구문 그대로 (DBM-05 ANSI 호환화 미반영)
+
+### 발견 2: qrorder.service systemctl restart loop
+
+- PID 570 (2026-05-18 14:44 KST 수동 기동, OPS-04 디스크 복구 직후로 추정) 이 port 8003 점유.
+- systemctl 자동 재시작이 5초 간격으로 시도 → `[Errno 98] address already in use` → exit 1 → 또 재시작 → 무한.
+- 재시작 카운터 2425+ (약 3시간 누적).
+- 외부 트래픽은 PID 570 이 정상 처리 중. PID 570 죽으면 systemctl 이 자동 복구 못 함.
+
+### 발견 3: Redis 미설치
+
+- `which redis-cli` → 없음
+- INF-01 (Redis 도입), OPS-02 (Dramatiq) 의 코드는 머지됐지만 운영 인프라엔 redis-server 미배포.
+
+### 결정
+
+- **DBM-08b 보류**: 위 세 가지 해결 전엔 운영 VM 에서 통합 부팅 테스트 무의미.
+- **OPS-05 신규**: 코드 배포 + systemctl loop fix + Redis 설치를 하나로 묶은 P0 카드.
+- DBM-08b 상태: `⏸️ BLOCKED (OPS-05 선행 필요)` 로 갱신.
+- DBM-12 F-2 (실 컷오버) 도 OPS-05 후로 사실상 차단.
+
+### 후속
+
+- OPS-05 실행은 운영자 (자이라) 가 deploy.py + 매뉴얼 명령 조합으로 진행.
+- 본 발견은 컷오버 룬북 (db-migration-runbook.md) 의 사전 체크리스트 §0 에도 반영 권장.
+

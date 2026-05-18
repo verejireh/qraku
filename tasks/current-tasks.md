@@ -35,7 +35,8 @@
 | DBM-06 | Alembic env.py + workers/db.py 양 DB 지원 | B | 🔴 P0 | postgres-specialist | **sonnet** | ✅ DONE |
 | DBM-07 | docker-compose 에 postgres 서비스 추가 | B | 🟠 P1 | postgres-specialist | **sonnet** | ✅ DONE |
 | DBM-08 | PG 빈 인스턴스 schema 생성 + 비교 | C | 🔴 P0 | postgres-specialist | **opus** | ✅ DONE (2026-05-18, Cloud SQL `postgre-sql`) |
-| DBM-08b | PG 환경 통합 부팅 + `/api/readyz` 200 | C | 🟠 P1 | postgres-specialist | **sonnet** | TODO (DBM-09 후 실행 예정) |
+| DBM-08b | PG 환경 통합 부팅 + `/api/readyz` 200 | C | 🟠 P1 | postgres-specialist | **sonnet** | ⏸️ BLOCKED (OPS-05 선행 필요 — prod 코드 미배포) |
+| OPS-05 | 운영 VM 코드 배포 + systemctl restart loop fix + Redis 설치 | - | 🔴 P0 | (operator) + ops-specialist | **sonnet** | TODO (2026-05-19 발견) |
 | DBM-09 | 데이터 이전 (pgloader → pg_data_migrator) + 스테이징 1회 | D | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, 28테이블/466행/3초) |
 | DBM-10 | 데이터 정합성 검증 (migration_check.py 7항목) | D | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, 7/7 PASS) |
 | DBM-11 | Cloud SQL 인스턴스 + Auth Proxy + deployment.md | E | 🔴 P0 | (operator) + postgres-specialist | **sonnet** | TODO |
@@ -1285,6 +1286,80 @@ JSON → jsonb 마이그레이션은 별도 카드로 두고 본 카드에서는
 | 6 | **SRC** (텍스트 검색) | 🟡 매장 수 ~50 | 발견성 보강 |
 | 7 | **REV** (후기 시스템) | 🟢 매장 수 ~100 | 신뢰 자산 누적 |
 | 8 | **ANA** (데이터 인사이트) | 🟢 출시 6개월+ | 데이터 누적 후 |
+
+---
+
+## 🟥 OPS-05 — 운영 VM 코드 배포 + systemctl restart loop fix + Redis 설치
+
+**Owner**: operator + ops-specialist
+**Priority**: 🔴 P0 — DBM-08b / DBM-12 F-2 (실 컷오버) 의 선행
+**발견 경위**: 2026-05-19 DBM-08b 준비 중 발견.
+
+### 발견된 문제
+
+1. **운영 VM 의 backend 코드가 이번 사이클 (INF-01~05, WS-01~04, OPS-01~03, DBM-04~10) 모두 미배포 상태**
+   - `~/qr-order-system/` 에 git repo 부재 (`master` 빈 브랜치). deploy.py 가 rsync/scp 로만 배포한 흔적.
+   - 라우터에 `/api/healthz`, `/api/readyz` 부재 (INF-05 미배포)
+   - `database.py` 의 `migration_sqls` 가 여전히 MySQL 전용 (백틱, `MODIFY COLUMN`, `ALTER TABLE … ADD UNIQUE INDEX` 등). DBM-05 의 ANSI 호환화 미반영.
+
+2. **`qrorder.service` systemctl restart loop**
+   - PID 570 (2026-05-18 14:44 수동 기동) 이 port 8003 점유.
+   - systemctl 이 자동 재시작 시도할 때마다 `[Errno 98] address already in use` 로 exit 1 → 5초 간격 재시작 무한 루프. 재시작 카운터 2425+.
+   - 외부 트래픽은 PID 570 이 처리 중이라 정상이지만, PID 570 이 죽으면 systemctl 이 못 살림.
+   - CPU 낭비 (1회 부팅 = 3.7초 CPU) × 2425회 ≈ 2.5시간 CPU 누적.
+
+3. **Redis 미설치** — INF-01 (Redis 도입), OPS-02 (Dramatiq worker) 코드는 머지됐지만 운영 VM 에 Redis 미배포.
+
+### 절차
+
+#### Phase 1: PID 570 정리 + systemctl 정상화 (5분, 30초 다운타임)
+
+```bash
+ssh -i D:/myproject/qraku verejireh@35.213.6.149 bash <<'REMOTE'
+sudo systemctl stop qrorder            # systemctl loop 중단
+sudo kill 570                          # 옛 수동 기동 프로세스 종료
+sleep 2; ps aux | grep uvicorn | grep -v grep || echo "uvicorn 정리됨"
+sudo systemctl start qrorder           # 정상 기동
+sleep 5; sudo systemctl status qrorder --no-pager | head -10
+curl -s -o /dev/null -w "healthz: %{http_code}\n" http://localhost:8003/api/healthz 2>&1
+REMOTE
+```
+
+#### Phase 2: 최신 코드 배포 (운영자, 10분, 다운타임 최소)
+
+```powershell
+# 로컬에서 deploy.py 실행
+uv run python deploy.py
+```
+
+`deploy.py` 가 빌드 + scp + 운영 VM 에서 setup_server.sh 실행. 단계별 로그 모니터링.
+
+#### Phase 3: Redis 설치 (5분)
+
+```bash
+ssh -i D:/myproject/qraku verejireh@35.213.6.149 "
+sudo apt-get install -y redis-server
+sudo systemctl enable --now redis-server
+redis-cli ping  # PONG 기대
+"
+```
+
+#### Phase 4: Dramatiq worker systemd (선택, OPS-02 코드 활용)
+
+별도 카드 OPS-02b 로 분리 권장 (Dramatiq worker systemd unit 작성).
+
+### 수용 기준
+
+- [ ] PID 570 정리 + systemctl restart loop 종료
+- [ ] `git log -1` 가 가장 최근 머지된 커밋과 일치 (= 코드 배포 검증)
+- [ ] `/api/healthz` 200, `/api/readyz` 200 (Redis 연결 정상)
+- [ ] `redis-cli ping` → PONG
+- [ ] `systemctl status qrorder` → active (running), Restart=2426 이후 증가 없음
+
+### 후속 카드 해제
+
+- DBM-08b (PG 통합 부팅 검증) — 본 카드 완료 후 실행 가능
+- DBM-12 F-2 (실 컷오버) — 본 카드 + DBM-11 + DBM-12b 후
 
 ---
 

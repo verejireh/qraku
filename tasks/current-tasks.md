@@ -35,11 +35,11 @@
 | DBM-06 | Alembic env.py + workers/db.py 양 DB 지원 | B | 🔴 P0 | postgres-specialist | **sonnet** | ✅ DONE |
 | DBM-07 | docker-compose 에 postgres 서비스 추가 | B | 🟠 P1 | postgres-specialist | **sonnet** | ✅ DONE |
 | DBM-08 | PG 빈 인스턴스 schema 생성 + 비교 | C | 🔴 P0 | postgres-specialist | **opus** | ✅ DONE (2026-05-18, Cloud SQL `postgre-sql`) |
-| DBM-08b | PG 환경 통합 부팅 + `/api/readyz` 200 | C | 🟠 P1 | postgres-specialist | **sonnet** | ⏸️ BLOCKED (OPS-05 선행 필요 — prod 코드 미배포) |
-| OPS-05 | 운영 VM 코드 배포 + systemctl restart loop fix + Redis 설치 | - | 🔴 P0 | (operator) + ops-specialist | **sonnet** | TODO (2026-05-19 발견) |
+| DBM-08b | PG 환경 통합 부팅 + `/api/readyz` 200 | C | 🟠 P1 | postgres-specialist | **sonnet** | 🟢 READY (OPS-05 + DBM-11 완료) |
+| OPS-05 | 운영 VM 코드 배포 + systemctl restart loop fix + Redis 설치 | - | 🔴 P0 | (operator) + ops-specialist | **opus** | ✅ DONE (2026-05-19, REDIS_URL .env 추가 포함) |
 | DBM-09 | 데이터 이전 (pgloader → pg_data_migrator) + 스테이징 1회 | D | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, 28테이블/466행/3초) |
 | DBM-10 | 데이터 정합성 검증 (migration_check.py 7항목) | D | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, 7/7 PASS) |
-| DBM-11 | Cloud SQL Auth Proxy systemd + deployment.md (인스턴스는 이미 생성됨) | E | 🔴 P0 | (operator) + postgres-specialist | **opus** | 🟡 자료 준비 DONE (2026-05-19) / 실 설치 대기 |
+| DBM-11 | Cloud SQL Auth Proxy systemd + deployment.md | E | 🔴 P0 | (operator) + postgres-specialist | **opus** | ✅ DONE (2026-05-19, systemd active, psql 검증) |
 | DBM-12 | 컷오버 룬북 (Phase F-1) + 실행 (F-2) | F | 🔴 P0 | db-migration-architect → data-migration-engineer | **opus → sonnet** | 🟡 룬북 DONE (F-1, 2026-05-19) / 실행 대기 (F-2) |
 | DBM-12b | `tools/rollback_resync.py` 신규 (PG→MySQL 역동기화) | F | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, self-loopback 검증) |
 | DBM-13 | MySQL 의존 정리 + 최적화 | G | 🟡 P2 | postgres-specialist | **sonnet** | TODO |

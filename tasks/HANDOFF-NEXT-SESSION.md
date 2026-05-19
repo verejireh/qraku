@@ -1,174 +1,137 @@
-# 다음 세션 핸드오프 (2026-05-19, 갱신)
+# 다음 세션 핸드오프 (2026-05-19, 컷오버 완료 시점)
 
 > **다음 Claude 세션 시작 시 가장 먼저 이 파일을 읽어주세요.**
-> 자이라 (verejireh@gmail.com) 의 PG 마이그레이션 사이클 진행 상황 + 운영 현안.
 
 ---
 
-## 한 줄 요약
+## 🎉 한 줄 요약
 
-PG 마이그레이션 코드 + 데이터 + 룬북 모두 완료. **남은 건 운영자 직접 실행 카드 (OPS-05, DBM-11 install, DBM-12 F-2)** 와 보안 부채 (비번 로테이션, 방화벽 조이기).
-
----
-
-## 현재 상태 (2026-05-19 21:30 KST)
-
-### 작업 브랜치
-
-- **`claude/infallible-brahmagupta-434ab6`**, 원격 push 완료, 최신 커밋 `0c6eebf`
-- 이번 세션 누적 10개 커밋 (DBM-08, DBM-09, DBM-10, DBM-12 F-1, DBM-12b, DBM-11 prep, OPS-04, OPS-05 등)
-- PR 아직 안 만듦 — main 머지 시점은 자이라가 결정
-
-### 카드 진척 (DBM 사이클)
-
-| 카드 | 상태 | 비고 |
-|---|---|---|
-| DBM-01~07 | ✅ DONE | 이전 세션 (코드 산출) |
-| **DBM-08** | ✅ DONE 2026-05-18 | PG schema 30 테이블, init_pg_schema.py |
-| **DBM-08b** | ⏸️ BLOCKED | OPS-05 선행 필요 |
-| **DBM-09** | ✅ DONE 2026-05-19 | 28 테이블 / 466 행 / 3초, pg_data_migrator |
-| **DBM-10** | ✅ DONE 2026-05-19 | 7/7 PASS (인덱스 보강 후) |
-| **DBM-11** | 🟡 자료 준비 DONE | 실 설치는 자이라 (VM 다운타임 1-2분) |
-| **DBM-12 F-1** | ✅ DONE 2026-05-19 | 컷오버 룬북 (`tasks/db-migration-runbook.md`) |
-| **DBM-12 F-2** | TODO | 실 컷오버 — OPS-05 + DBM-11 + 매장 합의 후 |
-| **DBM-12b** | ✅ DONE 2026-05-19 | rollback_resync.py self-loopback 검증 |
-| DBM-13 | TODO | 컷오버 후 MySQL 정리 |
-| **OPS-04** | 즉시 cleanup ✅ / 모니터링 TODO | 디스크 4.6G 회수, journald cap |
-| **OPS-05** | TODO | prod 코드 배포 + systemctl loop fix + Redis |
+**MySQL → PostgreSQL 컷오버 (DBM-12 F-2) 완료** (2026-05-19 08:13 UTC). 운영 backend 가 Cloud SQL PostgreSQL 위에서 정상 동작 중. 사이클의 기술적 마이그레이션 종료. 남은 건 **24h 모니터링** + **D+7~D+14 MySQL 정리 (DBM-13)** + **보안 로테이션**.
 
 ---
 
-## 🔴 자이라가 다음에 해야 할 일 (우선순위 순)
+## DBM 사이클 최종 상태 (2026-05-19 17:30 KST)
 
-### 0. (지금 당장) 보안 부채 정리
-
-채팅에 노출된 secrets — 작업 끝났으니 즉시 로테이션 권장.
-
-- [ ] **Cloud SQL `ilhae` 비번 로테이션** (채팅 2회 노출: `KEeLj8:E#HlfmSrk`, `z(o0VD0D2@ijYn&c`)
-  - GCP 콘솔 → Cloud SQL → postgre-sql → 사용자 → ilhae → 비번 변경
-  - 운영자 메모장 갱신
-- [ ] **MySQL root 비번 로테이션** (1회 노출: `forthechrist!!`)
-  - `ssh -i D:/myproject/qraku verejireh@35.213.6.149` → `mysql -u root -p` → `ALTER USER 'root'@'localhost' IDENTIFIED BY '새비번';`
-- [ ] **운영 VM 22 포트 방화벽** 다시 조이기 (`0.0.0.0/0` → `217.178.232.124/32` 자이라 PC IP)
-  - GCP 콘솔 → VPC 네트워크 → 방화벽 → SSH 룰 → 소스 IPv4 편집
-  - 단 자이라 PC IP 가 또 바뀔 수 있음. 안정성 위해 `--tunnel-through-iap` 또는 IAP TCP forwarding 검토 가능 (별도)
-
-### 1. (P0) OPS-05 실행 — 운영 VM 상태 정리
-
-prod VM 이 어수선한 상태:
-
-- 이번 사이클 코드 (DBM-04~10, INF-01~05, OPS-01~03, WS-01~04) **미배포**
-- `qrorder.service` systemctl restart loop (2425+회) — PID 570 이 port 8003 점유
-- Redis 미설치
-
-**해결 절차** (자이라가 SSH 들어가서 실행):
-
-```bash
-# Phase 1: systemctl loop 정리 (30초 다운타임)
-ssh -i D:/myproject/qraku verejireh@35.213.6.149 bash <<'REMOTE'
-sudo systemctl stop qrorder
-sudo kill 570
-sleep 2; ps aux | grep uvicorn | grep -v grep || echo "uvicorn 정리됨"
-sudo systemctl start qrorder
-sleep 5; sudo systemctl status qrorder --no-pager | head -10
-curl -s -o /dev/null -w "healthz: %{http_code}\n" http://localhost:8003/api/healthz
-REMOTE
-
-# Phase 2: 최신 코드 배포 (로컬에서 deploy.py)
-# 다운타임 약 30초~1분
-uv run python deploy.py
-
-# Phase 3: Redis 설치
-ssh -i D:/myproject/qraku verejireh@35.213.6.149 \
-  "sudo apt-get install -y redis-server && sudo systemctl enable --now redis-server && redis-cli ping"
-```
-
-상세: `tasks/current-tasks.md` OPS-05 카드.
-
-### 2. (P0) DBM-11 실행 — Cloud SQL Auth Proxy 영구 설치
-
-VM SA scope 확장 (1-2분 다운타임) 후 systemd 서비스로 cloud-sql-proxy 등록.
-
-상세: `tasks/current-tasks.md` DBM-11 카드 + `docs/deployment.md` §11.4. systemd unit 파일: `tools/cloud-sql-proxy.service`.
-
-### 3. (P0) DBM-12 F-2 실행 — 실 컷오버
-
-OPS-05 + DBM-11 완료 후. `tasks/db-migration-runbook.md` 그대로 따라감.
-
-매장 사전 공지 + 비영업 시간대 (예: 새벽 2~5시) 권장.
-
-### 4. (P1) OPS-04 모니터링 알람
-
-GCP Monitoring 에 디스크 사용률 80% 알람 정책 추가. 별도 OPS-04 카드 §"장기 보강".
+| 카드 | 상태 |
+|---|---|
+| DBM-01~07 | ✅ 코드 산출 (이전 세션) |
+| DBM-08 | ✅ PG schema 30 테이블 |
+| DBM-08b | ✅ database.py URL.create() 패치 |
+| DBM-09 | ✅ 데이터 이전 (pg_data_migrator) |
+| DBM-10 | ✅ 검증 7/7 (DBM-09 리허설), 컷오버는 행 수 검증으로 갈음 |
+| DBM-11 | ✅ Cloud SQL Auth Proxy systemd active |
+| DBM-12 F-1 | ✅ 룬북 (`tasks/db-migration-runbook.md`) |
+| DBM-12 F-2 | ✅ **실 컷오버 완료** |
+| DBM-12b | ✅ rollback_resync.py |
+| **DBM-13** | TODO (D+7 ~ D+14) — MySQL 정리 |
+| OPS-04 | 즉시 cleanup ✅ / GCP Monitoring 알람 TODO |
+| OPS-05 | ✅ 코드 배포 + systemctl 정리 + Redis 설치 |
 
 ---
 
-## 환경 정보 (다음 세션 참고)
+## 운영 환경 현재 상태
 
-### PC
-- 메인 PC: `D:/myproject/orderservice/.claude/worktrees/infallible-brahmagupta-434ab6` (이 worktree)
-- SSH 키: `D:/myproject/qraku` (project root 상위, gitignore 됨)
+### 백엔드
+- **`qrorder.service`** active (running), port 8003
+- `/api/healthz` 200, `/api/readyz` `{"status":"ready"}`
+- DB: **Cloud SQL PostgreSQL** via Auth Proxy (127.0.0.1:5432)
+- Redis: localhost:6379/0 (INF-01 통합 완료)
 
-### GCP
-- 프로젝트: `hotel-management-484115`
-- VM: `hajime` (asia-northeast1-a, 35.213.6.149, qraku.com 도메인)
-- Cloud SQL: `postgre-sql` (asia-northeast1, PG 16.13, qraku DB, ilhae user)
-- 인증: 자이라의 `verejireh@gmail.com` 으로 gcloud auth 됨 (로컬 PC)
+### 데이터베이스
+- **운영 DB**: Cloud SQL `postgre-sql` / DB `qraku` / user `ilhae`
+  - 30 테이블 / 약 464 행 (마이그레이션 직후)
+  - Auth Proxy 가 인증 처리, mTLS
+- **MySQL `kiospad`** (운영 VM 의 로컬): 살아있지만 backend 가 더 이상 안 씀. 비상 롤백용 보존.
 
-### 현재 인증 상태 (작업 후 정리됨)
-- Cloud SQL authorized networks: 비어있음 (DBM-09 시 임시 추가했다가 제거)
-- 운영 VM 22 포트 방화벽: 0.0.0.0/0 (자이라가 좁혀야 함)
-- pgloader_temp MySQL 사용자: DROP 완료
-- kios_user MySQL auth plugin: mysql_native_password (점검 시 이미 그 상태였음 — 우리가 안 바꿈)
+### 인증/네트워크
+- 운영 VM (`hajime`) SA scope: `cloud-platform` (DBM-11 에서 확장)
+- VM SA IAM: `roles/cloudsql.client` (DBM-11)
+- Cloud SQL Auth Proxy systemd: active, listening on 127.0.0.1:5432 + 9090 (health)
+- 운영 VM 22 포트 방화벽: 자이라 PC IP (217.178.236.201 또는 그 변경된 것) + IAP 범위 (35.235.240.0/20)
+- Cloud SQL authorized networks: 비어있음 (Auth Proxy 쓰니까)
 
-### Backend 상태
-- Port 8003 PID 570 (오늘 14:44 수동 기동) 이 서빙 중. systemctl 은 restart loop.
-- 코드: 이번 사이클 미반영. healthz/readyz 라우터 부재. migration_sqls 도 MySQL 전용.
-
----
-
-## 다음 세션 시작 시 자이라가 할 일
-
-새 PC 의 로컬 작업 폴더 (`D:/myproject/orderservice` 또는 worktree) 에서:
-
-```
-이전 세션 핸드오프야. tasks/HANDOFF-NEXT-SESSION.md 읽고 현재 상황 + 다음에 뭘 해야 하는지 알려줘.
-```
-
-→ Claude 가 이 파일을 읽고 다음 우선순위 작업 안내.
+### 백업
+- `~/cutover_kiospad_20260519_073230Z.sql.gz` (28K, 컷오버 직전 mysqldump)
+- `~/qr-order-system/backend/.env.mysql_backup_20260519_075312Z` (컷오버 직전 .env)
+- `~/qraku_*.sql.gz` (DBM-09 리허설 시점 dumps)
 
 ---
 
-## 이번 세션 (2026-05-18~19) 커밋 (10개, 모두 push)
+## 🔴 자이라가 다음에 해야 할 일
+
+### 우선순위 1 — 24h 모니터링 (지금부터 ~ 내일)
+
+GCP Monitoring 대시보드:
+- Cloud SQL `postgre-sql`: CPU, RAM, 연결 수
+- VM `hajime`: CPU, 메모리, 디스크
+- Backend 로그 (`sudo journalctl -u qrorder -f`)
+- 매장 측 피드백 (주문/결제 정상 여부)
+
+장애 발생 시 룬북 §9 (롤백 절차) 참조. `tools/rollback_resync.py` 가 PG→MySQL 역동기화.
+
+### 우선순위 2 — 보안 로테이션 (24h 안)
+
+이번 세션 채팅에 노출된 비번 (작업 종료 후):
+
+- [ ] **Cloud SQL `ilhae`** — `onlyJESUS3927~~` 폐기 → GCP 콘솔에서 영숫자+`-_`만 사용한 새 비번으로 변경
+  - 변경 후 `~/qr-order-system/backend/.env` 의 `DB_PASS` 갱신 + `sudo systemctl restart qrorder`
+- [ ] **MySQL `root`** — `DUZv54091` 그대로 두기 OK (MySQL 곧 retire)
+- [ ] **운영 VM `/etc/cloud-sql-proxy/sa-key.json`** — 사용 안 함 (proxy 가 GCE metadata SA 사용), 제거 가능
+
+### 우선순위 3 — DBM-13 MySQL 정리 (D+7 ~ D+14)
+
+D+7 (2026-05-26): `sudo systemctl stop mysql` → 며칠 모니터링
+D+14 (2026-06-02): MySQL 데이터 GCS 백업 → `sudo apt purge mysql-server` + `sudo rm -rf /var/lib/mysql`
+
+### 우선순위 4 — OPS-04 모니터링 알람 (시간 날 때)
+
+GCP Monitoring → Alerting Policy → 디스크 사용률 > 80% 알람. journald `SystemMaxUse=200M` 영구 설정 확인.
+
+---
+
+## 이번 세션 (2026-05-18~19) 커밋 (15개, 모두 push)
 
 | Commit | 내용 |
 |---|---|
-| `15f4016` | Merge claude/stoic-noyce-74945e (DBM-01~10 코드) |
-| `0412a33` | HANDOFF-NEXT-SESSION snapshot |
-| `551e399` | DBM-08 PG empty instance schema 검증 결과 |
-| `d8b9ea0` | DBM-08b 카드 신설 (PG 통합 부팅) |
-| `7714c03` | OPS-04 카드 (디스크 관리) |
-| `6b61cda` | **DBM-09/10**: 28테이블/466행 마이그레이션 + pg_data_migrator + FK 인덱스 |
-| `cba5096` | DBM-12 F-1 컷오버 룬북 + DBM-12b 카드 |
-| `c67b670` | **DBM-12b**: rollback_resync.py + self-loopback 검증 |
-| `000177b` | OPS-05 카드 (prod 상태 정리) + DBM-08b BLOCKED |
+| `15f4016` | Merge stoic-noyce (DBM-01~10 코드) |
+| `0412a33` | 핸드오프 doc |
+| `551e399` | DBM-08 schema 검증 |
+| `d8b9ea0` | DBM-08b 카드 |
+| `7714c03` | OPS-04 카드 |
+| `6b61cda` | DBM-09/10 (pg_data_migrator + 검증) |
+| `cba5096` | DBM-12 F-1 룬북 + DBM-12b 카드 |
+| `c67b670` | DBM-12b rollback_resync.py |
+| `000177b` | OPS-05 카드 (prod 정리) |
 | `0c6eebf` | DBM-11 systemd unit + deployment.md §11.4 |
+| `95d8f42` | HANDOFF doc refresh |
+| `7c57a72` | DBM-11 + OPS-05 실행 완료 |
+| `97961a4` | DBM-08b database.py URL.create() 패치 |
+| `86f6893` | **DBM-12 F-2 컷오버 완료** 🎉 |
 
 ---
 
-## 참고 문서
+## 다음 세션 시작 시 인사말
+
+```
+이전 세션에서 PG 컷오버까지 끝났어. tasks/HANDOFF-NEXT-SESSION.md 읽고 24h 모니터링 / 보안 로테이션 / DBM-13 중 뭐 할지 안내해줘.
+```
+
+---
+
+## 핵심 참고 문서
 
 - `tasks/current-tasks.md` — 모든 카드 정의
-- `tasks/work-log.md` — 시간순 작업 기록 (이번 세션 분 포함)
-- `tasks/db-migration-audit.md` §8.4, §8.5 — DBM-08, DBM-09/10 실측 결과
-- `tasks/db-migration-runbook.md` — 컷오버 절차서 (DBM-12 F-1)
-- `tools/pg_data_migrator.py` — MySQL → PG 데이터 이전 스크립트
-- `tools/migration_check.py` — 양 DB 정합성 7항목 검증
-- `tools/rollback_resync.py` — PG → MySQL 역동기화 (롤백 시)
+- `tasks/work-log.md` — 시간순 실행 기록 (이번 세션 큰 비중)
+- `tasks/db-migration-audit.md` — 호환성 감사 + DBM-08/09/10 실측 결과
+- `tasks/db-migration-runbook.md` — 컷오버 + 롤백 절차서
+- `tools/pg_data_migrator.py` — MySQL → PG 데이터 이전 (DBM-12 에서도 재사용)
+- `tools/migration_check.py` — 정합성 검증 (이번 컷오버 시 스킵)
+- `tools/rollback_resync.py` — PG → MySQL 역동기화 (비상 롤백용)
 - `tools/cloud-sql-proxy.service` — Auth Proxy systemd unit
+- `backend/database.py` — DB_USER/DB_PASS env 받아 URL.create() 조립 (DBM-08b 패치)
 - `docs/deployment.md` §11.4 — Cloud SQL Auth Proxy 설치 절차
 
 ---
 
-**작성**: 2026-05-19, 본 Claude 세션
-**다음 세션 추정 작업**: 자이라가 OPS-05 / DBM-11 / DBM-12 F-2 실행 후 결과 보고 → 사후 분석 / 미세조정.
+**작성**: 2026-05-19 17:30 KST, 컷오버 완료 직후
+**다음 세션**: 모니터링 / 보안 로테이션 / DBM-13.

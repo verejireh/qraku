@@ -43,7 +43,7 @@
 | DBM-12 | 컷오버 룬북 (F-1) + 실행 (F-2) | F | 🔴 P0 | db-migration-architect → data-migration-engineer | **opus** | ✅ DONE (F-1 + F-2 모두 2026-05-19) |
 | DBM-12b | `tools/rollback_resync.py` 신규 (PG→MySQL 역동기화) | F | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, self-loopback 검증) |
 | DBM-13 | MySQL 의존 정리 + 최적화 | G | 🟡 P2 | postgres-specialist | **sonnet** | TODO |
-| OPS-04 | 운영 VM 디스크 관리 (cleanup + 모니터링) | - | 🔴 P0 | (operator) | **sonnet** | TODO (2026-05-18 disk-full 사태로 발견) |
+| OPS-04 | 운영 VM 디스크 관리 (cleanup + 모니터링) | - | 🟡 P2 | (operator) | **opus** | 🟢 cleanup DONE / 모니터링 알람만 운영자 |
 
 > **우선순위 표기**: 🔴 P0 (사이클 필수) / 🟠 P1 (바람직) / 🟡 P2 (사이클 후반)
 

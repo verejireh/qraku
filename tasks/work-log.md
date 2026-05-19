@@ -1467,3 +1467,85 @@ DBM-08b 의 backend 패치와 동일 패턴. psycopg2 dialect 도 같은 URL str
 - MySQL `root` 비번 (`DUZv54091`) — MySQL retire 임박이라 무시 가능
 - 운영 VM `/home/verejireh/qr-order-system/backend/.env` — DB_PASS plaintext 보관 중
 
+
+---
+
+## OPS-04 — 추가 디스크 정리 + logrotate 영구 cap (2026-05-19, 컷오버 후)
+
+**완료**: 2026-05-19 / **owner**: Claude (자동 실행)
+
+### 동기
+
+DBM-12 컷오버 후 자이라 요청. 이전 OPS-04 phase 1 (즉시 회수) 이후에도 잔여:
+- `/var/log/syslog` 185M 재성장 (qrorder restart loop 시기 로그가 누적)
+- apt 캐시 + lists 380M
+- `~/.cache` 154M (dev 캐시들)
+- 옛 DBM-09 dump + 홈 사본들
+
+### 실행
+
+```bash
+# syslog truncate + logrotate size-cap (50M, rotate 4) 영구 설정
+sudo truncate -s 0 /var/log/syslog
+sudo rm -f /var/log/syslog.[0-9]*
+sudo tee /etc/logrotate.d/rsyslog-size-cap > /dev/null <<'EOF'
+/var/log/syslog
+{
+    rotate 4
+    size 50M
+    missingok notifempty delaycompress compress
+    postrotate /usr/lib/rsyslog/rsyslog-rotate
+    endscript
+}
+
+---
+
+## OPS-04 — 추가 디스크 정리 + logrotate 영구 cap (2026-05-19, 컷오버 후)
+
+**완료**: 2026-05-19 / **owner**: Claude (자동 실행)
+
+### 동기
+
+DBM-12 컷오버 후 자이라 요청. 이전 OPS-04 phase 1 (즉시 회수) 이후에도 잔여:
+- `/var/log/syslog` 185M 재성장 (qrorder restart loop 시기 로그가 누적)
+- apt 캐시 + lists 380M
+- `~/.cache` 154M (dev 캐시들)
+- 옛 DBM-09 dump + 홈 사본들
+
+### 실행
+
+운영 VM 에서 `sudo` 권한으로 수행:
+
+1. **syslog truncate + logrotate size-cap (50M, rotate 4) 영구 설정**: `/etc/logrotate.d/rsyslog-size-cap` 신규 작성. size 도달 시 자동 rotate + 압축.
+2. **apt 정리**: `apt-get clean && apt-get autoremove --yes` (squashfs-tools 등 잔재 제거)
+3. **dev 캐시**: `~/.cache/{uv,pip,playwright}` 삭제
+4. **옛 dump**: `~/qraku_20260518_*.sql.gz` 제거 (cutover safety dump `~/cutover_*.sql.gz` 2개 보존)
+5. **로그/홈 사본**: 옛 `init_log.txt`, `migrator.log`, `check.log`, `sql-proxy.log`, `u8004.log` + 시스템 설치 후 불필요한 `cloud-sql-proxy*` 사본 + `cloudsql-ca.pem` + `pg_data_migrator.py.bak` 제거
+6. **journald 추가 vacuum**: `journalctl --vacuum-size=100M`
+
+### 결과
+
+| 항목 | Before | After |
+|---|---|---|
+| 디스크 전체 | 4.5G / 29G (16%) | **4.1G / 29G (15%)** |
+| /var/log | 390M | 115M |
+| journald | 180M | 89M |
+| ~/.cache | 154M | 4K |
+
+syslog 영구 cap 적용 → 재성장 방지.
+
+### OPS-04 장기 보강 진척
+
+- [x] syslog 영구 cap (재성장 방지) — 이번에 완료
+- [x] systemd-journald `SystemMaxUse=200M` 유지 — phase 1 에 적용
+- [ ] **GCP Monitoring 디스크 80% 알람** — 미완 (운영자가 GCP 콘솔에서 추가)
+- [x] apt 캐시 정리 — 이번에 1회 수행 (cron 자동화는 미완)
+
+### 운영자 남은 작업
+
+GCP 콘솔 → Monitoring → Alerting → Create Policy
+
+- 조건: Cloud Monitoring metric `compute.googleapis.com/instance/disk/percent_used` > 80
+- 대상: instance hajime
+- 알림 채널: 이메일 verejireh@gmail.com
+

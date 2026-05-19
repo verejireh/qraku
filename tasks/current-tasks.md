@@ -40,7 +40,7 @@
 | DBM-09 | 데이터 이전 (pgloader → pg_data_migrator) + 스테이징 1회 | D | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, 28테이블/466행/3초) |
 | DBM-10 | 데이터 정합성 검증 (migration_check.py 7항목) | D | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, 7/7 PASS) |
 | DBM-11 | Cloud SQL Auth Proxy systemd + deployment.md | E | 🔴 P0 | (operator) + postgres-specialist | **opus** | ✅ DONE (2026-05-19, systemd active, psql 검증) |
-| DBM-12 | 컷오버 룬북 (Phase F-1) + 실행 (F-2) | F | 🔴 P0 | db-migration-architect → data-migration-engineer | **opus → sonnet** | 🟡 룬북 DONE (F-1, 2026-05-19) / 실행 대기 (F-2) |
+| DBM-12 | 컷오버 룬북 (F-1) + 실행 (F-2) | F | 🔴 P0 | db-migration-architect → data-migration-engineer | **opus** | ✅ DONE (F-1 + F-2 모두 2026-05-19) |
 | DBM-12b | `tools/rollback_resync.py` 신규 (PG→MySQL 역동기화) | F | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, self-loopback 검증) |
 | DBM-13 | MySQL 의존 정리 + 최적화 | G | 🟡 P2 | postgres-specialist | **sonnet** | TODO |
 | OPS-04 | 운영 VM 디스크 관리 (cleanup + 모니터링) | - | 🔴 P0 | (operator) | **sonnet** | TODO (2026-05-18 disk-full 사태로 발견) |

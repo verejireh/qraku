@@ -66,8 +66,25 @@ def main():
     print(f"SOURCE: {args.source_url.split('@')[-1]}", flush=True)
     print(f"TARGET: {args.target_url.split('@')[-1]}", flush=True)
 
-    src = create_engine(args.source_url, future=True, pool_pre_ping=True)
-    tgt = create_engine(args.target_url, future=True, pool_pre_ping=True)
+    # DBM-08b fix: URL string 파싱이 특수문자 비번 (`~`, `!`, `#` 등) 을 망가뜨림.
+    # SRC_USER/SRC_PASS, TGT_USER/TGT_PASS env 가 있으면 URL.create() 사용.
+    from sqlalchemy.engine import URL
+
+    def _build_engine(url_str, prefix):
+        u = os.getenv(f"{prefix}_USER"); p = os.getenv(f"{prefix}_PASS")
+        if u and p:
+            url = URL.create(
+                drivername=os.getenv(f"{prefix}_DRIVER", "postgresql+psycopg2"),
+                username=u, password=p,
+                host=os.getenv(f"{prefix}_HOST", "127.0.0.1"),
+                port=int(os.getenv(f"{prefix}_PORT", "5432")),
+                database=os.getenv(f"{prefix}_DB", "qraku"),
+            )
+            return create_engine(url, future=True, pool_pre_ping=True)
+        return create_engine(url_str, future=True, pool_pre_ping=True)
+
+    src = _build_engine(args.source_url, "SRC")
+    tgt = _build_engine(args.target_url, "TGT")
 
     # MySQL 스키마 reflect
     src_meta = MetaData()

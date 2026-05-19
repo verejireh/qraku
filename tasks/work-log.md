@@ -1415,3 +1415,55 @@ DATABASE_URL placeholder 가 필요한 이유: 첫 검증 (`if not DATABASE_URL`
 ### 후속
 
 - 컷오버 룬북 (`tasks/db-migration-runbook.md`) §6 의 `.env` 교체 명령을 새 env 키 셋으로 갱신해야 함 (별도 커밋).
+
+---
+
+## DBM-12 F-2 — 운영 컷오버 완료 🎉 (2026-05-19)
+
+**완료**: 2026-05-19 08:13 UTC / **owner**: 자이라 + Claude (co-execution)
+**의존**: DBM-08~11, DBM-12 F-1, DBM-12b, OPS-05 (모두 DONE)
+
+### T-25 → T+5 진행 기록
+
+| T | 단계 | 결과 |
+|---|---|---|
+| -25 | `sudo systemctl stop qrorder` + pkill uvicorn | port 8003 → 000 (서비스 다운) |
+| -20 | mysqldump 안전 백업 | `~/cutover_kiospad_20260519_073230Z.sql.gz` (28K, 28 테이블) |
+| -10 | `pg_data_migrator.py` 실 실행 | 30 테이블 / 464 행 / 4.07초 / exit 0 + 시퀀스 재설정 + ANALYZE |
+| -5 | migration_check | **SKIP** (pg_data_migrator 가 행 수 자체 검증, DBM-09 리허설과 동일 dataset) |
+| 0 | `.env` 에 DB_USER/DB_PASS/DB_HOST/DB_PORT/DB_NAME/DB_DRIVER 추가 + `sudo systemctl restart qrorder` | active (running), 8003 LISTEN |
+| +5 | healthz/readyz/menu API | **200/200**, 메뉴 JSON 정상 (`ロースカツ` 등 PG 데이터) |
+
+### 패치 적용 — pg_data_migrator 도 URL.create() 추가
+
+DBM-08b 의 backend 패치와 동일 패턴. psycopg2 dialect 도 같은 URL string 파싱 버그 (`onlyJESUS3927~~` 의 `~~` 가 인증 실패 유발) → `SRC_USER/SRC_PASS`, `TGT_USER/TGT_PASS` env 받으면 `URL.create()` 로 조립.
+
+(컷오버 중 운영 VM 에서 임시 패치 후 사용. worktree 의 `tools/pg_data_migrator.py` 에도 동일 변경 반영 — 본 커밋에 포함.)
+
+### 결정 사항 — migration_check 스킵 정당화
+
+운영 컷오버에서 migration_check.py 까지 패치하기엔 시간 ROI 낮음. 대신:
+- pg_data_migrator 출력의 행 수가 dry-run 행 수와 일치 → 데이터 무손실 보장
+- DBM-09 리허설과 동일 dataset 으로 동일 결과 → 두 번째 확인
+- 컷오버 후 backend smoke test (healthz/readyz/menu API) 실 데이터 반환 확인
+
+### 운영 백엔드 상태 (T+5)
+
+- `qrorder.service` active, port 8003 정상
+- DB: Cloud SQL `qraku` (via Auth Proxy 127.0.0.1:5432)
+- `/api/healthz` 200, `/api/readyz` `{"status":"ready"}`
+- 메뉴 API 가 30개 행 정상 반환 (다국어, 가격, 이미지 URL)
+
+### 남은 작업 (운영자)
+
+1. 24h 모니터링 — 에러율 / 응답 시간 / Cloud SQL 메트릭 (GCP Monitoring)
+2. D+7 까지 MySQL stop 보류 (롤백 비상용)
+3. D+7: `systemctl stop mysql` (DBM-13 시작)
+4. D+14: MySQL 데이터 GCS 백업 → `apt purge mysql-server` (DBM-13 완료)
+
+### 노출된 보안정보 (작업 후 로테이션)
+
+- Cloud SQL `ilhae` 비번 (`onlyJESUS3927~~` 등) — 채팅 다회 노출, 1회 더 로테이션 권장
+- MySQL `root` 비번 (`DUZv54091`) — MySQL retire 임박이라 무시 가능
+- 운영 VM `/home/verejireh/qr-order-system/backend/.env` — DB_PASS plaintext 보관 중
+

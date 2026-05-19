@@ -182,7 +182,7 @@ REMOTE
 `.env` 의 MySQL URL 을 PG URL 로 교체. 원본은 보존.
 
 ```bash
-ssh -i D:/myproject/qraku verejireh@35.213.6.149 bash -s <<'REMOTE'
+ssh -i D:/myproject/qraku verejireh@35.213.6.149 bash <<'REMOTE'
 set -e
 cd ~/qr-order-system/backend
 
@@ -190,24 +190,35 @@ cd ~/qr-order-system/backend
 cp .env .env.mysql_backup_$(date -u +%Y%m%d_%H%M%SZ)
 ls -lh .env.mysql_backup_*
 
-# (b) DATABASE_URL 교체
-PG_PASS_RAW='__컷오버_당일_새_비번__'
-PG_PASS_ENC=$(~/qr-order-system/.venv/bin/python -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$PG_PASS_RAW")
-NEW_URL="postgresql+asyncpg://ilhae:${PG_PASS_ENC}@35.200.50.238:5432/qraku?ssl=require"
+# (b) DB_USER/DB_PASS env 추가 (DBM-08b 패치 활용; URL string 파싱 우회)
+# 운영자가 PG 비번을 직접 타이핑 (채팅 노출 X)
+read -rsp "Cloud SQL ilhae 비번: " PG_PASS_RAW; echo
 
-sed -i "s|^DATABASE_URL=.*$|DATABASE_URL=${NEW_URL}|" .env
+cat >> .env <<EOF
 
-# (c) 확인 (비번 마스킹)
-grep '^DATABASE_URL=' .env | sed 's|://[^:]*:[^@]*@|://USER:***@|'
+# === DBM-12 컷오버 (날짜: $(date -u +%Y-%m-%d)) — PG 전환 ===
+DB_USER=ilhae
+DB_PASS=$PG_PASS_RAW
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_NAME=qraku
+DB_DRIVER=postgresql+asyncpg
+EOF
+unset PG_PASS_RAW
 
-# (d) 백엔드 재시작
-sudo systemctl restart qrorder  # 또는 실제 서비스 이름
-sleep 5
+# 기존 DATABASE_URL 라인은 그대로 두기 (placeholder 역할; database.py 가 DB_USER/DB_PASS 우선)
+grep -E '^(DATABASE_URL|DB_USER|DB_HOST|DB_DRIVER)=' .env | sed 's|=.*|=***|'
+
+# (c) 백엔드 재시작
+sudo systemctl restart qrorder
+sleep 10
 sudo systemctl status qrorder --no-pager | head -10
 REMOTE
 ```
 
-> ⚠️ asyncpg URL 의 SSL 옵션은 `?ssl=require` (psycopg2 의 `sslmode=require` 와 다름). asyncpg 문서 확인.
+> 💡 **DBM-08b 패치 동작**: backend `database.py` 가 DB_USER + DB_PASS 가 있으면 `URL.create()` 로 안전 조립. 비번에 `!`, `~`, `#` 등 특수문자 있어도 URL 파싱 버그 없음. 기존 `DATABASE_URL=mysql+aiomysql://...` 라인은 fallback 으로 남겨둠 (.env.mysql_backup 으로 롤백 시 바로 사용).
+
+> ⚠️ **Cloud SQL Auth Proxy (DBM-11) 가동 중이어야 함** — `127.0.0.1:5432` 가 proxy 포트. `sudo systemctl status cloud-sql-proxy` 로 확인.
 
 ---
 

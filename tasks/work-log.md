@@ -1339,3 +1339,79 @@ DBM-08b (PG 통합 부팅) 진행 가능 상태. DBM-12 F-2 (실 컷오버) 도 
 **남은 자이라 액션**:
 - DBM-08b 실행 (별도 포트 8004 에서 PG 부팅 smoke test, 비파괴)
 - DBM-12 F-2 실 컷오버 (매장 합의 후)
+
+---
+
+## DBM-08b — PG 통합 부팅 검증 완료 + database.py 패치 (2026-05-19)
+
+**완료**: 2026-05-19 / **owner**: postgres-specialist + Claude (co-execution)
+**의존**: DBM-08, DBM-09, DBM-11 (모두 DONE)
+
+### 발견된 버그 — SQLAlchemy URL string 파싱
+
+운영 VM 에서 backend 를 PG URL 로 부팅 시도 시:
+- asyncpg 직접 connect: ✅ 성공
+- SQLAlchemy `URL.create()` 로 조립: ✅ 성공
+- SQLAlchemy URL string (`postgresql+asyncpg://user:pass@host/db`): ❌ **InvalidPasswordError**
+
+비번에 `!`, `~`, `#` 등 특수문자가 있으면 URL string 파서가 비번을 잘못 처리해서 asyncpg 에 잘못된 비번 전달. URL.create() 는 raw 비번을 받아 안전하게 escape 처리.
+
+### 패치 — backend/database.py
+
+DB_USER + DB_PASS env 가 둘 다 있으면 URL.create() 로 조립, 없으면 DATABASE_URL 사용 (MySQL 호환 유지).
+
+```python
+_db_user = os.getenv("DB_USER")
+_db_pass = os.getenv("DB_PASS")
+if _db_user and _db_pass:
+    from sqlalchemy.engine import URL
+    DATABASE_URL = URL.create(
+        drivername=os.getenv("DB_DRIVER", "postgresql+asyncpg"),
+        username=_db_user,
+        password=_db_pass,
+        host=os.getenv("DB_HOST", "127.0.0.1"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        database=os.getenv("DB_NAME", "qraku"),
+    )
+```
+
+또 DATABASE_URL.lower() 호출 2건을 _url_str.lower() 로 변경 (URL 객체에 .lower() 메서드 없음).
+
+### 검증 결과 (운영 VM)
+
+```bash
+DB_USER=ilhae DB_PASS=*** DB_HOST=127.0.0.1 DB_PORT=5432 DB_NAME=qraku DB_DRIVER=postgresql+asyncpg \
+  REDIS_URL=redis://localhost:6379/0 SECRET_KEY=... ENCRYPTION_KEY=... \
+  uvicorn main:app --port 8004
+```
+
+- healthz: 200
+- readyz: 200, body `{"status":"ready"}`
+- migration_sqls 전 항목 통과 (CREATE INDEX IF NOT EXISTS, ALTER TABLE ADD COLUMN IF NOT EXISTS 등)
+- /api/healthz, /api/readyz 실제 요청 처리 확인
+
+### DBM-12 F-2 (실 컷오버) 준비 영향
+
+컷오버 시 backend `.env` 의 변경:
+
+```ini
+# 기존
+# DATABASE_URL=mysql+aiomysql://kios_user:***@localhost:3306/kiospad
+
+# 신규 (DB_USER + DB_PASS env 사용)
+DB_USER=ilhae
+DB_PASS=*** (특수문자 OK)
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_NAME=qraku
+DB_DRIVER=postgresql+asyncpg
+DATABASE_URL=postgresql+asyncpg://dummy  # trigger 용 dummy
+```
+
+DATABASE_URL placeholder 가 필요한 이유: 첫 검증 (`if not DATABASE_URL`) 에서 빠지지 않게 하기 위함.
+
+또는 패치 추가로 `if not DATABASE_URL and not (_db_user and _db_pass): exit(1)` 로 바꾸는 게 깔끔. (다음 사이클에서 정리.)
+
+### 후속
+
+- 컷오버 룬북 (`tasks/db-migration-runbook.md`) §6 의 `.env` 교체 명령을 새 env 키 셋으로 갱신해야 함 (별도 커밋).

@@ -12,12 +12,30 @@ load_dotenv()
 # DATABASE_URL은 반드시 .env에서 가져옴 (SQLite 폴백 절대 없음)
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# DBM-08b fix: PG 비번에 ! ~ # 등 특수문자가 있을 때 SQLAlchemy URL string
+# 파서가 인증 실패를 일으키는 버그 회피. DB_USER + DB_PASS env 가 둘 다 있으면
+# URL.create() 로 안전 조립하여 raw password 를 그대로 asyncpg 에 전달.
+# 없으면 DATABASE_URL 그대로 사용 (MySQL 경로는 영향 없음).
+_db_user = os.getenv("DB_USER")
+_db_pass = os.getenv("DB_PASS")
+if _db_user and _db_pass:
+    from sqlalchemy.engine import URL
+    DATABASE_URL = URL.create(
+        drivername=os.getenv("DB_DRIVER", "postgresql+asyncpg"),
+        username=_db_user,
+        password=_db_pass,
+        host=os.getenv("DB_HOST", "127.0.0.1"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        database=os.getenv("DB_NAME", "qraku"),
+    )
+
 if not DATABASE_URL:
-    print("CRITICAL ERROR: DATABASE_URL 환경변수가 설정되지 않았습니다. .env 파일을 확인하세요.", file=sys.stderr)
+    print("CRITICAL ERROR: DATABASE_URL 환경변수가 설정되지 않았습니다.", file=sys.stderr)
     sys.exit(1)
 
-if "sqlite" in DATABASE_URL.lower():
-    print("CRITICAL ERROR: SQLite는 허용되지 않습니다. MySQL 또는 PostgreSQL URL을 설정하세요.", file=sys.stderr)
+_url_str = str(DATABASE_URL)
+if "sqlite" in _url_str.lower():
+    print("CRITICAL ERROR: SQLite는 허용되지 않습니다.", file=sys.stderr)
     sys.exit(1)
 
 # MySQL / PostgreSQL 호환 엔진 (pool_pre_ping으로 끊긴 연결 자동 복구)
@@ -34,7 +52,7 @@ engine = create_async_engine(
 async def _ensure_ansi_quotes(conn):
     """MySQL 세션에서 ANSI_QUOTES 모드 활성화 (마이그레이션 루프 전용).
     PG 에서는 no-op. migration_sqls 의 큰따옴표 식별자가 MySQL 에서도 동작하도록 보장."""
-    if "mysql" in DATABASE_URL.lower():
+    if "mysql" in _url_str.lower():
         await conn.execute(text(
             "SET SESSION sql_mode = 'ANSI_QUOTES,STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'"
         ))
@@ -243,7 +261,7 @@ async def init_db():
     # [DBM-05] 항목별 트랜잭션 분리: PG 에서 단일 항목 실패 시 전체 abort 방지
     for sql in migration_sqls:
         # [DBM-05] PG 에서 MODIFY COLUMN 구문은 syntax error → skip (metadata.create_all이 처리)
-        if "postgresql" in DATABASE_URL.lower() and " MODIFY COLUMN " in sql.upper():
+        if "postgresql" in _url_str.lower() and " MODIFY COLUMN " in sql.upper():
             continue
         try:
             async with engine.begin() as conn:

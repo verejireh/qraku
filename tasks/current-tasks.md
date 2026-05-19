@@ -35,7 +35,7 @@
 | DBM-06 | Alembic env.py + workers/db.py 양 DB 지원 | B | 🔴 P0 | postgres-specialist | **sonnet** | ✅ DONE |
 | DBM-07 | docker-compose 에 postgres 서비스 추가 | B | 🟠 P1 | postgres-specialist | **sonnet** | ✅ DONE |
 | DBM-08 | PG 빈 인스턴스 schema 생성 + 비교 | C | 🔴 P0 | postgres-specialist | **opus** | ✅ DONE (2026-05-18, Cloud SQL `postgre-sql`) |
-| DBM-08b | PG 환경 통합 부팅 + `/api/readyz` 200 | C | 🟠 P1 | postgres-specialist | **sonnet** | 🟢 READY (OPS-05 + DBM-11 완료) |
+| DBM-08b | PG 환경 통합 부팅 + `/api/readyz` 200 | C | 🟠 P1 | postgres-specialist | **opus** | ✅ DONE (2026-05-19, database.py 패치 + 검증) |
 | OPS-05 | 운영 VM 코드 배포 + systemctl restart loop fix + Redis 설치 | - | 🔴 P0 | (operator) + ops-specialist | **opus** | ✅ DONE (2026-05-19, REDIS_URL .env 추가 포함) |
 | DBM-09 | 데이터 이전 (pgloader → pg_data_migrator) + 스테이징 1회 | D | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, 28테이블/466행/3초) |
 | DBM-10 | 데이터 정합성 검증 (migration_check.py 7항목) | D | 🔴 P0 | data-migration-engineer | **opus** | ✅ DONE (2026-05-19, 7/7 PASS) |

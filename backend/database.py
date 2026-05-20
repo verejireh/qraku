@@ -250,6 +250,9 @@ async def init_db():
         "CREATE INDEX IF NOT EXISTS idx_store_geo ON store USING GIST ((ST_MakePoint(longitude, latitude)::geography)) WHERE latitude IS NOT NULL AND longitude IS NOT NULL",
         # [2026-05-20] SPC-08: Menu 알레르기 정보
         "ALTER TABLE menu ADD COLUMN IF NOT EXISTS allergens VARCHAR(500) DEFAULT '[]'",
+        # [2026-05-20] SPC-09: Menu 실시간 재고
+        "ALTER TABLE menu ADD COLUMN IF NOT EXISTS stock_today_total INTEGER NULL",
+        "ALTER TABLE menu ADD COLUMN IF NOT EXISTS stock_today_sold INTEGER DEFAULT 0",
     ]
 
     # PG 에서 무시할 에러 SQLSTATE 코드 + MySQL 메시지

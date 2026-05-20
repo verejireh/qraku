@@ -231,6 +231,8 @@ class Menu(SQLModel, table=True):
     sold_out_until: Optional[datetime] = None   # Scheduled availability
     sort_order: int = Field(default=0)          # Drag and drop positioning
     allergens: str = Field(default="[]", max_length=500)  # JSON: ["wheat","egg","dairy",...] (SPC-08)
+    stock_today_total: Optional[int] = Field(default=None)  # 今日の仕込み量 (None=無制限) (SPC-09)
+    stock_today_sold: int = Field(default=0)                # 今日の販売数 (SPC-09)
 
     store: Optional[Store] = Relationship(back_populates="menus")
 

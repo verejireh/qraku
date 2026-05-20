@@ -482,3 +482,19 @@ DiscoverView 에 "近くのお店" 모드 추가. 브라우저 Geolocation → S
 - 마감 할인 효果 = `discount_amount > 0` 주문 vs 일반 주문 (food_rescue 전용 flag 없음)
 - 동네 비교 = 동일 `prefecture`, `allow_public_listing=True` 매장 평균 (city 아닌 prefecture — 고텐바 50 매장 규모)
 - 외부 차트 라이브러리 없음 (CSS 바 차트)
+
+### SPC-09 — 실시간 재고 (Menu.stock_today + 自動品切れ)
+
+| 파일 | 변경 내용 |
+|---|---|
+| `backend/models.py` | `Menu.stock_today_total` (Optional[int], 기본 None=무제한) + `Menu.stock_today_sold` (int, 기본 0) 추가 |
+| `backend/database.py` | migration 2행: `stock_today_total INTEGER NULL`, `stock_today_sold INTEGER DEFAULT 0` |
+| `backend/routers/menus.py` | `PATCH /api/menus/{id}/stock` 신규 (仕込み量 설정 + 판매수 리셋). `update_menu` allowed_fields 에 stock 필드 추가. |
+| `backend/routers/orders.py` | 주문 item 생성 직후 (step 6.5) `stock_today_sold` 증가 + `sold >= total` 시 `is_available=False` 자동 처리. |
+| `frontend-react/src/views/SettingView.jsx` | `SoldOutTab` 각 메뉴 행에 잔재고 뱃지 (残 N/M) + 仕込み量 숫자 입력 + 판매수 리셋(↺) 버튼 추가. |
+
+**설계 결정**:
+- 재고 입력 UI: SettingView 品切れ管理 탭에 인라인 입력 (RegisterView 비대화 방지)
+- `stock_today_total = None`: 무제한 (기존 동작 그대로)
+- 자동 품절: 주문 생성 시점에 동기 처리 (worker 불필요)
+- 리셋 버튼: 판매수 > 0 일 때만 표시 (영업 재오픈 시 is_available=True 복구)

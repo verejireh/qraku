@@ -311,6 +311,7 @@ async def update_menu(menu_id: int, updates: dict, admin_store: Store = Depends(
         "price", "category", "image_url", "is_active", "is_available",
         "is_takeout_available", "is_daily_special", "special_price",
         "options", "extra_translations", "sort_order", "allergens",
+        "stock_today_total", "stock_today_sold",
     }
 
     for field, value in updates.items():
@@ -335,4 +336,41 @@ async def delete_menu(menu_id: int, admin_store: Store = Depends(require_admin),
     await session.delete(menu)
     await session.commit()
     return {"message": "Menu deleted successfully"}
+
+
+from utils.jwt import require_admin  # already imported via other endpoints; safe re-import
+
+@router.patch("/{menu_id}/stock")
+async def update_stock(
+    menu_id: int,
+    stock_today_total: Optional[int] = None,
+    reset_sold: bool = False,
+    admin_store: Store = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """今日の仕込み量設定 + 販売数リセット (SPC-09)."""
+    menu = await session.get(Menu, menu_id)
+    if not menu:
+        raise HTTPException(status_code=404, detail="Menu not found")
+    if menu.store_id != admin_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
+
+    if stock_today_total is not None:
+        menu.stock_today_total = stock_today_total if stock_today_total > 0 else None
+    if reset_sold:
+        menu.stock_today_sold = 0
+        if menu.stock_today_total is not None:
+            menu.is_available = True  # 재오픈
+
+    session.add(menu)
+    await session.commit()
+    await session.refresh(menu)
+    remaining = (menu.stock_today_total - menu.stock_today_sold) if menu.stock_today_total else None
+    return {
+        "menu_id": menu.id,
+        "stock_today_total": menu.stock_today_total,
+        "stock_today_sold": menu.stock_today_sold,
+        "remaining": remaining,
+        "is_available": menu.is_available,
+    }
 

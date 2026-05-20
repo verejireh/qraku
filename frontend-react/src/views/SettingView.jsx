@@ -102,8 +102,53 @@ function SoldOutTab({ shop_id }) {
                                     <p className="text-[11px] text-stone-400">¥{(menu.price || 0).toLocaleString()}</p>
                                 </div>
 
-                                {/* 品切れトグル */}
+                                {/* 재고 표시 + 품절 토글 */}
                                 <div className="flex items-center gap-2 flex-shrink-0">
+                                    {/* 今日の仕込み量 입력 */}
+                                    <div className="flex flex-col items-end gap-0.5">
+                                        {menu.stock_today_total != null && (
+                                            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
+                                                (menu.stock_today_total - (menu.stock_today_sold || 0)) <= 0
+                                                    ? 'bg-red-100 text-red-600'
+                                                    : (menu.stock_today_total - (menu.stock_today_sold || 0)) <= 3
+                                                        ? 'bg-orange-100 text-orange-600'
+                                                        : 'bg-green-100 text-green-600'
+                                            }`}>
+                                                残 {Math.max(0, menu.stock_today_total - (menu.stock_today_sold || 0))}/{menu.stock_today_total}
+                                            </span>
+                                        )}
+                                        <div className="flex items-center gap-1">
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                placeholder="仕込量"
+                                                defaultValue={menu.stock_today_total ?? ''}
+                                                onBlur={async e => {
+                                                    const val = parseInt(e.target.value)
+                                                    if (isNaN(val) && e.target.value !== '') return
+                                                    const total = isNaN(val) ? null : val
+                                                    try {
+                                                        const qs = total != null ? `stock_today_total=${total}` : 'stock_today_total=0'
+                                                        await adminApi.patch(`/api/menus/${menu.id}/stock?${qs}`)
+                                                        setMenus(prev => prev.map(m => m.id === menu.id ? { ...m, stock_today_total: total } : m))
+                                                    } catch {}
+                                                }}
+                                                className="w-16 text-xs text-center border border-stone-200 rounded-lg px-1.5 py-1 focus:outline-none focus:border-amber-400 bg-stone-50"
+                                            />
+                                            {menu.stock_today_sold > 0 && (
+                                                <button
+                                                    title="販売数リセット"
+                                                    onClick={async () => {
+                                                        try {
+                                                            await adminApi.patch(`/api/menus/${menu.id}/stock?reset_sold=true`)
+                                                            setMenus(prev => prev.map(m => m.id === menu.id ? { ...m, stock_today_sold: 0, is_available: true } : m))
+                                                        } catch {}
+                                                    }}
+                                                    className="text-[10px] px-1.5 py-1 bg-blue-50 text-blue-500 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                                                >↺</button>
+                                            )}
+                                        </div>
+                                    </div>
                                     {!menu.is_available && (
                                         <span className="text-[10px] font-black text-red-500 uppercase tracking-wider">SOLD OUT</span>
                                     )}

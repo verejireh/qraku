@@ -73,8 +73,8 @@
 | SPC-05 | 미니홈피 SEO 강화 — JSON-LD Restaurant schema + sitemap.xml + meta tags | C | 🟠 P1 | **sonnet** | ✅ DONE (2026-05-20) |
 | SPC-06 | PWA 설치 가능화 — manifest.json + service worker + 푸시 알림 | C | 🟠 P1 | **sonnet** | ✅ DONE (2026-05-20, 푸시 알림 OPR-17 대기) |
 | SPC-07 | 사장님 데이터 인사이트 미니 대시보드 | D | 🟡 P2 | **sonnet** | ✅ DONE (2026-05-20) |
-| SPC-08 | 알레르기 정보 — Menu 모델 + admin UI + filter | D | 🟡 P2 | **sonnet** | TODO |
-| SPC-09 | 실시간 재고 — Menu.stock_today + auto-disable + register 입력 UI | D | 🟡 P2 | **sonnet** | TODO |
+| SPC-08 | 알레르기 정보 — Menu 모델 + admin UI + filter | D | 🟡 P2 | **sonnet** | ✅ DONE (2026-05-20) |
+| SPC-09 | 실시간 재고 — Menu.stock_today + auto-disable + register 입력 UI | D | 🟡 P2 | **sonnet** | ✅ DONE (2026-05-20) |
 | SPC-10 | 친구 추천 referral — 사장님/손님 양쪽 | E | 🟡 P2 | **opus → sonnet** | TODO |
 | SPC-11 | 기존 SettingView 에 매장 ON/OFF + 마감 할인 수동 토글 **별도 버튼** 추가 + RegisterView 의 중복 토글 제거 | B | 🔴 P0 | **sonnet** | ✅ DONE (2026-05-20) |
 

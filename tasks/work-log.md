@@ -206,8 +206,41 @@
 
 | 항목 | 담당 | 상태 |
 |---|---|---|
-| OPR-16 PostGIS 활성화 | 자이라 | 가이드 제공, 작업 대기 |
+| OPR-16 PostGIS 활성화 | claude → 운영 VM 직접 | ✅ DONE 2026-05-20 (아래 참조) |
 | SPC-02 (마감 할인 cron) | sonnet | 착수 가능 |
 | SPC-03 (위경도 nearby API) | sonnet | OPR-16 또는 haversine 폴백 둘 다 가능 → 착수 가능 |
 | SPC-11 (SettingView 毎日運営 탭) | sonnet | 착수 가능 (frontend) |
 | SPC-04 ~ SPC-07 | sonnet | SPC-03 후 또는 병렬
+
+---
+
+## 2026-05-20 — OPR-16 PostGIS 활성화 (운영 VM 직접 작업, claude)
+
+자이라가 OPR-13 (ilhae 비번 로테이션) 완료 + `.env` 업데이트 후 OPR-16 위임.
+
+### 결과
+
+- PostGIS **3.6.0** 활성화 (`CREATE EXTENSION postgis;`)
+- ilhae 가 `cloudsqlsuperuser` 멤버 → 슈퍼유저 fallback 불필요
+- Smoke test: 도쿄(139.7670,35.6814) ↔ 고텐바(138.9357,35.3088) = **86,013 m** (실거리와 정확)
+- backend `/api/healthz` 200, `/api/readyz` ready — 영향 없음
+
+```sql
+SELECT postgis_full_version();
+-- POSTGIS="3.6.0 3.6.0" PGSQL="160" GEOS="3.11.4" PROJ="7.2.0" LIBJSON="0.17" ...
+```
+
+### 발견 이슈 (별도 OPR 카드 신설)
+
+- **OPR-18**: `.env` 가 CRLF 라인 종결 → `set -a; source .env` 시 `$'\r': command not found` + 변수 값 끝 `\r` 섞여 비번 인증 실패. 우회: `grep | tr -d '\r' | cut -d= -f2-`. 영구 해결은 `sed -i 's/\r$//' .env`.
+- **OPR-19**: 첫 source 시도 실패 출력에 `.env` line 41 부근 시크릿 (`aT1Q_wsHbsI9qEJOxAe3ZhJ51ZOhMZ7eRiHbpz4bTkI=`, Fernet ENCRYPTION_KEY 추정) 채팅 1회 노출. 회전 시 기존 암호화 데이터 재암호화 마이그레이션 필요 → 자이라 결정 (회전 vs 무시).
+
+### SPC-03 후속 작업 (자동)
+
+OPR-16 완료로 SPC-03 가 **PostGIS 경로** 진행 가능 (haversine 폴백 불필요):
+- `Store.location geography(POINT,4326)` 컬럼 추가
+- 기존 lat/lng → location UPDATE
+- GIST 인덱스 (`CREATE INDEX idx_store_location ON store USING gist(location)`)
+- INSERT/UPDATE trigger (lat/lng 변경 시 location 자동 동기화)
+
+→ SPC-03 카드 착수 시 `backend/database.py` migration_sqls 끝에 위 4 항목 추가 (CLAUDE.md 규칙 2 마이그레이션 태그 준수)

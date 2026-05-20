@@ -37,8 +37,13 @@
 | OPR-06 | PayPay 콘솔 webhook URL | (이전 사이클 carry) |
 | OPR-07 | Alembic baseline stamp | (이전 사이클 carry) |
 | OPR-08 | `PAYPAY_WEBHOOK_SECRET` | (이전 사이클 carry) |
-| **OPR-13** | **Cloud SQL `ilhae` 비번 영숫자+`-_` 만으로 로테이션** | 컷오버 채팅 노출 5회 누적. 변경 후 `.env DB_PASS` 갱신 + `systemctl restart qrorder` |
+| ~~OPR-13~~ | ~~Cloud SQL `ilhae` 비번 로테이션~~ | ✅ DONE (2026-05-20, 새 16자 비번 + `.env` 갱신 + backend restart) |
 | **OPR-14** | **운영 VM 22 포트 방화벽 IP 재조정** | OPS-05 후속. 자이라 PC IP 자주 바뀜 — IAP 룰 (`allow-iap-ssh-real`, `35.235.240.0/20`) 활용 가능 |
+| ~~OPR-15~~ | ~~Google Maps API 키~~ | ❌ 제거 (SPC-04 v1.3 — SDK 미사용, 외부 링크 + Embed iframe 으로 0원) |
+| ~~OPR-16~~ | ~~Cloud SQL PostGIS 활성화~~ | ✅ DONE (2026-05-20, ilhae cloudsqlsuperuser 권한 + `CREATE EXTENSION postgis` 3.6.0. smoke test: Tokyo↔Gotemba 86km 정확) |
+| **OPR-17** | **VAPID 키 생성 (Web Push, SPC-06)** | `python -c "from py_vapid import Vapid; v=Vapid(); v.generate_keys(); print(v.public_key_to_str(), v.private_key_to_str())"` 또는 `npx web-push generate-vapid-keys` |
+| **OPR-18** | **운영 VM `.env` CRLF → LF 변환** | 2026-05-20 발견. `ssh ... 'sed -i "s/\r$//" ~/qr-order-system/backend/.env'`. `source` 시 줄 깨짐 + 변수 끝 `\r` 섞임. backend (`python-dotenv`) 는 영향 없지만 shell source 시 문제 |
+| **OPR-19** | **`ENCRYPTION_KEY` 회전 검토** | 2026-05-20 PostGIS 작업 중 채팅 1회 노출 (`.env` line 41 부근 `aT1Q_wsHbs...=`). 회전 시 기존 암호화 데이터 재암호화 마이그레이션 필요 — 무시 가능성 검토 |
 
 ---
 

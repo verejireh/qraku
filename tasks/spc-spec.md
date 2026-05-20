@@ -516,3 +516,4 @@ ORDER BY distance_m ASC LIMIT 20;
 | 2026-05-20 | v1.1 — §10 자이라 검토 반영 (a/b/c/d 확정, e 보류 → pending-review). 자동/수동 의미 명확화 (마감 할인 이벤트 한정). 공통 staff setting 페이지 신규 발견 → SPC-11 추가 (F16). §8 헬퍼는 기존 `backend/utils/business_hours.py` 확장으로 정정. |
 | 2026-05-20 | v1.2 — SettingView 이미 존재 확인 (`/{shop_id}/setting`, SPC-11 신규 페이지 X). 자이라 강조: 매장 ON/OFF 버튼과 마감 할인 수동 토글은 **물리적으로 분리된 별개 버튼**. `food_rescue_mode='auto'` 일 때 수동 토글 disabled. SPC-11 PR-03 확정 (毎日運営 탭 신규 + 색상 차별화). |
 | 2026-05-20 | v1.3 — SPC-04 지도 확정: SDK 미사용. 외부 링크 + 미니홈피 Embed iframe (둘 다 0원). OPR-15 (Google Maps 키) 제거. F4 응답에 `google_maps_url` 필드 추가. |
+| 2026-05-20 | v1.3.1 — **OPR-16 PostGIS 활성화 완료** (3.6.0, ilhae cloudsqlsuperuser). SPC-03 가 haversine 폴백 없이 PostGIS 경로 진행 확정. OPR-18 (.env CRLF) / OPR-19 (ENCRYPTION_KEY 노출) 신설. |

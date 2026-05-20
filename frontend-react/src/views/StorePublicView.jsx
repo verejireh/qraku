@@ -92,6 +92,12 @@ export default function StorePublicView() {
     const [reviewComment, setReviewComment] = useState('')
     const [reviewFile, setReviewFile] = useState(null)
 
+    // SPC-10: Referral claim
+    const [refCode, setRefCode] = useState(() => new URLSearchParams(window.location.search).get('ref') || '')
+    const [refStatus, setRefStatus] = useState(null)  // null | 'success' | 'error'
+    const [refMsg, setRefMsg] = useState('')
+    const [refClaiming, setRefClaiming] = useState(false)
+
     // LIFF 연동
     const { liff, isInitialized } = useLiff(import.meta.env.VITE_LINE_LIFF_ID)
 
@@ -727,6 +733,52 @@ export default function StorePublicView() {
                             </a>
                         </div>
                     </section>
+                )}
+
+                {/* ── 紹介コード入力 (SPC-10) ── */}
+                {refStatus !== 'success' && (
+                    <section className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+                        <h3 className="font-bold text-gray-700 text-sm mb-3 flex items-center gap-2">
+                            🎁 紹介コードをお持ちですか？
+                        </h3>
+                        {refStatus === 'error' && (
+                            <p className="text-xs text-red-500 mb-2 font-bold">{refMsg}</p>
+                        )}
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                value={refCode}
+                                onChange={e => setRefCode(e.target.value.toUpperCase())}
+                                placeholder="例: ABCD1234"
+                                className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:border-amber-400 bg-gray-50"
+                                maxLength={16}
+                            />
+                            <button
+                                disabled={!refCode.trim() || refClaiming}
+                                onClick={async () => {
+                                    setRefClaiming(true)
+                                    try {
+                                        const guestUuid = localStorage.getItem(`guest_uuid_${shop_id}`) || null
+                                        const res = await axios.post('/api/referrals/claim', { code: refCode.trim(), guest_uuid: guestUuid })
+                                        setRefStatus('success')
+                                        setRefMsg(res.data.reward_message || '紹介コードが適用されました！')
+                                    } catch (e) {
+                                        setRefStatus('error')
+                                        setRefMsg(e.response?.data?.detail || '無効なコードです。')
+                                    }
+                                    setRefClaiming(false)
+                                }}
+                                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-40"
+                            >
+                                {refClaiming ? '...' : '適用'}
+                            </button>
+                        </div>
+                    </section>
+                )}
+                {refStatus === 'success' && (
+                    <div className="bg-green-50 border border-green-200 rounded-2xl p-4 text-center text-sm text-green-700 font-bold">
+                        ✅ {refMsg}
+                    </div>
                 )}
 
                 {/* ── 푸터 ────────────────── */}

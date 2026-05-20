@@ -498,3 +498,18 @@ DiscoverView 에 "近くのお店" 모드 추가. 브라우저 Geolocation → S
 - `stock_today_total = None`: 무제한 (기존 동작 그대로)
 - 자동 품절: 주문 생성 시점에 동기 처리 (worker 불필요)
 - 리셋 버튼: 판매수 > 0 일 때만 표시 (영업 재오픈 시 is_available=True 복구)
+
+### SPC-10 — 친구 추천 referral
+
+| 파일 | 변경 내용 |
+|---|---|
+| `backend/models.py` | `ReferralCode` + `ReferralClaim` 모델 추가 (SQLModel table=True, create_all 자동 생성) |
+| `backend/routers/referrals.py` | 신규. `POST /api/referrals/generate` (사장님, 코드 생성), `GET /api/referrals/my-codes` (사장님, 목록), `PATCH /api/referrals/{id}/deactivate` (비활성화), `POST /api/referrals/claim` (손님, 공개 API) |
+| `backend/main.py` | `referrals.router` 등록 |
+| `frontend-react/src/views/AdminHomePageView.jsx` | `ReferralSection` 컴포넌트 추가 — 코드 생성, 복사 버튼 (링크 복사), 비활성화, 사용 현황 표시 |
+| `frontend-react/src/views/StorePublicView.jsx` | 소개 코드 입력 폼 추가 (footer 직전). `?ref=CODE` URL 파라미터 자동 pre-fill. 성공/실패 메시지 표시. |
+
+**설계 결정**:
+- 보상은 `reward_message` 텍스트만 표시 (실제 할인 자동 적용은 SPC-10 후속). 사장님이 수동으로 확인 가능.
+- 중복 클레임 방지: `(code, claimer_id)` unique 체크
+- 공유 링크: `/{shop_id}?ref={CODE}` → StorePublicView 가 자동 pre-fill

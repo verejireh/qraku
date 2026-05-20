@@ -6,7 +6,7 @@ import { AdminNavBar } from './AdminView'
 import {
     Sparkles, Home, Camera, MapPin, Image as ImageIcon, Plus, Trash2, Upload,
     Globe, Megaphone, ChevronRight, Star, ExternalLink, Timer, Briefcase, Gift,
-    BarChart2, TrendingUp, Flame, Users,
+    BarChart2, TrendingUp, Flame, Users, Share2, Copy, Check,
 } from 'lucide-react'
 
 /**
@@ -681,6 +681,9 @@ export default function AdminHomePageView() {
                     <input ref={attractionInputRef} type="file" accept="image/*" onChange={handleAttractionUpload} className="hidden" />
                 </section>
 
+                {/* ── 紹介プログラム ─────────────────── */}
+                <ReferralSection shop_id={shop_id} />
+
                 {/* ── インサイト ─────────────────────── */}
                 <InsightsSection shop_id={shop_id} />
 
@@ -698,6 +701,116 @@ export default function AdminHomePageView() {
 
             </div>
         </div>
+    )
+}
+
+// ────────────────────────────────────────────────────
+// SPC-10 친구 추천 Referral
+// ────────────────────────────────────────────────────
+function ReferralSection({ shop_id }) {
+    const [codes, setCodes] = useState([])
+    const [loading, setLoading] = useState(true)
+    const [generating, setGenerating] = useState(false)
+    const [copiedId, setCopiedId] = useState(null)
+
+    const fetchCodes = async () => {
+        try {
+            const res = await adminApi.get(`/api/referrals/my-codes`)
+            setCodes(res.data.codes || [])
+        } catch {}
+        setLoading(false)
+    }
+
+    useEffect(() => { fetchCodes() }, [shop_id])
+
+    const handleGenerate = async () => {
+        setGenerating(true)
+        try {
+            await adminApi.post('/api/referrals/generate', {
+                reward_message: '次のご来店で特別サービスをご用意しています！',
+                max_uses: null,
+                expires_days: 30,
+            })
+            await fetchCodes()
+        } catch (e) {
+            alert('コード生成に失敗しました: ' + (e.response?.data?.detail || e.message))
+        }
+        setGenerating(false)
+    }
+
+    const handleCopy = (code, id) => {
+        navigator.clipboard.writeText(`${window.location.origin}/${shop_id}?ref=${code}`)
+        setCopiedId(id)
+        setTimeout(() => setCopiedId(null), 2000)
+    }
+
+    const handleDeactivate = async (id) => {
+        try {
+            await adminApi.patch(`/api/referrals/${id}/deactivate`)
+            setCodes(prev => prev.map(c => c.id === id ? { ...c, is_active: false } : c))
+        } catch {}
+    }
+
+    return (
+        <section className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6 space-y-4">
+            <div className="flex items-center justify-between">
+                <h3 className="font-black flex items-center gap-2 text-slate-900">
+                    <Share2 className="w-5 h-5 text-rose-500" /> 紹介プログラム
+                </h3>
+                <button onClick={handleGenerate} disabled={generating}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-50">
+                    <Plus className="w-4 h-4" /> {generating ? '生成中...' : 'コード生成'}
+                </button>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+                お客様に紹介コードをシェアすると、使用数を追跡できます。コード付きリンクをLINEなどでシェアしてください。
+            </p>
+
+            {loading ? (
+                <div className="flex justify-center py-6">
+                    <div className="w-6 h-6 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+            ) : codes.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-sm">
+                    <Gift className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                    まだ紹介コードがありません
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    {codes.map(c => (
+                        <div key={c.id} className={`flex items-center gap-3 p-3 rounded-xl border ${c.is_active ? 'border-slate-200 bg-slate-50' : 'border-slate-100 bg-slate-50/50 opacity-50'}`}>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <span className="font-mono font-black text-rose-500 text-sm">{c.code}</span>
+                                    {!c.is_active && <span className="text-[10px] bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded font-bold">無効</span>}
+                                </div>
+                                <div className="flex items-center gap-3 mt-0.5 text-[11px] text-slate-400">
+                                    <span>使用 {c.uses}{c.max_uses ? `/${c.max_uses}` : ''} 回</span>
+                                    {c.expires_at && <span>期限 {c.expires_at.slice(0, 10)}</span>}
+                                    <span className="text-xs text-slate-400 truncate">{c.reward_message}</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                {c.is_active && (
+                                    <button onClick={() => handleCopy(c.code, c.id)}
+                                        className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:border-rose-300 transition-colors"
+                                        title="リンクをコピー">
+                                        {copiedId === c.id ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+                                    </button>
+                                )}
+                                {c.is_active && (
+                                    <button onClick={() => handleDeactivate(c.id)}
+                                        className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:border-red-300 hover:text-red-500 text-slate-400 transition-colors"
+                                        title="無効化">
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </section>
     )
 }
 

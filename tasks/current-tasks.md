@@ -75,7 +75,7 @@
 | SPC-07 | 사장님 데이터 인사이트 미니 대시보드 | D | 🟡 P2 | **sonnet** | ✅ DONE (2026-05-20) |
 | SPC-08 | 알레르기 정보 — Menu 모델 + admin UI + filter | D | 🟡 P2 | **sonnet** | ✅ DONE (2026-05-20) |
 | SPC-09 | 실시간 재고 — Menu.stock_today + auto-disable + register 입력 UI | D | 🟡 P2 | **sonnet** | ✅ DONE (2026-05-20) |
-| SPC-10 | 친구 추천 referral — 사장님/손님 양쪽 | E | 🟡 P2 | **opus → sonnet** | TODO |
+| SPC-10 | 친구 추천 referral — 사장님/손님 양쪽 | E | 🟡 P2 | **opus → sonnet** | ✅ DONE (2026-05-20) |
 | SPC-11 | 기존 SettingView 에 매장 ON/OFF + 마감 할인 수동 토글 **별도 버튼** 추가 + RegisterView 의 중복 토글 제거 | B | 🔴 P0 | **sonnet** | ✅ DONE (2026-05-20) |
 
 ### Phase 분할 + 출시 시점

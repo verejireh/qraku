@@ -637,3 +637,27 @@ class WebhookEvent(SQLModel, table=True):
     signature_valid: bool = Field(default=False)
     processed: bool = Field(default=False)
     payload_raw: Optional[str] = Field(default=None, sa_column=Column(Text))
+
+
+# ── SPC-10: 친구 추천 Referral ──────────────────────────────────────────────
+
+class ReferralCode(SQLModel, table=True):
+    """사장님이 생성한 소개 코드 (1매장 여러 코드 가능)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_store_id: int = Field(index=True)
+    code: str = Field(max_length=16, unique=True, index=True)
+    reward_message: Optional[str] = Field(default=None, max_length=200)  # 클레임 시 표시 메시지
+    max_uses: Optional[int] = Field(default=None)                        # None = 무제한
+    uses: int = Field(default=0)
+    expires_at: Optional[datetime] = Field(default=None)
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ReferralClaim(SQLModel, table=True):
+    """손님이 소개 코드를 사용한 기록."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str = Field(max_length=16, index=True)
+    claimer_id: str = Field(max_length=128, index=True)   # guest_uuid or store slug
+    reward_status: str = Field(default="pending", max_length=32)  # pending | applied | expired
+    created_at: datetime = Field(default_factory=datetime.utcnow)

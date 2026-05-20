@@ -230,6 +230,7 @@ class Menu(SQLModel, table=True):
     special_price: Optional[int] = Field(default=None)  # Special price (if set, shown instead of regular price)
     sold_out_until: Optional[datetime] = None   # Scheduled availability
     sort_order: int = Field(default=0)          # Drag and drop positioning
+    allergens: str = Field(default="[]", max_length=500)  # JSON: ["wheat","egg","dairy",...] (SPC-08)
 
     store: Optional[Store] = Relationship(back_populates="menus")
 

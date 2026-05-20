@@ -310,7 +310,7 @@ async def update_menu(menu_id: int, updates: dict, admin_store: Store = Depends(
         "description_jp", "description_ko", "description_en", "description_zh",
         "price", "category", "image_url", "is_active", "is_available",
         "is_takeout_available", "is_daily_special", "special_price",
-        "options", "extra_translations", "sort_order",
+        "options", "extra_translations", "sort_order", "allergens",
     }
 
     for field, value in updates.items():

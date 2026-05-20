@@ -248,6 +248,8 @@ async def init_db():
         'CREATE INDEX IF NOT EXISTS idx_table_store ON "table"(store_id)',
         # [2026-05-20] SPC-03: PostGIS GIST 함수형 인덱스 (PG 전용, MySQL 에서는 ⚠️ 경고 후 skip)
         "CREATE INDEX IF NOT EXISTS idx_store_geo ON store USING GIST ((ST_MakePoint(longitude, latitude)::geography)) WHERE latitude IS NOT NULL AND longitude IS NOT NULL",
+        # [2026-05-20] SPC-08: Menu 알레르기 정보
+        "ALTER TABLE menu ADD COLUMN IF NOT EXISTS allergens VARCHAR(500) DEFAULT '[]'",
     ]
 
     # PG 에서 무시할 에러 SQLSTATE 코드 + MySQL 메시지

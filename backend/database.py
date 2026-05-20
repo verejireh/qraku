@@ -15,7 +15,6 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # DBM-08b fix: PG 비번에 ! ~ # 등 특수문자가 있을 때 SQLAlchemy URL string
 # 파서가 인증 실패를 일으키는 버그 회피. DB_USER + DB_PASS env 가 둘 다 있으면
 # URL.create() 로 안전 조립하여 raw password 를 그대로 asyncpg 에 전달.
-# 없으면 DATABASE_URL 그대로 사용 (MySQL 경로는 영향 없음).
 _db_user = os.getenv("DB_USER")
 _db_pass = os.getenv("DB_PASS")
 if _db_user and _db_pass:
@@ -38,8 +37,7 @@ if "sqlite" in _url_str.lower():
     print("CRITICAL ERROR: SQLite는 허용되지 않습니다.", file=sys.stderr)
     sys.exit(1)
 
-# MySQL / PostgreSQL 호환 엔진 (pool_pre_ping으로 끊긴 연결 자동 복구)
-# DBM-12 컷오버 후 PG 단일화 예정.
+# PostgreSQL 전용 비동기 엔진 (pool_pre_ping으로 끊긴 연결 자동 복구)
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
@@ -49,25 +47,15 @@ engine = create_async_engine(
     max_overflow=20,
 )
 
-async def _ensure_ansi_quotes(conn):
-    """MySQL 세션에서 ANSI_QUOTES 모드 활성화 (마이그레이션 루프 전용).
-    PG 에서는 no-op. migration_sqls 의 큰따옴표 식별자가 MySQL 에서도 동작하도록 보장."""
-    if "mysql" in _url_str.lower():
-        await conn.execute(text(
-            "SET SESSION sql_mode = 'ANSI_QUOTES,STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'"
-        ))
-
-
 async def init_db():
-    """서버 시작 시 DB(MySQL 또는 PostgreSQL)에 모든 테이블 생성 + 스키마 마이그레이션"""
+    """서버 시작 시 PostgreSQL에 모든 테이블 생성 + 스키마 마이그레이션"""
     from models import Store, Table, StaffAttendance, PhotoReview, RewardCoupon, RefundLog, BetaApplication, EventLog, WebhookEvent  # 지연 import로 순환 방지
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 
     # ── 자동 스키마 마이그레이션: 신규 컬럼이 없으면 추가 ──────────────────────
     # SQLModel의 create_all은 기존 테이블 컬럼을 추가하지 않으므로 수동 ALTER
-    # [DBM-05] ANSI 호환화: 백틱 제거, IF NOT EXISTS 추가, 트랜잭션 항목별 분리
-    # MySQL 8.0.29+ / PG 9.6+ 양 DB 호환. MODIFY COLUMN 4건은 PG에서 skip (metadata.create_all이 처리).
+    # PostgreSQL 전용. IF NOT EXISTS 로 안전 재실행.
     migration_sqls = [
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS trial_start_date DATETIME NULL",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255) NULL",
@@ -116,19 +104,13 @@ async def init_db():
         'UPDATE "order" SET payment_status = \'unpaid\' WHERE payment_status = \'pending\'',
         # Table guest count
         'ALTER TABLE "table" ADD COLUMN IF NOT EXISTS guest_count INT NULL',
-        # TableStatus migration: VARCHAR → UPDATE → new ENUM (safe for any starting state)
-        # Step 1: Convert to VARCHAR so any old value can be updated freely
-        # MODIFY COLUMN: MySQL-only. PG skip (metadata.create_all creates correct type).
-        'ALTER TABLE "table" MODIFY COLUMN status VARCHAR(50) NOT NULL DEFAULT \'READY\'',
+        # TableStatus migration: normalize existing values (safe UPDATE)
         # Step 2: Normalize all old values
         'UPDATE "table" SET status = \'READY\' WHERE status IN (\'EMPTY\', \'empty\', \'PAID\', \'paid\')',
         'UPDATE "table" SET status = \'OCCUPIED\' WHERE status IN (\'ORDERING\', \'ordering\')',
         'UPDATE "table" SET status = \'OCCUPIED\' WHERE status IN (\'occupied\')',
         'UPDATE "table" SET status = \'READY\' WHERE status IN (\'ready\')',
         'UPDATE "table" SET status = \'CHECKOUT_REQUESTED\' WHERE status IN (\'checkout_requested\')',
-        # Step 3: Convert to final ENUM with only valid values
-        # MODIFY COLUMN: MySQL-only. PG skip (metadata.create_all creates VARCHAR as per model).
-        "ALTER TABLE \"table\" MODIFY COLUMN status ENUM('READY','OCCUPIED','CHECKOUT_REQUESTED') NOT NULL DEFAULT 'READY'",
         # Staff call + serving tracking
         'ALTER TABLE "table" ADD COLUMN IF NOT EXISTS call_staff BOOLEAN DEFAULT FALSE',
         'ALTER TABLE "order" ADD COLUMN IF NOT EXISTS needs_serving BOOLEAN DEFAULT TRUE',
@@ -168,9 +150,6 @@ async def init_db():
         # Receipt Customization
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS receipt_footer_message VARCHAR(500) NULL",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS receipt_logo_url VARCHAR(1000) NULL",
-        # Order table_number: int → varchar (support A1, A2, etc.)
-        # MODIFY COLUMN: MySQL-only. PG skip (metadata.create_all creates VARCHAR as per model).
-        'ALTER TABLE "order" MODIFY COLUMN table_number VARCHAR(50) NOT NULL DEFAULT \'0\'',
         # Daily Specials
         "ALTER TABLE menu ADD COLUMN IF NOT EXISTS is_daily_special BOOLEAN DEFAULT FALSE",
         "ALTER TABLE menu ADD COLUMN IF NOT EXISTS special_price INT NULL",
@@ -219,9 +198,6 @@ async def init_db():
         # [2026-05-04] 멱등성: 결제 ID 중복 주문 방지 (NULL 은 다중 허용)
         # [DBM-05] ADD UNIQUE INDEX → CREATE UNIQUE INDEX IF NOT EXISTS (MySQL+PG 양 DB 호환)
         'CREATE UNIQUE INDEX IF NOT EXISTS uq_order_square_payment_id ON "order"(square_payment_id)',
-        # [2026-05-04] guestprofile.created_at 기본값 — INSERT 실패 방지
-        # MODIFY COLUMN: MySQL-only. PG skip (metadata.create_all creates correct default).
-        "ALTER TABLE guestprofile MODIFY COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
         # [2026-05-06] Food Rescue 자동/수동 모드 분리
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS food_rescue_mode VARCHAR(10) DEFAULT 'manual'",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS food_rescue_auto_minutes INT DEFAULT 60",
@@ -246,7 +222,7 @@ async def init_db():
         'CREATE INDEX IF NOT EXISTS idx_pointhistory_customer ON pointhistory(customer_id)',
         'CREATE INDEX IF NOT EXISTS idx_tabehoudaisession_group ON tabehoudaisession(group_id)',
         'CREATE INDEX IF NOT EXISTS idx_table_store ON "table"(store_id)',
-        # [2026-05-20] SPC-03: PostGIS GIST 함수형 인덱스 (PG 전용, MySQL 에서는 ⚠️ 경고 후 skip)
+        # [2026-05-20] SPC-03: PostGIS GIST 함수형 인덱스
         "CREATE INDEX IF NOT EXISTS idx_store_geo ON store USING GIST ((ST_MakePoint(longitude, latitude)::geography)) WHERE latitude IS NOT NULL AND longitude IS NOT NULL",
         # [2026-05-20] SPC-08: Menu 알레르기 정보
         "ALTER TABLE menu ADD COLUMN IF NOT EXISTS allergens VARCHAR(500) DEFAULT '[]'",
@@ -255,24 +231,17 @@ async def init_db():
         "ALTER TABLE menu ADD COLUMN IF NOT EXISTS stock_today_sold INTEGER DEFAULT 0",
     ]
 
-    # PG 에서 무시할 에러 SQLSTATE 코드 + MySQL 메시지
+    # 무시할 PG 에러 (컬럼/인덱스 이미 존재)
     IGNORED_MIGRATION_ERRORS = (
-        "Duplicate column name",   # MySQL: 컬럼 중복
-        "already exists",          # PG: 컬럼/인덱스/테이블 중복 (42701, 42P07)
-        "Duplicate key name",      # MySQL: 인덱스 중복
-        "1060",                    # MySQL SQLSTATE: duplicate_column
-        "42701",                   # PG SQLSTATE: duplicate_column
-        "42P07",                   # PG SQLSTATE: duplicate_table/index
+        "already exists",  # PG: 컬럼/인덱스/테이블 중복 (42701, 42P07)
+        "42701",           # PG SQLSTATE: duplicate_column
+        "42P07",           # PG SQLSTATE: duplicate_table/index
     )
 
-    # [DBM-05] 항목별 트랜잭션 분리: PG 에서 단일 항목 실패 시 전체 abort 방지
+    # 항목별 트랜잭션 분리: 단일 항목 실패 시 전체 abort 방지
     for sql in migration_sqls:
-        # [DBM-05] PG 에서 MODIFY COLUMN 구문은 syntax error → skip (metadata.create_all이 처리)
-        if "postgresql" in _url_str.lower() and " MODIFY COLUMN " in sql.upper():
-            continue
         try:
             async with engine.begin() as conn:
-                await _ensure_ansi_quotes(conn)
                 await conn.execute(text(sql))
                 print(f"✅ Migration: {sql[:60]}...")
         except Exception as e:
@@ -282,7 +251,7 @@ async def init_db():
             else:
                 print(f"⚠️ Migration skipped ({sql[:40]}...): {e}", file=sys.stderr)
 
-    print("✅ MySQL 테이블 초기화 완료 (kiospad DB)")
+    print("✅ DB 테이블 초기화 완료")
 
 
 async_session_maker = sessionmaker(

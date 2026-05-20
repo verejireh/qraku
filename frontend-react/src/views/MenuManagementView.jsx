@@ -28,7 +28,7 @@ export default function MenuManagementView() {
 
     // Inline edit modal state
     const [editingMenu, setEditingMenu] = useState(null)
-    const [editForm, setEditForm] = useState({ name_jp: '', description_jp: '', price: 0, category: '' })
+    const [editForm, setEditForm] = useState({ name_jp: '', description_jp: '', price: 0, category: '', allergens: [] })
     const [takeoutBlockedMsg, setTakeoutBlockedMsg] = useState(false)
 
     const extractArray = (res) => {
@@ -181,18 +181,24 @@ export default function MenuManagementView() {
 
     const openEditModal = (item) => {
         setEditingMenu(item)
+        let parsedAllergens = []
+        try { parsedAllergens = JSON.parse(item.allergens || '[]') } catch {}
         setEditForm({
             name_jp: item.name_jp || item.name || '',
             description_jp: item.description_jp || item.description || '',
             price: item.price || 0,
             category: item.category || '',
+            allergens: Array.isArray(parsedAllergens) ? parsedAllergens : [],
         })
     }
 
     const saveEdit = async () => {
         if (!editingMenu) return
         try {
-            await axios.put(`/api/menus/${editingMenu.id}`, editForm)
+            await axios.put(`/api/menus/${editingMenu.id}`, {
+                ...editForm,
+                allergens: JSON.stringify(editForm.allergens),
+            })
             setMenus(prev => prev.map(m => m.id === editingMenu.id ? { ...m, ...editForm } : m))
             setEditingMenu(null)
         } catch (e) {
@@ -412,7 +418,20 @@ export default function MenuManagementView() {
                                         />
                                     </div>
                                 )}
-                                <p className="text-xs text-slate-500 leading-relaxed line-clamp-2 mb-4 flex-1">{item.description_jp || item.description}</p>
+                                <p className="text-xs text-slate-500 leading-relaxed line-clamp-2 mb-2 flex-1">{item.description_jp || item.description}</p>
+                                {(() => {
+                                    try {
+                                        const allergens = JSON.parse(item.allergens || '[]')
+                                        if (allergens.length > 0) return (
+                                            <div className="flex flex-wrap gap-1 mb-3">
+                                                {allergens.map(a => (
+                                                    <span key={a} className="text-[9px] font-bold px-1.5 py-0.5 bg-red-50 text-red-500 border border-red-200 rounded-full">{a}</span>
+                                                ))}
+                                            </div>
+                                        )
+                                    } catch {}
+                                    return null
+                                })()}
                                 
                                 <div className="pt-4 flex items-center justify-between gap-2 mt-auto">
                                     <div className="flex flex-col gap-1">
@@ -504,6 +523,36 @@ export default function MenuManagementView() {
                                             <option value="">未設定</option>
                                             {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                                         </select>
+                                    </div>
+                                </div>
+                            </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">⚠️ アレルゲン</label>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {[
+                                            { key: 'wheat', label: '🌾小麦' }, { key: 'egg', label: '🥚卵' },
+                                            { key: 'dairy', label: '🥛乳' }, { key: 'buckwheat', label: '🍜そば' },
+                                            { key: 'peanut', label: '🥜落花生' }, { key: 'shrimp', label: '🦐えび' },
+                                            { key: 'crab', label: '🦀かに' }, { key: 'soybean', label: '🫘大豆' },
+                                            { key: 'walnut', label: '🌰くるみ' }, { key: 'beef', label: '🐄牛肉' },
+                                            { key: 'pork', label: '🐷豚肉' }, { key: 'chicken', label: '🐔鶏肉' },
+                                            { key: 'sesame', label: '🌿ごま' },
+                                        ].map(({ key, label }) => {
+                                            const active = editForm.allergens.includes(key)
+                                            return (
+                                                <button key={key} type="button"
+                                                    onClick={() => setEditForm(prev => ({
+                                                        ...prev,
+                                                        allergens: active
+                                                            ? prev.allergens.filter(a => a !== key)
+                                                            : [...prev.allergens, key]
+                                                    }))}
+                                                    className={`px-2 py-1 rounded-full text-xs font-bold border transition-all ${active
+                                                        ? 'bg-red-500 text-white border-red-500'
+                                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-red-300'}`}
+                                                >{label}</button>
+                                            )
+                                        })}
                                     </div>
                                 </div>
                             </div>

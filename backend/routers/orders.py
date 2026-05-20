@@ -518,6 +518,14 @@ async def create_order(
             tabehoudai_session_id=tabehoudai_session_id if is_tabehoudai_item else None,
         ))
 
+    # ── 6.5. Stock 재고 차감 + 자동 품절 처리 (SPC-09) ─────────────────────────
+    for menu, item_in, _unit_price, _is_tabehoudai in items_data:
+        if menu.stock_today_total is not None:
+            menu.stock_today_sold = (menu.stock_today_sold or 0) + item_in.quantity
+            if menu.stock_today_sold >= menu.stock_today_total:
+                menu.is_available = False
+            session.add(menu)
+
     # ── 7. Update GuestProfile ────────────────────────────────────────────────
     if order_in.guest_uuid:
         from models import GuestProfile

@@ -7,8 +7,6 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "sqlmodel",
-    "aiomysql",
-    "pymysql",
     "cryptography",
     "qrcode[pil]",
     "python-multipart",

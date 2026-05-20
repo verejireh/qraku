@@ -6,6 +6,7 @@ import { AdminNavBar } from './AdminView'
 import {
     Sparkles, Home, Camera, MapPin, Image as ImageIcon, Plus, Trash2, Upload,
     Globe, Megaphone, ChevronRight, Star, ExternalLink, Timer, Briefcase, Gift,
+    BarChart2, TrendingUp, Flame, Users, Share2, Copy, Check,
 } from 'lucide-react'
 
 /**
@@ -680,6 +681,12 @@ export default function AdminHomePageView() {
                     <input ref={attractionInputRef} type="file" accept="image/*" onChange={handleAttractionUpload} className="hidden" />
                 </section>
 
+                {/* ── 紹介プログラム ─────────────────── */}
+                <ReferralSection shop_id={shop_id} />
+
+                {/* ── インサイト ─────────────────────── */}
+                <InsightsSection shop_id={shop_id} />
+
                 {/* ── 保存 ──────────────────────────── */}
                 <div className="sticky bottom-0 bg-white/90 backdrop-blur-md border border-slate-200 rounded-2xl p-4 shadow-lg flex items-center justify-between">
                     <p className="text-xs text-slate-500">変更を反映するには保存してください</p>
@@ -694,6 +701,276 @@ export default function AdminHomePageView() {
 
             </div>
         </div>
+    )
+}
+
+// ────────────────────────────────────────────────────
+// SPC-10 친구 추천 Referral
+// ────────────────────────────────────────────────────
+function ReferralSection({ shop_id }) {
+    const [codes, setCodes] = useState([])
+    const [loading, setLoading] = useState(true)
+    const [generating, setGenerating] = useState(false)
+    const [copiedId, setCopiedId] = useState(null)
+
+    const fetchCodes = async () => {
+        try {
+            const res = await adminApi.get(`/api/referrals/my-codes`)
+            setCodes(res.data.codes || [])
+        } catch {}
+        setLoading(false)
+    }
+
+    useEffect(() => { fetchCodes() }, [shop_id])
+
+    const handleGenerate = async () => {
+        setGenerating(true)
+        try {
+            await adminApi.post('/api/referrals/generate', {
+                reward_message: '次のご来店で特別サービスをご用意しています！',
+                max_uses: null,
+                expires_days: 30,
+            })
+            await fetchCodes()
+        } catch (e) {
+            alert('コード生成に失敗しました: ' + (e.response?.data?.detail || e.message))
+        }
+        setGenerating(false)
+    }
+
+    const handleCopy = (code, id) => {
+        navigator.clipboard.writeText(`${window.location.origin}/${shop_id}?ref=${code}`)
+        setCopiedId(id)
+        setTimeout(() => setCopiedId(null), 2000)
+    }
+
+    const handleDeactivate = async (id) => {
+        try {
+            await adminApi.patch(`/api/referrals/${id}/deactivate`)
+            setCodes(prev => prev.map(c => c.id === id ? { ...c, is_active: false } : c))
+        } catch {}
+    }
+
+    return (
+        <section className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6 space-y-4">
+            <div className="flex items-center justify-between">
+                <h3 className="font-black flex items-center gap-2 text-slate-900">
+                    <Share2 className="w-5 h-5 text-rose-500" /> 紹介プログラム
+                </h3>
+                <button onClick={handleGenerate} disabled={generating}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-50">
+                    <Plus className="w-4 h-4" /> {generating ? '生成中...' : 'コード生成'}
+                </button>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+                お客様に紹介コードをシェアすると、使用数を追跡できます。コード付きリンクをLINEなどでシェアしてください。
+            </p>
+
+            {loading ? (
+                <div className="flex justify-center py-6">
+                    <div className="w-6 h-6 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+            ) : codes.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-sm">
+                    <Gift className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                    まだ紹介コードがありません
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    {codes.map(c => (
+                        <div key={c.id} className={`flex items-center gap-3 p-3 rounded-xl border ${c.is_active ? 'border-slate-200 bg-slate-50' : 'border-slate-100 bg-slate-50/50 opacity-50'}`}>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <span className="font-mono font-black text-rose-500 text-sm">{c.code}</span>
+                                    {!c.is_active && <span className="text-[10px] bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded font-bold">無効</span>}
+                                </div>
+                                <div className="flex items-center gap-3 mt-0.5 text-[11px] text-slate-400">
+                                    <span>使用 {c.uses}{c.max_uses ? `/${c.max_uses}` : ''} 回</span>
+                                    {c.expires_at && <span>期限 {c.expires_at.slice(0, 10)}</span>}
+                                    <span className="text-xs text-slate-400 truncate">{c.reward_message}</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                {c.is_active && (
+                                    <button onClick={() => handleCopy(c.code, c.id)}
+                                        className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:border-rose-300 transition-colors"
+                                        title="リンクをコピー">
+                                        {copiedId === c.id ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+                                    </button>
+                                )}
+                                {c.is_active && (
+                                    <button onClick={() => handleDeactivate(c.id)}
+                                        className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:border-red-300 hover:text-red-500 text-slate-400 transition-colors"
+                                        title="無効化">
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </section>
+    )
+}
+
+// ────────────────────────────────────────────────────
+// SPC-07 인사이트 미니 대시보드
+// ────────────────────────────────────────────────────
+function InsightsSection({ shop_id }) {
+    const [data, setData] = useState(null)
+    const [loading, setLoading] = useState(true)
+    const DAYS = 30
+
+    useEffect(() => {
+        const qs = `shop_id=${shop_id}&days=${DAYS}`
+        Promise.all([
+            adminApi.get(`/api/admin/insights/visitors?${qs}&days=14`),
+            adminApi.get(`/api/admin/insights/popular_menus?${qs}`),
+            adminApi.get(`/api/admin/insights/rescue_effect?${qs}`),
+            adminApi.get(`/api/admin/insights/neighborhood_avg?${qs}`),
+        ]).then(([v, m, r, n]) => {
+            setData({ visitors: v.data, menus: m.data, rescue: r.data, neighborhood: n.data })
+        }).catch(() => {}).finally(() => setLoading(false))
+    }, [shop_id])
+
+    if (loading) return (
+        <section className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6 flex items-center justify-center h-28">
+            <div className="w-6 h-6 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+        </section>
+    )
+    if (!data) return null
+
+    const { visitors, menus, rescue, neighborhood } = data
+
+    // ── 방문자 트렌드 미니 바차트 ──
+    const maxOrders = Math.max(...(visitors.data.map(d => d.orders)), 1)
+
+    // ── 마감 할인 효과 ──
+    const totalOrders = (rescue.rescue?.orders || 0) + (rescue.normal?.orders || 0)
+
+    return (
+        <section className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6 space-y-6">
+            <h3 className="font-black flex items-center gap-2 text-slate-900">
+                <BarChart2 className="w-5 h-5 text-rose-500" /> データインサイト
+                <span className="ml-auto text-xs font-normal text-slate-400">過去 {DAYS} 日間</span>
+            </h3>
+
+            {/* ── 주문 트렌드 (14일) ── */}
+            <div>
+                <p className="text-xs font-bold text-slate-500 mb-3 flex items-center gap-1">
+                    <TrendingUp className="w-3.5 h-3.5" /> 注文トレンド（過去14日）
+                </p>
+                <div className="flex items-end gap-1 h-16">
+                    {visitors.data.length === 0
+                        ? <p className="text-xs text-slate-400">データなし</p>
+                        : visitors.data.map((d, i) => (
+                            <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
+                                <div
+                                    className="w-full bg-rose-400 rounded-t transition-all"
+                                    style={{ height: `${Math.max(4, (d.orders / maxOrders) * 52)}px` }}
+                                />
+                                <span className="text-[9px] text-slate-400 leading-none">
+                                    {d.day.slice(5)}
+                                </span>
+                                <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                                    {d.orders}件
+                                </div>
+                            </div>
+                        ))
+                    }
+                </div>
+            </div>
+
+            {/* ── 인기 메뉴 Top 5 ── */}
+            <div>
+                <p className="text-xs font-bold text-slate-500 mb-3 flex items-center gap-1">
+                    <Star className="w-3.5 h-3.5" /> 人気メニュー Top {menus.items?.length || 0}（過去 {DAYS} 日）
+                </p>
+                {menus.items?.length === 0
+                    ? <p className="text-xs text-slate-400">データなし</p>
+                    : <div className="space-y-2">
+                        {menus.items.map((item, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                                <span className="text-xs font-black text-slate-400 w-4 shrink-0">{i + 1}</span>
+                                <span className="text-xs font-bold text-slate-700 flex-1 truncate">{item.name_jp || item.menu_item_id}</span>
+                                <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden shrink-0">
+                                    <div className="h-full bg-rose-400 rounded-full" style={{ width: `${item.pct}%` }} />
+                                </div>
+                                <span className="text-[10px] text-slate-500 w-8 text-right shrink-0">{item.qty}個</span>
+                            </div>
+                        ))}
+                    </div>
+                }
+            </div>
+
+            {/* ── 마감 할인 효果 + 동네 비교 — 2열 ── */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* 마감 할인 효과 */}
+                <div className="bg-orange-50 rounded-xl p-4 border border-orange-100">
+                    <p className="text-xs font-bold text-orange-600 mb-3 flex items-center gap-1">
+                        <Flame className="w-3.5 h-3.5" /> マグカル割引 効果
+                    </p>
+                    {totalOrders === 0
+                        ? <p className="text-xs text-slate-400">データなし</p>
+                        : <>
+                            <div className="flex justify-between text-xs mb-2">
+                                <span className="text-slate-600">割引あり注文</span>
+                                <span className="font-black text-orange-600">
+                                    {rescue.rescue.orders}件 ({rescue.rescue_pct}%)
+                                </span>
+                            </div>
+                            <div className="w-full h-2 bg-orange-100 rounded-full overflow-hidden mb-3">
+                                <div className="h-full bg-orange-400 rounded-full" style={{ width: `${rescue.rescue_pct}%` }} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-center">
+                                <div className="bg-white rounded-lg p-2">
+                                    <p className="text-[10px] text-slate-400">割引時 平均単価</p>
+                                    <p className="font-black text-sm text-orange-500">¥{Math.round(rescue.rescue.avg_amount).toLocaleString()}</p>
+                                </div>
+                                <div className="bg-white rounded-lg p-2">
+                                    <p className="text-[10px] text-slate-400">通常時 平均単価</p>
+                                    <p className="font-black text-sm text-slate-600">¥{Math.round(rescue.normal.avg_amount).toLocaleString()}</p>
+                                </div>
+                            </div>
+                        </>
+                    }
+                </div>
+
+                {/* 동네 평균 비교 */}
+                <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                    <p className="text-xs font-bold text-blue-600 mb-3 flex items-center gap-1">
+                        <Users className="w-3.5 h-3.5" /> エリア比較
+                    </p>
+                    {!neighborhood.neighborhood
+                        ? <p className="text-xs text-slate-400">{neighborhood.note}</p>
+                        : <>
+                            <p className="text-[10px] text-slate-400 mb-2">{neighborhood.note}</p>
+                            <div className="space-y-2">
+                                <div>
+                                    <div className="flex justify-between text-xs mb-1">
+                                        <span className="text-slate-600">自店舗 平均単価</span>
+                                        <span className="font-black text-blue-600">¥{Math.round(neighborhood.my.avg_amount).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-slate-500">エリア平均</span>
+                                        <span className="font-bold text-slate-500">¥{Math.round(neighborhood.neighborhood.avg_amount).toLocaleString()}</span>
+                                    </div>
+                                </div>
+                                <div className="pt-1 border-t border-blue-100 flex justify-between text-xs">
+                                    <span className="text-slate-600">自店舗 注文数</span>
+                                    <span className="font-black text-blue-600">{neighborhood.my.orders}件</span>
+                                </div>
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-slate-500">エリア平均 注文数</span>
+                                    <span className="font-bold text-slate-500">{neighborhood.neighborhood.orders_per_store}件/店</span>
+                                </div>
+                            </div>
+                        </>
+                    }
+                </div>
+            </div>
+        </section>
     )
 }
 

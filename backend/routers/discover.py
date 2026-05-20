@@ -2,7 +2,7 @@
 Public Discovery API — 업주가 동의한 가게/메뉴를 랭킹 형식으로 제공
 인증 불필요 (공개 API)
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -221,6 +221,105 @@ async def discover_stores(
     total = len(items)
     start = (page - 1) * limit
     return {"items": items[start: start + limit], "total": total, "page": page}
+
+
+@router.get("/nearby")
+async def discover_nearby(
+    lat: float = Query(..., description="현재 위도 (예: 35.3093)"),
+    lng: float = Query(..., description="현재 경도 (예: 138.9337)"),
+    radius: int = Query(800, ge=100, le=5000, description="검색 반경(m). 기본 800m = 도보 10분"),
+    food_rescue_only: bool = Query(False, description="마감 할인 진행 중 매장만"),
+    session: AsyncSession = Depends(get_session),
+):
+    """위경도 기준 반경 내 공개 매장 목록 (PostGIS ST_DWithin, 거리 오름차순, max 20).
+
+    food_rescue_only=true 시 food_rescue_manual_active=True 매장만 반환.
+    google_maps_url 필드로 외부 지도 링크 제공 (SDK 미사용, 0원).
+    """
+    if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+        raise HTTPException(status_code=422, detail="위경도 범위 초과")
+
+    food_rescue_clause = (
+        "AND s.food_rescue_manual_active = TRUE AND s.food_rescue_active = TRUE"
+        if food_rescue_only
+        else ""
+    )
+
+    sql = text(f"""
+        SELECT
+            s.id,
+            s.name,
+            s.slug,
+            s.category,
+            s.prefecture,
+            s.city,
+            s.address,
+            s.phone,
+            s.theme,
+            s.latitude,
+            s.longitude,
+            s.is_open,
+            s.food_rescue_active,
+            s.food_rescue_manual_active,
+            s.food_rescue_msg,
+            s.food_rescue_auto_minutes,
+            s.about_description,
+            s.specialty,
+            s.business_hours,
+            ST_Distance(
+                ST_MakePoint(s.longitude, s.latitude)::geography,
+                ST_MakePoint(:lng, :lat)::geography
+            ) AS distance_m
+        FROM store s
+        WHERE s.allow_public_listing = TRUE
+          AND s.latitude IS NOT NULL
+          AND s.longitude IS NOT NULL
+          AND ST_DWithin(
+              ST_MakePoint(s.longitude, s.latitude)::geography,
+              ST_MakePoint(:lng, :lat)::geography,
+              :radius
+          )
+          {food_rescue_clause}
+        ORDER BY distance_m ASC
+        LIMIT 20
+    """)
+
+    result = await session.execute(sql, {"lat": lat, "lng": lng, "radius": radius})
+    rows = result.mappings().all()
+
+    items = []
+    for r in rows:
+        items.append({
+            "store_id": r["id"],
+            "store_name": r["name"],
+            "slug": r["slug"],
+            "category": r["category"],
+            "prefecture": r["prefecture"],
+            "city": r["city"],
+            "address": r["address"],
+            "phone": r["phone"],
+            "theme": r["theme"],
+            "latitude": r["latitude"],
+            "longitude": r["longitude"],
+            "is_open": r["is_open"],
+            "food_rescue_active": r["food_rescue_active"],
+            "food_rescue_manual_active": r["food_rescue_manual_active"],
+            "food_rescue_msg": r["food_rescue_msg"],
+            "food_rescue_auto_minutes": r["food_rescue_auto_minutes"],
+            "about_description": r["about_description"],
+            "specialty": r["specialty"],
+            "business_hours": r["business_hours"],
+            "distance_m": round(float(r["distance_m"]), 1),
+            "google_maps_url": f"https://www.google.com/maps/?q={r['latitude']},{r['longitude']}",
+        })
+
+    return {
+        "items": items,
+        "total": len(items),
+        "center": {"lat": lat, "lng": lng},
+        "radius_m": radius,
+        "food_rescue_only": food_rescue_only,
+    }
 
 
 @router.get("/filters")

@@ -31,6 +31,7 @@ export default function AdminMenuRegisterView() {
         category: '',
         options: [], // e.g., [{group_name: 'Size', choices: [{name: 'Large', extra_price: 150}]}]
         is_takeout_available: false,
+        allergens: [],
     })
 
     // Highlight fields that were auto-translated to prompt manual review
@@ -320,7 +321,8 @@ export default function AdminMenuRegisterView() {
                 category: formData.category,
                 image_url: uploadedImageUrl || null,
                 is_takeout_available: formData.is_takeout_available,
-                options: JSON.stringify(formData.options.filter(g => g.group_name.trim() !== ''))
+                options: JSON.stringify(formData.options.filter(g => g.group_name.trim() !== '')),
+                allergens: JSON.stringify(formData.allergens),
             }
 
             // Other arbitrary dynamic languages go into extra_translations mapped string JSON
@@ -710,6 +712,54 @@ export default function AdminMenuRegisterView() {
                             </div>
                         ))}
                     </div>
+                </section>
+
+                {/* 2.5 アレルゲン情報 */}
+                <section className="bg-white rounded-xl p-6 shadow-sm border border-adminprimary/10">
+                    <div className="flex items-center gap-2 mb-4">
+                        <span className="text-lg">⚠️</span>
+                        <h3 className="font-bold text-lg">アレルゲン情報</h3>
+                        <span className="ml-auto text-[10px] text-slate-400 font-bold">任意 — 含まれる場合に選択</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {[
+                            { key: 'wheat',      label: '小麦',   emoji: '🌾' },
+                            { key: 'egg',        label: '卵',     emoji: '🥚' },
+                            { key: 'dairy',      label: '乳',     emoji: '🥛' },
+                            { key: 'buckwheat',  label: 'そば',   emoji: '🍜' },
+                            { key: 'peanut',     label: '落花生', emoji: '🥜' },
+                            { key: 'shrimp',     label: 'えび',   emoji: '🦐' },
+                            { key: 'crab',       label: 'かに',   emoji: '🦀' },
+                            { key: 'soybean',    label: '大豆',   emoji: '🫘' },
+                            { key: 'walnut',     label: 'くるみ', emoji: '🌰' },
+                            { key: 'beef',       label: '牛肉',   emoji: '🐄' },
+                            { key: 'pork',       label: '豚肉',   emoji: '🐷' },
+                            { key: 'chicken',    label: '鶏肉',   emoji: '🐔' },
+                            { key: 'sesame',     label: 'ごま',   emoji: '🌿' },
+                        ].map(({ key, label, emoji }) => {
+                            const active = formData.allergens.includes(key)
+                            return (
+                                <button key={key} type="button"
+                                    onClick={() => setFormData(prev => ({
+                                        ...prev,
+                                        allergens: active
+                                            ? prev.allergens.filter(a => a !== key)
+                                            : [...prev.allergens, key]
+                                    }))}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold border transition-all ${active
+                                        ? 'bg-red-500 text-white border-red-500 shadow-sm'
+                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-red-300 hover:text-red-400'}`}
+                                >
+                                    {emoji} {label}
+                                </button>
+                            )
+                        })}
+                    </div>
+                    {formData.allergens.length > 0 && (
+                        <p className="text-xs text-red-500 mt-3 font-bold">
+                            ⚠️ 含まれるアレルゲン: {formData.allergens.join(', ')}
+                        </p>
+                    )}
                 </section>
 
                 {/* 3. Final Action Tap */}

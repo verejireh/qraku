@@ -30,7 +30,7 @@
 
 | ID | 항목 | 비고 |
 |---|---|---|
-| OPR-01 | `ENCRYPTION_KEY` | (이전 사이클 carry) |
+| ~~OPR-01~~ | ~~`ENCRYPTION_KEY`~~ | ✅ DONE (2026-05-20, 새 Fernet 키 발급 + `.env` 갱신 + `qrorder` restart. 이전 평문 fallback 종료) |
 | OPR-02 | `VITE_LINE_LIFF_ID` | (이전 사이클 carry) |
 | OPR-03 | `FRONTEND_BASE_URL=https://qraku.com` | (이전 사이클 carry) |
 | OPR-04 | `VISION_API_KEY` (선택) | (이전 사이클 carry) |
@@ -42,8 +42,8 @@
 | ~~OPR-15~~ | ~~Google Maps API 키~~ | ❌ 제거 (SPC-04 v1.3 — SDK 미사용, 외부 링크 + Embed iframe 으로 0원) |
 | ~~OPR-16~~ | ~~Cloud SQL PostGIS 활성화~~ | ✅ DONE (2026-05-20, ilhae cloudsqlsuperuser 권한 + `CREATE EXTENSION postgis` 3.6.0. smoke test: Tokyo↔Gotemba 86km 정확) |
 | **OPR-17** | **VAPID 키 생성 (Web Push, SPC-06)** | `python -c "from py_vapid import Vapid; v=Vapid(); v.generate_keys(); print(v.public_key_to_str(), v.private_key_to_str())"` 또는 `npx web-push generate-vapid-keys` |
-| **OPR-18** | **운영 VM `.env` CRLF → LF 변환** | 2026-05-20 발견. `ssh ... 'sed -i "s/\r$//" ~/qr-order-system/backend/.env'`. `source` 시 줄 깨짐 + 변수 끝 `\r` 섞임. backend (`python-dotenv`) 는 영향 없지만 shell source 시 문제 |
-| **OPR-19** | **`ENCRYPTION_KEY` 회전 검토** | 2026-05-20 PostGIS 작업 중 채팅 1회 노출 (`.env` line 41 부근 `aT1Q_wsHbs...=`). 회전 시 기존 암호화 데이터 재암호화 마이그레이션 필요 — 무시 가능성 검토 |
+| ~~OPR-18~~ | ~~운영 VM `.env` CRLF → LF~~ | ✅ DONE (2026-05-20, `sed -i 's/\r$//'`. carriage returns 0 확인) |
+| ~~OPR-19~~ | ~~`ENCRYPTION_KEY` 회전 검토~~ | ✅ DONE (2026-05-20, OPR-01 과 동시 회전. 노출된 이전 키 폐기) |
 
 ---
 

@@ -193,6 +193,65 @@ export default function StorePublicView() {
     const frMinutes = Math.floor((timeLeft / 1000 / 60) % 60)
     const frSeconds = Math.floor((timeLeft / 1000) % 60)
 
+    // SPC-05: document head SEO — title / meta / og / JSON-LD (Restaurant schema)
+    useEffect(() => {
+        if (!store) return
+        const origin = window.location.origin
+        const storeUrl = `${origin}/${store.slug || shop_id}`
+        const desc = store.about_description || store.specialty
+            || `${store.name}${store.city ? ` — ${store.city}` : ''}`
+
+        document.title = `${store.name} | QRaku`
+        document.documentElement.lang = 'ja'
+
+        const upsert = (attr, value, content) => {
+            let el = document.querySelector(`meta[${attr}="${value}"]`)
+            if (!el) { el = document.createElement('meta'); el.setAttribute(attr, value); document.head.appendChild(el) }
+            el.content = content
+        }
+        upsert('name', 'description', desc)
+        upsert('property', 'og:title', store.name)
+        upsert('property', 'og:description', desc)
+        upsert('property', 'og:type', 'restaurant.restaurant')
+        upsert('property', 'og:url', storeUrl)
+        upsert('property', 'og:locale', 'ja_JP')
+
+        const ld = {
+            '@context': 'https://schema.org',
+            '@type': 'Restaurant',
+            name: store.name,
+            description: desc,
+            url: storeUrl,
+            ...(store.category && { servesCuisine: store.category }),
+            ...(store.address && {
+                address: {
+                    '@type': 'PostalAddress',
+                    streetAddress: store.address,
+                    addressLocality: store.city || '',
+                    addressRegion: store.prefecture || '',
+                    addressCountry: 'JP',
+                },
+            }),
+            ...(store.phone && { telephone: store.phone }),
+            ...(store.latitude && store.longitude && {
+                geo: { '@type': 'GeoCoordinates', latitude: store.latitude, longitude: store.longitude },
+            }),
+        }
+        let ldEl = document.getElementById('ld-json-store')
+        if (!ldEl) {
+            ldEl = document.createElement('script')
+            ldEl.id = 'ld-json-store'
+            ldEl.type = 'application/ld+json'
+            document.head.appendChild(ldEl)
+        }
+        ldEl.textContent = JSON.stringify(ld)
+
+        return () => {
+            document.title = 'QRaku'
+            document.getElementById('ld-json-store')?.remove()
+        }
+    }, [store, shop_id])
+
     const toggleGroup = (groupId) => {}
 
     // Photo Review Upload — LIFF 로그인 필수 (line: 접두사 guest_uuid 만 허용)

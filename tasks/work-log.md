@@ -444,3 +444,27 @@ DiscoverView 에 "近くのお店" 모드 추가. 브라우저 Geolocation → S
 - [x] 거리/할인 필터 UI
 - [x] `google_maps_url` 외부 링크 (SDK 미사용, 0원)
 - [x] 기존 ランキングモード 정상 유지
+
+---
+
+## 2026-05-20 — SPC-05 SEO + SPC-06 PWA
+
+### SPC-05 — 미니홈피 SEO 강화
+
+| 파일 | 변경 내용 |
+|---|---|
+| `frontend-react/src/views/StorePublicView.jsx` | `useEffect` 추가 — store 로드 시 `document.title`, `meta[description]`, OG 태그 5개, JSON-LD Restaurant 스키마 (`<script id="ld-json-store">`) 동적 주입. unmount 시 cleanup. |
+| `backend/routers/seo.py` | 신규. `GET /sitemap.xml` (공개 매장 전체 URL 목록, XML) + `GET /robots.txt`. `FRONTEND_BASE_URL` env 기반. |
+| `backend/main.py` | `seo.router` 등록 (`/api` prefix 없이 root-level). |
+
+**JSON-LD 필드**: name, description, url, servesCuisine, address (PostalAddress), telephone, geo (GeoCoordinates).
+
+### SPC-06 — PWA 설치 가능화
+
+| 파일 | 변경 내용 |
+|---|---|
+| `frontend-react/public/manifest.json` | 신규. name/short_name/icons/theme_color/start_url/display/lang. |
+| `frontend-react/public/sw.js` | 신규. Cache-first (정적 자산) + Network-first (API/WS 제외). install/activate/fetch 3 lifecycle. |
+| `frontend-react/index.html` | `<link rel="manifest">` + SW 등록 스크립트 추가. |
+
+**참고**: 푸시 알림 (Web Push) 은 VAPID 키 발급 (OPR-17) 후 SPC-06 후속으로 추가 예정.

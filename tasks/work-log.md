@@ -513,3 +513,26 @@ DiscoverView 에 "近くのお店" 모드 추가. 브라우저 Geolocation → S
 - 보상은 `reward_message` 텍스트만 표시 (실제 할인 자동 적용은 SPC-10 후속). 사장님이 수동으로 확인 가능.
 - 중복 클레임 방지: `(code, claimer_id)` unique 체크
 - 공유 링크: `/{shop_id}?ref={CODE}` → StorePublicView 가 자동 pre-fill
+
+---
+
+## 2026-05-20 — SPC 사이클 아카이브 + DBM-13 MySQL 의존 코드 정리
+
+### SPC 사이클 아카이브
+
+- `tasks/archive/2026-05-spc-cycle.md` 신규 (SPC-01~11 카드 요약, API/모델 변경표)
+- `tasks/current-tasks.md` 슬림화 — SPC 카드 정의 전체 제거, DBM-13/OPS-04 + OPR 살아있는 항목만 유지
+
+### DBM-13 코드 작업 완료
+
+**변경 파일**:
+
+| 파일 | 변경 내용 |
+|---|---|
+| `pyproject.toml` | `aiomysql`, `pymysql` 의존 제거 |
+| `backend/database.py` | `_ensure_ansi_quotes()` 함수 + 호출 제거. MySQL MODIFY COLUMN 4행 제거 (table.status ×2, order.table_number, guestprofile.created_at). `IGNORED_MIGRATION_ERRORS` PG 전용으로 축소. 엔진 주석 "MySQL / PG 호환" → "PostgreSQL 전용". init_db docstring + 최종 print 메시지 PG 전용으로 수정. |
+| `backend/utils/db.py` | MySQL `mysql+aiomysql://` → `mysql+pymysql://` 분기 제거. asyncpg → psycopg2 변환만 유지. |
+
+**잔여 (운영자 작업)**:
+- D+7 (2026-05-26): `sudo systemctl stop mysql && sudo systemctl disable mysql`
+- D+14 (2026-06-02): `sudo apt-get purge mysql-server mysql-client && rm -rf /var/lib/mysql`

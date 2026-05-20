@@ -48,11 +48,11 @@
 | STB-00 | feature/qraku-specialize 머지 + 부팅 smoke | — | 🔴 P0 | 운영자/claude | ✅ DONE (2026-05-21, STB-08a 핫픽스 1건) |
 | STB-01 | 회귀 위험 영역 매핑 + 검증 우선순위 정의 | A | 🔴 P0 | **opus** | ✅ DONE (2026-05-21, [`stb-spec.md`](./stb-spec.md)) |
 | STB-02 | Playwright 환경 셋업 + 골든패스 #1 (손님 QR→주문→Square 결제→영수증) | B | 🔴 P0 | **sonnet** | ✅ DONE (2026-05-21, `playwright.config.js` + `tests/e2e/`) |
-| STB-03 | 골든패스 #2 — 사장님 admin (로그인→메뉴 CRUD→Settings 토글) | B | 🔴 P0 | **sonnet** | TODO |
-| STB-04 | 골든패스 #3 — 스태프 register→테이크아웃→KDS WebSocket | B | 🔴 P0 | **sonnet** | TODO |
-| STB-05 | 골든패스 #4 — SPC 통합 (nearby API → 미니홈피 → 다국어 ja/en/ko/zh) | C | 🟠 P1 | **sonnet** | TODO |
-| STB-06 | PG 쿼리 성능 회귀 점검 (slow query + EXPLAIN ANALYZE 핵심 엔드포인트) | C | 🟠 P1 | **postgres-specialist** | TODO |
-| STB-07 | 데이터 일관성 자동 스캐너 (ENUM/JSON/datetime invalid 값 검출) | D | 🟡 P2 | **sonnet** | TODO |
+| STB-03 | 골든패스 #2 — 사장님 admin (로그인→메뉴 CRUD→Settings 토글) | B | 🔴 P0 | **sonnet** | ✅ DONE (2026-05-21, `golden-admin-crud.spec.js`) |
+| STB-04 | 골든패스 #3 — 스태프 register→테이크아웃→KDS WebSocket | B | 🔴 P0 | **sonnet** | ✅ DONE (2026-05-21, `golden-staff-takeout-kds.spec.js`) |
+| STB-05 | 골든패스 #4 — SPC 통합 (nearby API → 미니홈피 → 다국어 ja/en/ko/zh) | C | 🟠 P1 | **sonnet** | ✅ DONE (2026-05-21, `golden-spc-integration.spec.js`) |
+| STB-06 | PG 쿼리 성능 회귀 점검 (slow query + EXPLAIN ANALYZE 핵심 엔드포인트) | C | 🟠 P1 | **postgres-specialist** | ✅ DONE (2026-05-21, `tools/pg_query_audit.py`) |
+| STB-07 | 데이터 일관성 자동 스캐너 (ENUM/JSON/datetime invalid 값 검출) | D | 🟡 P2 | **sonnet** | ✅ DONE (2026-05-21, `tools/data_consistency_audit.py`) |
 | STB-08 | 핫픽스 슬롯 (STB-02~07 진행 중 발견된 버그 동적 추가) | — | 동적 | sonnet | OPEN — 1건 발견 (STB-08a ✅) |
 
 ### Phase 분할 + 시간

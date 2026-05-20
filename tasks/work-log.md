@@ -46,6 +46,43 @@ SPC-08 가 단독 PR 머지 시점에 build 검증을 안 거쳤음. STB-02 (Pla
 
 ---
 
+## 2026-05-21 — STB-03~07 병렬 구현 완료
+
+### 산출물
+
+| 카드 | 파일 | 핵심 |
+|---|---|---|
+| STB-03 | `tests/e2e/golden-admin-crud.spec.js` | 로그인→메뉴생성(allergens+stock)→가격수정→S-3 API검증→allow_public_listing→SettingView |
+| STB-04 | `tests/e2e/golden-staff-takeout-kds.spec.js` | 마스터PIN설정→register→테이크아웃→현금→픽업코드→KDS WS broadcast |
+| STB-05 | `tests/e2e/golden-spc-integration.spec.js` | nearby API→미니홈피→언어4개전환→JSON-LD→referral claim (S-4 미적용 명시) |
+| STB-06 | `tools/pg_query_audit.py` | 6 endpoint × 50 rep, p50/p95 측정, httpx/urllib 폴백 |
+| STB-07 | `tools/data_consistency_audit.py` | ENUM/JSON/datetime/FK/NOT NULL 5카테고리, psycopg2, JSON 출력 옵션 |
+
+헬퍼 추가:
+- `helpers/auth.js`: adminLogin + setMasterPin + masterPinLogin
+- `helpers/geolocation.js`: mockGeolocation + setStoreLocation (PATCH /api/stores)
+
+### 검증
+
+```
+npx playwright test --list → 20 tests in 4 files
+python ast.parse → pg_query_audit.py + data_consistency_audit.py syntax OK
+```
+
+### 커밋
+
+`6298037` — `feat(STB-03~07): 골든패스 #2~4 Playwright + PG 감사 도구 병렬 구현`
+
+### STB 사이클 종료 조건 상태
+
+- [x] STB-02~05 골든패스 파일 작성 완료 (실행은 Square Sandbox + 백엔드 가동 시)
+- [x] STB-06 성능 감사 도구 완성
+- [x] STB-07 데이터 일관성 스캐너 완성
+- [x] STB-08a 핫픽스 완료
+- [ ] CI hook: `npm run build` pre-merge gate 등록 (선택 권고 — 운영자 작업)
+
+---
+
 ## 2026-05-21 — STB-02 Playwright 환경 셋업 + 골든패스 #1
 
 ### 산출물

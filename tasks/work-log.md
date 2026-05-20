@@ -370,3 +370,39 @@ GET /api/public/discover/nearby
 - [x] `food_rescue_only=true` 필터 지원
 - [x] GIST 함수형 인덱스 마이그레이션 추가
 - [x] 모델 변경 없음 (기존 latitude/longitude 재활용)
+
+---
+
+## 2026-05-20 — SPC-11 SettingView 毎日運営 탭
+
+### 개요
+
+SettingView 에 "毎日運営" 탭 신설. 매장 ON/OFF 와 마감 할인 수동 토글을 물리적으로 분리된 카드에 배치. RegisterView 헤더의 중복 버튼 + 관련 state/handler/modal 제거.
+
+### 변경 파일
+
+| 파일 | 변경 내용 |
+|---|---|
+| `frontend-react/src/views/SettingView.jsx` | `DailyOpsTab` 컴포넌트 신규. TABS 배열 앞에 `毎日運営` 탭 추가. 기본 탭 변경 (`staff` → `daily`). |
+| `frontend-react/src/views/RegisterView.jsx` | 헤더 영업 ON/OFF 버튼 + タイムセール 버튼 제거. 관련 state 4개 + handler 4개 + modal 2개 제거. |
+
+### DailyOpsTab 기능
+
+- **카드 1 — 영업 ON/OFF**: 
+  - `is_open=True` → 빨강 "営業を終了する" 버튼 + 확인 모달
+  - `is_open=False` → 초록 "営業を開始する" 버튼 (즉시)
+  - `PATCH /api/stores/{id}/business-status`
+
+- **카드 2 — 마감 할인**:
+  - `food_rescue_active=False` → 비활성 안내 + Admin 링크
+  - `food_rescue_mode='auto'` → disabled (자동 모드) + 안내 텍스트 + Admin 링크
+  - 수동 모드: 주황 "割引を開始する" ↔ 회색 "割引を停止する"
+  - `PATCH /api/stores/{id}/food-rescue-status`
+
+### 수용 기준 체크 (PR-03 확정 사항)
+
+- [x] 신규 탭 "毎日運営" 추가 (탭 순서: 毎日運営 → 勤務管理 → 品切れ管理 → 食べ放題)
+- [x] 두 버튼 상하 분리 (별도 카드)
+- [x] 색상 차별화 (매장 ON/OFF = 초록/빨강, 마감 할인 = 주황/회색)
+- [x] auto 모드 disabled + admin 페이지 링크
+- [x] RegisterView 중복 토글 제거 (4 state + 4 handler + 2 modal)

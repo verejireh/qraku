@@ -451,9 +451,235 @@ function TabehoudaiTab({ shop_id }) {
     )
 }
 
+// ── 毎日運営タブ ──────────────────────────────────────────────────────────────
+function DailyOpsTab({ shop_id }) {
+    const [store, setStore] = useState(null)
+    const [loading, setLoading] = useState(true)
+    const [openBusy, setOpenBusy] = useState(false)
+    const [rescueBusy, setRescueBusy] = useState(false)
+    const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+
+    const fetchStore = async () => {
+        try {
+            const res = await axios.get(`/api/stores/${shop_id}`)
+            setStore(res.data?.data || res.data)
+        } catch (e) {
+            console.error(e)
+        }
+        setLoading(false)
+    }
+
+    useEffect(() => { fetchStore() }, [shop_id])
+
+    const toggleOpen = async (newVal) => {
+        setOpenBusy(true)
+        try {
+            await adminApi.patch(`/api/stores/${store.id}/business-status`, { is_open: newVal })
+            setStore(prev => ({ ...prev, is_open: newVal }))
+        } catch (e) {
+            alert('変更に失敗しました: ' + (e.response?.data?.detail || e.message))
+        }
+        setOpenBusy(false)
+        setShowCloseConfirm(false)
+    }
+
+    const toggleRescue = async () => {
+        const newVal = !store.food_rescue_manual_active
+        setRescueBusy(true)
+        setStore(prev => ({ ...prev, food_rescue_manual_active: newVal }))
+        try {
+            await adminApi.patch(`/api/stores/${store.id}/food-rescue-status`, {
+                food_rescue_manual_active: newVal
+            })
+        } catch (e) {
+            setStore(prev => ({ ...prev, food_rescue_manual_active: !newVal }))
+            alert('変更に失敗しました: ' + (e.response?.data?.detail || e.message))
+        }
+        setRescueBusy(false)
+    }
+
+    if (loading) return (
+        <div className="flex items-center justify-center py-20">
+            <div className="w-8 h-8 border-4 border-[#b80035]/20 border-t-[#b80035] rounded-full animate-spin" />
+        </div>
+    )
+    if (!store) return null
+
+    const isAutoMode = store.food_rescue_mode === 'auto'
+    const rescueDisabled = !store.food_rescue_active || isAutoMode
+
+    return (
+        <>
+            <div className="space-y-4">
+                {/* ── 営業 ON/OFF ─────────────────────────────── */}
+                <div className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden">
+                    <div className="px-5 py-3 bg-stone-50 border-b border-stone-100 flex items-center gap-2">
+                        <Icon name="storefront" className="text-[18px] text-stone-500" />
+                        <span className="text-xs font-black text-stone-500 uppercase tracking-wider">営業ステータス</span>
+                    </div>
+                    <div className="p-5">
+                        <div className="flex items-center justify-between mb-4">
+                            <div>
+                                <p className="font-bold text-[#1b1b1d]">
+                                    {store.is_open ? '現在 営業中' : '現在 閉店中'}
+                                </p>
+                                <p className="text-xs text-stone-400 mt-0.5">
+                                    {store.is_open
+                                        ? 'お客様がカートに追加・注文できます'
+                                        : '注文受付が停止中です'}
+                                </p>
+                            </div>
+                            <span className={`text-[11px] font-black px-3 py-1.5 rounded-full ${
+                                store.is_open ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
+                            }`}>
+                                {store.is_open ? 'OPEN' : 'CLOSED'}
+                            </span>
+                        </div>
+                        {store.is_open ? (
+                            <button
+                                onClick={() => setShowCloseConfirm(true)}
+                                disabled={openBusy}
+                                className="w-full py-4 rounded-xl bg-red-500 hover:bg-red-600 text-white font-black text-base transition-colors shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                <Icon name="store" className="!text-xl" />
+                                {openBusy ? '処理中...' : '営業を終了する'}
+                            </button>
+                        ) : (
+                            <button
+                                onClick={() => toggleOpen(true)}
+                                disabled={openBusy}
+                                className="w-full py-4 rounded-xl bg-green-500 hover:bg-green-600 text-white font-black text-base transition-colors shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                <Icon name="play_arrow" className="!text-xl" />
+                                {openBusy ? '処理中...' : '営業を開始する'}
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* ── マグカル割引 (フードレスキュー) ─────────── */}
+                <div className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden">
+                    <div className="px-5 py-3 bg-stone-50 border-b border-stone-100 flex items-center gap-2">
+                        <span className="text-[18px]">🔥</span>
+                        <span className="text-xs font-black text-stone-500 uppercase tracking-wider">マグカル割引 (フードレスキュー)</span>
+                    </div>
+                    <div className="p-5">
+                        {!store.food_rescue_active ? (
+                            <div className="text-center space-y-3">
+                                <p className="text-sm text-stone-500">フードレスキューが無効です</p>
+                                <p className="text-xs text-stone-400">先に管理画面で有効にしてください</p>
+                                <a href={`/${shop_id}/admin`}
+                                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-lg text-xs transition-colors">
+                                    <Icon name="settings" className="!text-base" />Admin設定へ
+                                </a>
+                            </div>
+                        ) : isAutoMode ? (
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="font-bold text-stone-400">自動モード有効中</p>
+                                        <p className="text-xs text-stone-400 mt-0.5">
+                                            閉店 {store.food_rescue_auto_minutes}分前に自動でONになります
+                                        </p>
+                                    </div>
+                                    <span className="text-[11px] font-black px-3 py-1.5 rounded-full bg-stone-100 text-stone-400">AUTO</span>
+                                </div>
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+                                    自動モードは手動操作できません。<br />
+                                    変更するには{' '}
+                                    <a href={`/${shop_id}/admin`} className="font-bold underline">Admin設定</a>
+                                    {' '}でモードを切り替えてください。
+                                </div>
+                                <button
+                                    disabled
+                                    className="w-full py-4 rounded-xl bg-stone-100 text-stone-400 font-black text-base cursor-not-allowed flex items-center justify-center gap-2"
+                                >
+                                    <Icon name="lock" className="!text-xl" />
+                                    手動操作 無効 (自動モード)
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="font-bold text-[#1b1b1d]">
+                                            {store.food_rescue_manual_active ? '割引 実施中' : '割引 停止中'}
+                                        </p>
+                                        <p className="text-xs text-stone-400 mt-0.5">
+                                            {store.food_rescue_manual_active
+                                                ? '発見ページに「マグカル割引」が表示されています'
+                                                : 'タップしてタイムセールを開始'}
+                                        </p>
+                                    </div>
+                                    <span className={`text-[11px] font-black px-3 py-1.5 rounded-full ${
+                                        store.food_rescue_manual_active
+                                            ? 'bg-orange-100 text-orange-700'
+                                            : 'bg-stone-100 text-stone-400'
+                                    }`}>
+                                        {store.food_rescue_manual_active ? 'ON' : 'OFF'}
+                                    </span>
+                                </div>
+                                <button
+                                    onClick={toggleRescue}
+                                    disabled={rescueBusy}
+                                    className={`w-full py-4 rounded-xl font-black text-base transition-colors shadow-md disabled:opacity-50 flex items-center justify-center gap-2 ${
+                                        store.food_rescue_manual_active
+                                            ? 'bg-stone-400 hover:bg-stone-500 text-white'
+                                            : 'bg-orange-500 hover:bg-orange-600 text-white'
+                                    }`}
+                                >
+                                    <span className="text-xl">🔥</span>
+                                    {rescueBusy ? '処理中...'
+                                        : store.food_rescue_manual_active ? '割引を停止する' : '割引を開始する'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* ── 営業終了 確認モーダル ── */}
+            {showCloseConfirm && (
+                <div className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+                    onClick={() => setShowCloseConfirm(false)}>
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center">
+                                <Icon name="warning" className="!text-3xl text-amber-500" />
+                            </div>
+                            <div>
+                                <h3 className="font-black text-lg text-stone-800">営業を終了しますか？</h3>
+                                <p className="text-xs text-stone-500 mt-0.5">本当によろしいですか？</p>
+                            </div>
+                        </div>
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 leading-relaxed mb-5">
+                            <ul className="list-disc list-inside space-y-1">
+                                <li>テイクアウトの注文受付が停止します</li>
+                                <li>お客様の「カートに追加」ボタンが無効になります</li>
+                                <li>後で「営業開始」を押せば再開できます</li>
+                            </ul>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => setShowCloseConfirm(false)}
+                                className="flex-1 py-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-sm transition-colors">
+                                キャンセル
+                            </button>
+                            <button onClick={() => toggleOpen(false)} disabled={openBusy}
+                                className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold text-sm transition-colors shadow-md disabled:opacity-50">
+                                {openBusy ? '処理中...' : '営業終了'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
+    )
+}
+
 // ── メインコンポーネント ───────────────────────────────────────────────────────
 const TABS = [
-    { key: 'staff', label: 'スタッフ勤務', icon: 'badge' },
+    { key: 'daily', label: '毎日運営', icon: 'storefront' },
+    { key: 'staff', label: '勤務管理', icon: 'badge' },
     { key: 'soldout', label: '品切れ管理', icon: 'remove_shopping_cart' },
     { key: 'tabehoudai', label: '食べ放題', icon: 'restaurant' },
 ]
@@ -461,7 +687,7 @@ const TABS = [
 export default function SettingView() {
     const { shop_id } = useParams()
     const navigate = useNavigate()
-    const [activeTab, setActiveTab] = useState('staff')
+    const [activeTab, setActiveTab] = useState('daily')
     const [storeInfo, setStoreInfo] = useState(null)
     const [now, setNow] = useState(new Date())
 
@@ -522,6 +748,7 @@ export default function SettingView() {
                 {/* ═══ Content ═══ */}
                 <div className="flex-1 overflow-y-auto p-4 pb-24 lg:pb-4">
                     <div className="max-w-2xl mx-auto">
+                        {activeTab === 'daily' && <DailyOpsTab shop_id={shop_id} />}
                         {activeTab === 'staff' && <StaffDutyTab shop_id={shop_id} />}
                         {activeTab === 'soldout' && <SoldOutTab shop_id={shop_id} />}
                         {activeTab === 'tabehoudai' && <TabehoudaiTab shop_id={shop_id} />}

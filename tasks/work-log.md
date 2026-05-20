@@ -8,6 +8,44 @@
 
 ---
 
+## 2026-05-21 — STB-00 머지 + smoke + 첫 핫픽스
+
+### 머지
+
+`feature/qraku-specialize` (마지막 커밋 `9c13aa7` + `36ec7c7` + `8c56465`) 를 stabilize 위에 머지 (`d30685e`). 충돌 1건: `tasks/current-tasks.md` — stabilize 측 보존 (STB 보드 권위).
+
+### Backend smoke
+
+- `uv sync` exit 0 (aiomysql/pymysql 제거 확인됨)
+- `uv run python -m compileall backend/` exit 0 (전 파일 syntax OK)
+- `database.py` 모듈 import 성공 — DATABASE_URL 미설정 시 `sys.exit(1)` 의도된 동작
+
+### Frontend smoke — 회귀 발견 + 핫픽스
+
+`npm run build` **실패**:
+
+```
+MenuManagementView.jsx:558:30: Unexpected closing "div" tag does not match opening "motion.div" tag
+MenuManagementView.jsx:570:33: Unterminated regular expression
+```
+
+**원인**: SPC-08 (`5fd7664`) 알레르기 칩 픽커 패치가 `<div className="p-6 space-y-4">` 의 닫는 태그 (라인 528) **뒤에** 삽입됨. 결과로 알레르기 블록이 form body 밖에 위치 + orphan `</div>` 발생.
+
+**핫픽스 (STB-08a)**: `MenuManagementView.jsx` 라인 528 의 잉여 `</div>` 1줄 제거. 알레르기 블록이 의도된 위치 (form body 안) 로 복귀.
+
+### Re-build 결과
+
+- 2288 modules transformed
+- dist/index-DibqlMoN.js 1.52MB (gzip 398KB)
+- chunk size warning (1MB+) — 본 사이클 OUT-OF-SCOPE
+- exit 0 ✅
+
+### 교훈
+
+SPC-08 가 단독 PR 머지 시점에 build 검증을 안 거쳤음. STB-02 (Playwright 환경) 셋업 시 CI hook 으로 `npm run build` 추가 권장 — pre-merge gate.
+
+---
+
 ## 2026-05-19 — PG 컷오버 + qraku-specialize 코드 감사
 
 ### DBM-12 F-2 운영 컷오버 완료 🎉

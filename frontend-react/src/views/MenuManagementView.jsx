@@ -525,7 +525,6 @@ export default function MenuManagementView() {
                                         </select>
                                     </div>
                                 </div>
-                            </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">⚠️ アレルゲン</label>
                                     <div className="flex flex-wrap gap-1.5">

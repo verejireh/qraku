@@ -46,6 +46,54 @@ SPC-08 가 단독 PR 머지 시점에 build 검증을 안 거쳤음. STB-02 (Pla
 
 ---
 
+## 2026-05-21 — STB-02 Playwright 환경 셋업 + 골든패스 #1
+
+### 산출물
+
+Playwright 환경 완전 셋업. 파일 3개 신규:
+
+| 파일 | 역할 |
+|---|---|
+| `frontend-react/playwright.config.js` | chromium + webkit dual, webServer (Vite :5173), `fullyParallel: false` (WS 간섭 방지) |
+| `frontend-react/tests/e2e/helpers/seed.js` | 테스트 격리 시드 — `POST /api/stores/signup` → table → menu |
+| `frontend-react/tests/e2e/golden-customer-order.spec.js` | 시나리오 #1 (6단계) + C-1 idempotency-key 보완 테스트 |
+
+`package.json` scripts 추가: `test:e2e`, `test:e2e:ui`, `test:e2e:report`.
+
+### 검증
+
+```
+npx playwright test --list → 4 tests (2 시나리오 × 2 브라우저)
+npx playwright test --project chromium → 2 skipped (Square Sandbox 미설정 — 의도된 skip)
+exit 0 ✅
+```
+
+### 시나리오 구조
+
+**메인 테스트** — `손님 주문부터 영수증 + KDS WS broadcast`:
+1. KDS 별도 컨텍스트 미리 열기 → WS 프레임 수신 리스너 등록
+2. `/{slug}/table/1/menu` 진입 + 메뉴 카드 렌더 확인
+3. 카드 클릭 → 카트 추가 → 카트 배지 ≥ 1 확인
+4. 카트 모달 → 합계 표시 → Checkout 진행
+5. Square iframe (필드별 별도 iframe) 카드 입력 (`4111 1111 1111 1111`)
+6. 결제 → `/receipt/{id}` 리디렉트 → `payment_status='paid'` API 확인
+7. KDS 주문 카드 등장 확인 (WS 또는 HTTP poll)
+
+**C-1 보완 테스트** — 동일 idempotency-key 2회 POST → 중복 주문 차단 확인.
+
+### Skip 조건
+
+```
+SQUARE_APP_ID / SQUARE_LOCATION_ID / SQUARE_ACCESS_TOKEN 미설정 → 자동 skip
+백엔드 :8003 healthz 실패 → 자동 skip
+```
+
+### 후속 카드
+
+**STB-03, 04, 05** — Playwright 환경 재사용. `seed.js` 확장만 필요.
+
+---
+
 ## 2026-05-21 — STB-01 명세 작성 완료
 
 ### 산출물

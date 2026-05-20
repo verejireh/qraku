@@ -322,3 +322,51 @@ crontab -e
 ```
 
 또는 `food_rescue_check.send()` 를 외부 cron/APScheduler 로 주기 호출.
+
+---
+
+## 2026-05-20 — SPC-03 위경도 nearby API
+
+### 개요
+
+PostGIS `ST_DWithin` + `ST_Distance` 를 사용하는 `GET /public/discover/nearby` 엔드포인트 추가. 기존 `Store.latitude`/`Store.longitude` 필드 재활용 (모델 변경 없음). 함수형 GIST 인덱스 마이그레이션 추가.
+
+### 변경 파일
+
+| 파일 | 변경 내용 |
+|---|---|
+| `backend/routers/discover.py` | `GET /public/discover/nearby` 엔드포인트 신규 추가. |
+| `backend/database.py` | `CREATE INDEX USING GIST ((ST_MakePoint(longitude, latitude)::geography))` 마이그레이션 추가. |
+
+### API 명세
+
+```
+GET /api/public/discover/nearby
+  ?lat=35.3093   # 현재 위도 (필수)
+  &lng=138.9337  # 현재 경도 (필수)
+  &radius=800    # 반경(m), 기본 800m = 도보 10분, max 5000m
+  &food_rescue_only=false  # true: 마감 할인 진행 중 매장만
+
+응답:
+{
+  "items": [{
+    "store_id", "store_name", "slug", "category", "prefecture", "city",
+    "address", "phone", "theme", "latitude", "longitude",
+    "is_open", "food_rescue_active", "food_rescue_manual_active", "food_rescue_msg",
+    "food_rescue_auto_minutes", "about_description", "specialty", "business_hours",
+    "distance_m",           ← 미터 단위 거리 (소수점 1자리)
+    "google_maps_url"       ← "https://www.google.com/maps/?q={lat},{lng}" (SDK 0원)
+  }],
+  "total", "center", "radius_m", "food_rescue_only"
+}
+```
+
+### 수용 기준 체크
+
+- [x] `GET /public/discover/nearby` 등록 (라우터 prefix: `/api/public/discover`)
+- [x] PostGIS `ST_DWithin` 거리 필터 (radius 기본 800m)
+- [x] 거리 오름차순, max 20 결과
+- [x] `google_maps_url` 필드 포함
+- [x] `food_rescue_only=true` 필터 지원
+- [x] GIST 함수형 인덱스 마이그레이션 추가
+- [x] 모델 변경 없음 (기존 latitude/longitude 재활용)

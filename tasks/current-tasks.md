@@ -68,7 +68,7 @@
 |---|---|---|---|---|---|
 | SPC-01 | qraku-specialize 기능 명세 + 사용자 흐름 | A | 🔴 P0 | **opus** | ✅ DONE (2026-05-20, [`spc-spec.md`](./spc-spec.md)) |
 | SPC-02 | 마감 할인 서버 자동화 (Dramatiq scheduled actor) | B | 🔴 P0 | **sonnet** | ✅ DONE (2026-05-20) |
-| SPC-03 | 위경도 검색 API (`/api/discover/nearby`, PostGIS or haversine) | B | 🔴 P0 | **sonnet** | TODO |
+| SPC-03 | 위경도 검색 API (`/api/discover/nearby`, PostGIS or haversine) | B | 🔴 P0 | **sonnet** | ✅ DONE (2026-05-20) |
 | SPC-04 | 디스커버 페이지 — 지도 + 위치 요청 + 거리/할인 필터 UI | C | 🔴 P0 | **sonnet** | TODO |
 | SPC-05 | 미니홈피 SEO 강화 — JSON-LD Restaurant schema + sitemap.xml + meta tags | C | 🟠 P1 | **sonnet** | TODO |
 | SPC-06 | PWA 설치 가능화 — manifest.json + service worker + 푸시 알림 | C | 🟠 P1 | **sonnet** | TODO |

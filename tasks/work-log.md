@@ -280,3 +280,45 @@ OPR-16 작업 중 발견된 `.env` 파일 위생 문제 일괄 해소.
 
 - 평문으로 저장된 기존 시크릿 (Square access/refresh token, master_pin 등) 의 자동 암호화 마이그레이션 — backend 가 next save 시 자동 암호화하므로 admin 에서 각 매장 토큰 재저장 한번씩 하면 해소. 또는 일괄 마이그레이션 스크립트.
 - 50개 식당 출시 전 시점에 점검 권장.
+
+---
+
+## 2026-05-20 — SPC-02 마감 할인 서버 자동화
+
+### 개요
+
+Dramatiq scheduled actor 로 `food_rescue_mode='auto'` 매장의 `food_rescue_manual_active` 를 close_at 기준으로 자동 갱신. `is_open` 은 절대 건드리지 않음.
+
+### 변경 파일
+
+| 파일 | 변경 내용 |
+|---|---|
+| `backend/utils/business_hours.py` | `get_close_time_today(store, now)` 추가. PR-04 옵션 A (자정 넘김 = 익일) 적용. |
+| `backend/workers/food_rescue_scheduler.py` | 신규. `@dramatiq.actor` `food_rescue_check`. cron `*/5 * * * *` 등록용. |
+| `backend/workers/__init__.py` | `food_rescue_scheduler` import 등록 (actor 브로커 등록). |
+| `backend/test_business_hours.py` | 단위 테스트 7 케이스. 전체 PASS 확인. |
+
+### 알고리즘
+
+1. JST now → `get_close_time_today(store, now)` → `close_dt`
+2. `minutes_until_close = (close_dt − now).total_seconds() / 60`
+3. `should_be_active = 0 < minutes_until_close <= store.food_rescue_auto_minutes`
+4. 변경된 매장만 bulk UPDATE + Redis pub/sub WS broadcast (`food_rescue:{store_id}`)
+
+### 수용 기준 체크
+
+- [x] Dramatiq actor `food_rescue_check` 등록
+- [x] 매 5분 cron 주석 명시
+- [x] 영업 시간 + auto_minutes 비교 정확 (자정 넘김 포함)
+- [x] WebSocket broadcast (`FOOD_RESCUE_CHANGED`) 동작
+- [x] 단위 테스트 7 케이스 모두 PASS
+
+### 운영 VM cron 등록 방법 (OPS 메모)
+
+```bash
+crontab -e
+# 추가:
+*/5 * * * * cd ~/qr-order-system && .venv/bin/python -m dramatiq backend.workers --processes 1 --threads 1 --path . 2>> ~/dramatiq-food-rescue.log
+```
+
+또는 `food_rescue_check.send()` 를 외부 cron/APScheduler 로 주기 호출.

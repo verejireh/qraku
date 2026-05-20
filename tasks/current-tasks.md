@@ -46,7 +46,7 @@
 | ID | 제목 | Phase | P | 모델 | 상태 |
 |---|---|---|---|---|---|
 | STB-00 | feature/qraku-specialize 머지 + 부팅 smoke | — | 🔴 P0 | 운영자/claude | ✅ DONE (2026-05-21, STB-08a 핫픽스 1건) |
-| STB-01 | 회귀 위험 영역 매핑 + 검증 우선순위 정의 | A | 🔴 P0 | **opus** | TODO |
+| STB-01 | 회귀 위험 영역 매핑 + 검증 우선순위 정의 | A | 🔴 P0 | **opus** | ✅ DONE (2026-05-21, [`stb-spec.md`](./stb-spec.md)) |
 | STB-02 | Playwright 환경 셋업 + 골든패스 #1 (손님 QR→주문→Square 결제→영수증) | B | 🔴 P0 | **sonnet** | TODO |
 | STB-03 | 골든패스 #2 — 사장님 admin (로그인→메뉴 CRUD→Settings 토글) | B | 🔴 P0 | **sonnet** | TODO |
 | STB-04 | 골든패스 #3 — 스태프 register→테이크아웃→KDS WebSocket | B | 🔴 P0 | **sonnet** | TODO |

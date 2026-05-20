@@ -46,6 +46,35 @@ SPC-08 가 단독 PR 머지 시점에 build 검증을 안 거쳤음. STB-02 (Pla
 
 ---
 
+## 2026-05-21 — STB-01 명세 작성 완료
+
+### 산출물
+
+[`tasks/stb-spec.md`](./stb-spec.md) v1.0 (opus, 10 § 구성):
+
+- §1 사이클 3대 질문
+- §2 회귀 위험 매트릭스 7 영역 (결제 멱등 / WS broadcast / ENUM / JSON / DATETIME / N+1 / TZ)
+- §3 SPC 통합 위험 4 영역 (cron race / nearby vs discover / allergens-stock CRUD / referral 결제 분리)
+- §4 Playwright 시나리오 4개 정밀화 (각 6 step + 통과 기준 표)
+- §5 성능 임계값 6 endpoint (p50/p95)
+- §6 STB-07 5 카테고리 점검 매트릭스
+- §7 OUT-OF-SCOPE 10 항목 (사이클 폭주 방지)
+- §8 STB-02~07 착수 게이트 (필독 § 매핑)
+- §9 사이클 종료 조건 5건
+
+### 후속 카드 착수 가능
+
+- **STB-02** (sonnet) — Playwright 환경 + 골든패스 #1. §4 시나리오 #1 + §2 C-1.
+- **STB-03** (sonnet) — 골든패스 #2 admin CRUD. §4 #2 + §3 S-3.
+- **STB-04** (sonnet) — 골든패스 #3 KDS. §4 #3 + §2 C-2 + §3 S-1.
+- **STB-05** (sonnet) — 골든패스 #4 SPC 통합. §4 #4 + §3 S-2/S-4.
+- **STB-06** (postgres-specialist) — 성능. §5 전체.
+- **STB-07** (sonnet) — 데이터 일관성. §6 전체.
+
+STB-02 가 다른 카드의 환경 (Playwright config + 시드 헬퍼) 을 만들므로 **순서**: STB-02 → STB-03/04/05 병렬 → STB-06/07 병렬.
+
+---
+
 ## 2026-05-19 — PG 컷오버 + qraku-specialize 코드 감사
 
 ### DBM-12 F-2 운영 컷오버 완료 🎉

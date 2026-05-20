@@ -76,7 +76,7 @@ from routers import (
     billing, pos, reviews, ai, super_admin, loyalty_analytics,
     sessions, translate, tables, guests, oauth, demo, webhooks, square_oauth,
     register, discover, takeout, staff_auth, paypay, messaging, menu_groups, tabehoudai,
-    beta, ws_token, seo
+    beta, ws_token, seo, insights
 )
 
 api_router = APIRouter(prefix="/api")
@@ -111,6 +111,7 @@ api_router.include_router(beta.router)
 api_router.include_router(tabehoudai.router)
 api_router.include_router(webhooks.router)
 api_router.include_router(ws_token.router)
+api_router.include_router(insights.router)
 
 app.include_router(seo.router)   # /sitemap.xml, /robots.txt (no /api prefix)
 app.include_router(api_router)

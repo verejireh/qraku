@@ -468,3 +468,17 @@ DiscoverView 에 "近くのお店" 모드 추가. 브라우저 Geolocation → S
 | `frontend-react/index.html` | `<link rel="manifest">` + SW 등록 스크립트 추가. |
 
 **참고**: 푸시 알림 (Web Push) 은 VAPID 키 발급 (OPR-17) 후 SPC-06 후속으로 추가 예정.
+
+### SPC-07 — 사장님 데이터 인사이트 미니 대시보드
+
+| 파일 | 변경 내용 |
+|---|---|
+| `backend/routers/insights.py` | 신규. 4 엔드포인트: `GET /api/admin/insights/visitors` (일별 주문 트렌드), `GET /api/admin/insights/popular_menus` (Top N 인기 메뉴), `GET /api/admin/insights/rescue_effect` (마감 할인 효과), `GET /api/admin/insights/neighborhood_avg` (동일 prefecture 매장 평균 비교). 모두 `require_admin` 인증. |
+| `backend/main.py` | `insights.router` 등록 (`api_router` 하위). |
+| `frontend-react/src/views/AdminHomePageView.jsx` | `InsightsSection` 컴포넌트 추가. 주문 트렌드 바 차트 (CSS), 인기 메뉴 진행 바, 마감 할인 효과 카드, 동네 평균 비교 카드 4패널. 저장 버튼 위에 삽입. |
+
+**설계 결정**:
+- 방문자 = 주문 건수 프록시 (페이지뷰 추적 미구현, Order.created_at 기반)
+- 마감 할인 효果 = `discount_amount > 0` 주문 vs 일반 주문 (food_rescue 전용 flag 없음)
+- 동네 비교 = 동일 `prefecture`, `allow_public_listing=True` 매장 평균 (city 아닌 prefecture — 고텐바 50 매장 규모)
+- 외부 차트 라이브러리 없음 (CSS 바 차트)

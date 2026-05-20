@@ -61,7 +61,7 @@
 
 | ID | 제목 | Phase | P | 모델 | 상태 |
 |---|---|---|---|---|---|
-| SPC-01 | qraku-specialize 기능 명세 + 사용자 흐름 | A | 🔴 P0 | **opus** | TODO |
+| SPC-01 | qraku-specialize 기능 명세 + 사용자 흐름 | A | 🔴 P0 | **opus** | ✅ DONE (2026-05-20, [`spc-spec.md`](./spc-spec.md)) |
 | SPC-02 | 마감 할인 서버 자동화 (Dramatiq scheduled actor) | B | 🔴 P0 | **sonnet** | TODO |
 | SPC-03 | 위경도 검색 API (`/api/discover/nearby`, PostGIS or haversine) | B | 🔴 P0 | **sonnet** | TODO |
 | SPC-04 | 디스커버 페이지 — 지도 + 위치 요청 + 거리/할인 필터 UI | C | 🔴 P0 | **sonnet** | TODO |
@@ -71,6 +71,7 @@
 | SPC-08 | 알레르기 정보 — Menu 모델 + admin UI + filter | D | 🟡 P2 | **sonnet** | TODO |
 | SPC-09 | 실시간 재고 — Menu.stock_today + auto-disable + register 입력 UI | D | 🟡 P2 | **sonnet** | TODO |
 | SPC-10 | 친구 추천 referral — 사장님/손님 양쪽 | E | 🟡 P2 | **opus → sonnet** | TODO |
+| SPC-11 | 기존 SettingView 에 매장 ON/OFF + 마감 할인 수동 토글 **별도 버튼** 추가 + RegisterView 의 중복 토글 제거 | B | 🔴 P0 | **sonnet** | TODO (2026-05-20 신규, v1.2 정정) |
 
 ### Phase 분할 + 출시 시점
 
@@ -78,7 +79,8 @@
 |---|---|---|---|
 | **A**: 명세 | SPC-01 | 2h | |
 | **B**: 백엔드 핵심 | SPC-02, 03 | 1.5d | |
-| **C**: 프론트 핵심 | SPC-04, 05, 06 | 2d | **MVP 출시 가능** (A+B+C ≈ 4-5일) |
+| **B+**: 공통 staff setting | SPC-11 | 0.5d | (B 와 병렬) |
+| **C**: 프론트 핵심 | SPC-04, 05, 06 | 2d | **MVP 출시 가능** (A+B+B++C ≈ 5일) |
 | **D**: 사장님 가치 강화 | SPC-07, 08, 09 | 3d | 출시 후 1-2주 |
 | **E**: 바이럴 | SPC-10 | 2d | 출시 후 |
 
@@ -463,6 +465,58 @@ SPC-06 PWA. frontend (sonnet). VAPID 키 생성 운영자.
 - 사장님: admin 에 referral 코드 + 추천 현황
 - 손님: 미니홈피에 "친구한테 보여주기" 공유 버튼 + UTM 트래킹
 - 백엔드: referral 추적 + 자동 인센티브 적용
+
+---
+
+## 🟦 SPC-11 — 기존 SettingView 에 매장 ON/OFF + 마감 할인 수동 토글 별도 버튼
+
+**Owner**: frontend / sonnet
+**Priority**: 🔴 P0
+**Depends on**: SPC-01 (§10-d UI 위치 룰)
+**발견 일자**: 2026-05-20 (자이라 검토 중 §10-d 명확화에서 발견)
+**정정**: 2026-05-20 v1.2 — 신규 페이지 X (기존 SettingView 활용), 두 토글 물리적 분리 필수
+
+### 배경
+
+자이라 결정 (spc-spec §10-d):
+- **admin** = 설정 (자동/수동 선택, 영업시간 JSON 등)
+- **기존 SettingView (`/{shop_id}/setting`, 마스터 PIN 보유자용)** = 매일 운영
+  - 매장 ON/OFF 버튼 + 마감 할인 수동 토글 **물리적 분리 필수** (한 위젯에 묶지 X)
+  - `food_rescue_mode='auto'` 일 때 수동 토글 disabled + "admin 에서 자동 모드 설정" 안내
+
+현재 매장 영업 시작/종료 (`is_open`) 토글은 [RegisterView.jsx:285-290](../frontend-react/src/views/RegisterView.jsx) 에만 존재 → 이동.
+
+### 허용 파일
+
+- `frontend-react/src/views/SettingView.jsx` (수정 — 신규 섹션 또는 신규 탭 추가)
+- `frontend-react/src/views/RegisterView.jsx` (수정 — 기존 영업 시작/종료 버튼 + food rescue 토글 제거)
+- API 변경 **없음** — 기존 `PATCH /api/stores/{id}/business-status` + `food-rescue-status` 재사용.
+
+### 확정 사항 (자이라 2026-05-20)
+
+- 신규 탭 "毎日運営" 추가 (탭 순서: 毎日運営 → 勤務管理 → 品切れ管理)
+- 두 버튼 **상하 분리** + **색상 차별화** (매장 ON/OFF = 녹색/빨강, 마감 할인 = 주황/회색)
+- auto 모드 시 마감 할인 수동 토글 disabled + admin 링크 안내
+
+### 수용 기준
+
+- [ ] SettingView 에 신규 탭 "毎日運営" 추가 (첫 탭으로)
+- [ ] 매장 ON/OFF 버튼 (녹색/빨강) — 상단
+- [ ] 마감 할인 수동 토글 (주황/회색) — 하단, 시각적 분리 명확
+- [ ] `food_rescue_mode='auto'` 일 때 마감 할인 토글 disabled + "admin 에서 자동 모드 설정 — backend 가 자동 발동" 안내 + admin 페이지 링크
+- [ ] RegisterView 의 기존 두 토글 제거 (중복 해소)
+- [ ] 진입 흐름 무변경 (RegisterView 사이드바 → SettingView)
+- [ ] 모바일 first
+- [ ] 기존 API 재사용 — 백엔드 변경 없음
+
+### 사용자 지시 프롬프트
+
+```
+SPC-11. frontend (sonnet).
+spc-spec.md §10-d (v1.2) + pending-review.md PR-03 확정 후 착수.
+SettingView.jsx 에 신규 섹션 추가 + RegisterView 의 중복 토글 제거.
+두 버튼 물리적 분리 필수.
+```
 
 ---
 

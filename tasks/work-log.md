@@ -82,4 +82,132 @@
 
 > 진행 중 — 아래에 SPC-* 카드 완료 시 append.
 
-(아직 시작 안 됨. SPC-01 명세 작성부터)
+## 2026-05-20 — SPC-01 명세 작성 완료
+
+### 산출물
+
+- [`tasks/spc-spec.md`](./spc-spec.md) (신규, 13 § 구성) — SPC-02~10 카드의 SSoT
+  - §1 베치헤드 (고텐바 50개) / §2 코드 감사 매트릭스 (80% 구현)
+  - §3 손님 흐름 mermaid / §4 사장님 흐름 mermaid
+  - §5 기능 명세 표 15 행 (F1~F15, 각 행 → 담당 SPC 카드 매핑)
+  - §6 데이터 모델 (Store 거의 변경 없음 확인. Menu allergens/stock 만 P2)
+  - §7 신규 API 5개 (nearby, push subscribe, sitemap, insights, referrals)
+  - §8 마감 할인 자동화 룰 (Dramatiq cron 의사코드 + `business_hours.py` 헬퍼 정의)
+  - §9 위경도 검색 룰 (PostGIS 권장 + haversine 폴백 SQL 양쪽 제시)
+  - §10 결정 대기 5 항목 (디폴트 잡음 + PENDING 자이라 검토)
+  - §11 후속 카드 필독 § 매핑 / §12 MVP 출시 체크리스트
+
+### 카드 정의 vs 실제 코드 불일치 발견
+
+- 카드 SPC-02 가정: `Store.open_at/close_at` 컬럼
+- 실제: `Store.business_hours` JSON ({mon:{open,close},...}) + `Store.is_open` bool
+- → §8 에 `business_hours.py:get_close_time_today` 헬퍼 신규 정의로 반영
+
+### 신규 운영자 항목
+
+- OPR-15: Google Maps API 키 (SPC-04 선결정)
+- OPR-16: PostGIS Cloud SQL flag 확인 (SPC-03 선결정)
+- OPR-17: VAPID 키 생성 (SPC-06 선결정)
+
+### 결정 (자이라 확인)
+
+- 디스커버 인증 = 익명 + IP rate-limit
+- 알레르기 = P2 유지
+- PWA 푸시 = 옵트인 토글
+- (모두 §10 에 PENDING 마크 — 자이라 검토 후 v2 확정)
+
+### 다음 작업
+
+- SPC-02 (postgres-specialist / sonnet) + SPC-03 (postgres-specialist / sonnet) 병렬 가능
+- SPC-04 는 SPC-03 응답 스키마 의존 → 순차
+
+---
+
+## 2026-05-20 — SPC-01 v1.1 (자이라 검토 반영)
+
+### 자이라 확정
+
+| § | 항목 | 결정 |
+|---|---|---|
+| §10-a | Discover 인증 | ✅ 익명 + IP rate-limit |
+| §10-b | 알레르기 P2 | ✅ 유지 (출시 후 2주차 검토) |
+| §10-c | PWA 푸시 권한 | ✅ 옵트인 "단골 등록" 버튼 |
+| §10-d | 자동/수동 의미 | ✅ **마감 할인 이벤트 발동 방식만** 의미. 매장 영업 자체(is_open)와 무관. cron 은 is_open 건드리지 X |
+| §10-d | UI 위치 룰 | ✅ admin=설정 / 공통 staff setting=매일 운영 (is_open, food_rescue_manual_active 수동) |
+| §10-e | 지도 라이브러리 | 🟡 보류 → `pending-review.md` PR-01 |
+
+### 발견 → 신규 카드 SPC-11
+
+매장 오픈 토글이 현재 RegisterView 에만 있음. 자이라 결정에 따라 register/staff/kitchen 공통 setting 페이지 신설 필요.
+
+- **현재**: [RegisterView.jsx:285-290](../frontend-react/src/views/RegisterView.jsx) `営業開始/終了` 버튼 + `PATCH /api/stores/{id}/business-status` (stores.py:340)
+- **이동 대상**: `is_open` 토글, `food_rescue_manual_active` 수동 토글
+- **백엔드 변경 없음** — 기존 API 재사용
+
+### 발견 → §8 헬퍼 정정
+
+`backend/utils/business_hours.py` **이미 존재** (단, is_open 만 보고 business_hours JSON 무시). SPC-02 는 **기존 파일에 `get_close_time_today()` 추가** (새 파일 생성 X).
+
+### 신규 파일
+
+- [tasks/pending-review.md](./pending-review.md) — 보류 검토 사항 누적용 (PR-01 ~ PR-04 등록)
+
+### 변경 파일
+
+- [tasks/spc-spec.md](./spc-spec.md) — §10 / §8 / §5 / §11 / §12 / §13 업데이트 (v1 → v1.1)
+- [tasks/current-tasks.md](./current-tasks.md) — SPC-11 진행 보드 행 + 카드 정의 본문 추가, Phase B+ 신설
+
+---
+
+## 2026-05-20 — SPC-01 v1.2 / v1.3 (자이라 추가 검토 반영)
+
+### v1.2 — SPC-11 PR-03 확정 + SettingView 발견
+
+| 항목 | 결정 |
+|---|---|
+| SettingView 이미 존재? | ✅ [SettingView.jsx](../frontend-react/src/views/SettingView.jsx), 라우트 `/{shop_id}/setting`, 마스터 PIN 보유자용 |
+| SPC-11 = 신규 페이지? | X (기존 SettingView 확장만) |
+| SettingView 안 배치 | 신규 탭 "毎日運営" (첫 탭) |
+| 두 버튼 분리 | **상하 분리 + 색상 차별화** (매장 ON/OFF = 녹/적, 마감 할인 = 주황/회). 한 위젯에 묶지 X. |
+| auto 모드 disabled | 마감 할인 수동 토글 disabled + admin 링크 안내 |
+
+### v1.3 — SPC-04 지도 비용 0원 솔루션 확정
+
+자이라 비용 우려 → 명확화: Google Maps SDK 만 유료, 외부 링크 + Embed iframe 은 **둘 다 무제한 무료**.
+
+| 위치 | 방식 | 비용 |
+|---|---|---|
+| 디스커버 카드 "📍 지도 보기" | 외부 링크 `https://www.google.com/maps/?q={lat},{lng}` | 0원 |
+| 미니홈피 매장 위치 | Google Maps Embed iframe | 0원 |
+| 거리 계산 | backend PostGIS / haversine | 0원 |
+| **합계** | | **0원/월 무제한 트래픽** |
+
+→ **OPR-15 (Google Maps API 키 발급) 항목 제거**. SPC-04 카드 수용 기준 갱신.
+
+### OPR-16 PostGIS 활성화 가이드 (자이라 운영 작업)
+
+이번 세션에서 자이라에게 안내 제공 (별도 md 파일 X, 채팅 내). 5~10분 작업:
+
+1. Cloud SQL flag 변경 불필요 (PostGIS 사전 설치)
+2. SSH 운영 VM → `psql "host=127.0.0.1 port=5432 user=ilhae dbname=qraku"`
+3. `CREATE EXTENSION IF NOT EXISTS postgis;` 실행
+4. 권한 거부 시 `postgres` 슈퍼유저로 재접속 후 실행
+5. `\dx` 로 확인
+
+거부 시 SPC-03 가 자동 haversine 폴백 (50 식당에서 < 100ms 충족).
+
+### 변경 파일 (v1.2 + v1.3)
+
+- [tasks/spc-spec.md](./spc-spec.md) — §5 F6/F16 + §7 nearby + §10-d/e + §12 + §13 변경 이력 (v1.1 → v1.3)
+- [tasks/current-tasks.md](./current-tasks.md) — SPC-11 카드 본문 정정 (신규 페이지 X, 毎日運営 탭, 수용 기준 확정)
+- [tasks/pending-review.md](./pending-review.md) — PR-01 ✅ 확정 (지도 SDK X), PR-03 ✅ 확정 (毎日運営 탭 + 상하 분리 + 색상)
+
+### 다음 작업 (자이라 미완 + 백엔드 카드 시작 가능)
+
+| 항목 | 담당 | 상태 |
+|---|---|---|
+| OPR-16 PostGIS 활성화 | 자이라 | 가이드 제공, 작업 대기 |
+| SPC-02 (마감 할인 cron) | sonnet | 착수 가능 |
+| SPC-03 (위경도 nearby API) | sonnet | OPR-16 또는 haversine 폴백 둘 다 가능 → 착수 가능 |
+| SPC-11 (SettingView 毎日運営 탭) | sonnet | 착수 가능 (frontend) |
+| SPC-04 ~ SPC-07 | sonnet | SPC-03 후 또는 병렬

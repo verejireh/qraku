@@ -1,7 +1,7 @@
 """Sync DB session for Dramatiq workers.
 
 [DBM-06] async DATABASE_URL → sync 드라이버 치환을 `to_sync_url()` 헬퍼로 위임.
-MySQL (aiomysql → pymysql) / PostgreSQL (asyncpg → psycopg2) 양 DB 지원.
+PostgreSQL 전용 (asyncpg → psycopg2). DBM-13 완료로 MySQL 지원 종료.
 """
 import os
 

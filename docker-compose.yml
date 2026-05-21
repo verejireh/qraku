@@ -1,38 +1,21 @@
 # 개발용 docker-compose — WS-02 Pub/Sub 다중 인스턴스 검증 가능
 # backend1(host 8003) + backend2(host 8004) 별도 포트로 노출
 # WS-02 fan-out 검증: wscat -c ws://localhost:8003/ws/... + curl POST localhost:8004/api/...
+# [DBM-13] MySQL 서비스 제거 완료 (2026-05-19 컷오버). PostgreSQL 전용.
 
 services:
-  mysql:
-    image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpw}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-qraku}
-    ports:
-      - "3307:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-rootpw}"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
-  # [DBM-07] PG 호환성 검증용 PostgreSQL 서비스.
-  # 기존 mysql 서비스와 동시 운영 가능. backend1/2/worker 는 그대로 mysql 사용.
-  # PG 검증 시: DATABASE_URL=postgresql+asyncpg://qraku:qraku@postgres:5432/qraku 로 부팅.
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: qraku
-      POSTGRES_PASSWORD: qraku
-      POSTGRES_DB: qraku
+      POSTGRES_USER: ${POSTGRES_USER:-qraku}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qraku}
+      POSTGRES_DB: ${POSTGRES_DB:-qraku}
     ports:
       - "5433:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U qraku"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-qraku}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -55,13 +38,13 @@ services:
       - ./backend/.env
     environment:
       INSTANCE_ID: dev-1
-      DATABASE_URL: mysql+aiomysql://root:${MYSQL_ROOT_PASSWORD:-rootpw}@mysql:3306/${MYSQL_DATABASE:-qraku}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-qraku}:${POSTGRES_PASSWORD:-qraku}@postgres:5432/${POSTGRES_DB:-qraku}
       REDIS_URL: redis://redis:6379/0
       ALLOWED_ORIGINS: http://localhost:5173,http://localhost:8003,http://localhost:8004
     volumes:
       - ./backend:/app/backend
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -72,7 +55,7 @@ services:
     <<: *backend
     environment:
       INSTANCE_ID: dev-2
-      DATABASE_URL: mysql+aiomysql://root:${MYSQL_ROOT_PASSWORD:-rootpw}@mysql:3306/${MYSQL_DATABASE:-qraku}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-qraku}:${POSTGRES_PASSWORD:-qraku}@postgres:5432/${POSTGRES_DB:-qraku}
       REDIS_URL: redis://redis:6379/0
       ALLOWED_ORIGINS: http://localhost:5173,http://localhost:8003,http://localhost:8004
     ports:
@@ -84,7 +67,7 @@ services:
     ports: []
     environment:
       INSTANCE_ID: worker
-      DATABASE_URL: mysql+aiomysql://root:${MYSQL_ROOT_PASSWORD:-rootpw}@mysql:3306/${MYSQL_DATABASE:-qraku}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-qraku}:${POSTGRES_PASSWORD:-qraku}@postgres:5432/${POSTGRES_DB:-qraku}
       REDIS_URL: redis://redis:6379/0
       DRAMATIQ_BROKER_URL: redis://redis:6379/0
 
@@ -103,5 +86,4 @@ services:
       - backend1
 
 volumes:
-  mysql_data:
   pg_data:

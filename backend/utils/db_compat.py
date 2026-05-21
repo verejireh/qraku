@@ -1,10 +1,10 @@
-"""양 DB (MySQL / PostgreSQL) 호환 SQLAlchemy 함수 래퍼.
+"""PostgreSQL용 SQLAlchemy 날짜/시간 함수 래퍼.
 
-MySQL 전용 ``func.hour`` / ``func.year`` / ``func.month`` / ``func.dayofweek`` /
-``func.date`` 를 ANSI ``EXTRACT(... FROM ...)`` 또는 ``CAST(... AS DATE)`` 로 통일.
-MySQL 8 / PostgreSQL 13+ 모두 동일 의미로 동작.
+ANSI ``EXTRACT(... FROM ...)`` / ``CAST(... AS DATE)`` 래핑.
+DBM-05c 도입, DBM-13 MySQL 지원 종료.
 
-본 헬퍼는 DBM-05c 카드에서 도입 (`tasks/db-migration-audit.md` §2.3~§2.5 참조).
+주의: ``day_of_week`` 는 역사적 호환을 위해 1=Sun..7=Sat 의미 유지
+(PG DOW 0=Sun..6=Sat 에 +1 보정).
 """
 from sqlalchemy import func, cast, Date
 

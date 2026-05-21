@@ -30,7 +30,7 @@ except ImportError:
     pass
 
 # DATABASE_URL → sync 드라이버 치환 (Alembic 은 sync 엔진 사용).
-# [DBM-06] to_sync_url() 헬퍼로 MySQL+aiomysql / PostgreSQL+asyncpg 양 DB 지원.
+# [DBM-06] to_sync_url() 헬퍼로 asyncpg → psycopg2 치환 (PostgreSQL 전용, DBM-13).
 from backend.utils.db import to_sync_url
 
 raw_url = os.environ.get("DATABASE_URL")

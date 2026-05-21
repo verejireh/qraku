@@ -1,0 +1,24 @@
+# LF 강제 — Windows checkout 에서 CRLF 로 변환되면 bash heredoc / shebang 깨짐.
+# 운영 VM(Linux) 에서 실행되는 모든 스크립트는 LF 유지 필수.
+
+*.sh           text eol=lf
+*.py           text eol=lf
+deploy.py      text eol=lf
+Dockerfile     text eol=lf
+*.service      text eol=lf
+
+# .env 류는 운영자가 직접 관리 (Linux LF 가정)
+.env.example   text eol=lf
+.env*          text eol=lf
+
+# Windows 전용 배치 스크립트는 CRLF 유지
+*.bat          text eol=crlf
+*.cmd          text eol=crlf
+*.ps1          text eol=crlf
+
+# Binary 자동 감지 유지
+*.png          binary
+*.jpg          binary
+*.jpeg         binary
+*.zip          binary
+*.pdf          binary

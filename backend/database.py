@@ -57,7 +57,7 @@ async def init_db():
     # SQLModel의 create_all은 기존 테이블 컬럼을 추가하지 않으므로 수동 ALTER
     # PostgreSQL 전용. IF NOT EXISTS 로 안전 재실행.
     migration_sqls = [
-        "ALTER TABLE store ADD COLUMN IF NOT EXISTS trial_start_date DATETIME NULL",
+        "ALTER TABLE store ADD COLUMN IF NOT EXISTS trial_start_date TIMESTAMP NULL",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255) NULL",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255) NULL",
         # [DBM-05] JSON DEFAULT ('[]') → TEXT DEFAULT '[]' (양 DB 호환, 코드가 str로 다룸)
@@ -87,10 +87,13 @@ async def init_db():
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS square_location_id VARCHAR(255) NULL",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS square_connected BOOLEAN DEFAULT FALSE",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS supported_languages VARCHAR(255) DEFAULT 'ja,en,ko,zh'",
-        "ALTER TABLE store ADD COLUMN IF NOT EXISTS payment_options VARCHAR(255) DEFAULT 'CASH_ONLY'",
+        "ALTER TABLE store ADD COLUMN IF NOT EXISTS payment_options VARCHAR(255) DEFAULT 'cash_only'",
         # 데이터 복구용 UPDATE 구문 추가
+        "ALTER TABLE store ALTER COLUMN kitchen_mode SET DEFAULT 'KDS'",
+        "ALTER TABLE store ALTER COLUMN payment_options SET DEFAULT 'cash_only'",
         "UPDATE store SET kitchen_mode = 'KDS' WHERE kitchen_mode = 'kds'",
-        "UPDATE store SET payment_options = 'CASH_ONLY' WHERE payment_options = 'cash_only'",
+        "UPDATE store SET payment_options = 'cash_only' WHERE payment_options = 'CASH_ONLY'",
+        "UPDATE store SET payment_options = 'card_and_cash' WHERE payment_options = 'CARD_AND_CASH'",
         # POS Mode & View Toggles (new Square architecture)
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS pos_mode VARCHAR(50) DEFAULT 'basic'",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS use_register_view BOOLEAN DEFAULT TRUE",
@@ -106,18 +109,19 @@ async def init_db():
         'ALTER TABLE "table" ADD COLUMN IF NOT EXISTS guest_count INT NULL',
         # TableStatus migration: normalize existing values (safe UPDATE)
         # Step 2: Normalize all old values
-        'UPDATE "table" SET status = \'READY\' WHERE status IN (\'EMPTY\', \'empty\', \'PAID\', \'paid\')',
-        'UPDATE "table" SET status = \'OCCUPIED\' WHERE status IN (\'ORDERING\', \'ordering\')',
-        'UPDATE "table" SET status = \'OCCUPIED\' WHERE status IN (\'occupied\')',
-        'UPDATE "table" SET status = \'READY\' WHERE status IN (\'ready\')',
-        'UPDATE "table" SET status = \'CHECKOUT_REQUESTED\' WHERE status IN (\'checkout_requested\')',
+        'ALTER TABLE "table" ALTER COLUMN status SET DEFAULT \'ready\'',
+        'UPDATE "table" SET status = \'ready\' WHERE status IN (\'EMPTY\', \'empty\', \'PAID\', \'paid\', \'READY\')',
+        'UPDATE "table" SET status = \'occupied\' WHERE status IN (\'ORDERING\', \'ordering\', \'OCCUPIED\')',
+        'UPDATE "table" SET status = \'occupied\' WHERE status IN (\'occupied\')',
+        'UPDATE "table" SET status = \'ready\' WHERE status IN (\'ready\')',
+        'UPDATE "table" SET status = \'checkout_requested\' WHERE status IN (\'CHECKOUT_REQUESTED\', \'checkout_requested\')',
         # Staff call + serving tracking
         'ALTER TABLE "table" ADD COLUMN IF NOT EXISTS call_staff BOOLEAN DEFAULT FALSE',
         'ALTER TABLE "order" ADD COLUMN IF NOT EXISTS needs_serving BOOLEAN DEFAULT TRUE',
         # Per-item status tracking: pending → cooking_complete → served
         "ALTER TABLE orderitem ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'pending'",
         # Register: checkout requested timestamp for sorting
-        'ALTER TABLE "table" ADD COLUMN IF NOT EXISTS checkout_requested_at DATETIME DEFAULT NULL',
+        'ALTER TABLE "table" ADD COLUMN IF NOT EXISTS checkout_requested_at TIMESTAMP DEFAULT NULL',
         # Register: payment_method on Order (cash / card / square)
         'ALTER TABLE "order" ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) NULL',
         # Public Discovery Listing
@@ -133,7 +137,7 @@ async def init_db():
         # Staff auth: master PIN on store
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS master_pin VARCHAR(20) NULL",
         # StaffMember: clock_in tracking
-        "ALTER TABLE staffmember ADD COLUMN IF NOT EXISTS clock_in_at DATETIME NULL",
+        "ALTER TABLE staffmember ADD COLUMN IF NOT EXISTS clock_in_at TIMESTAMP NULL",
         # Store: basic info fields
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS address VARCHAR(500) NULL",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS phone VARCHAR(50) NULL",
@@ -159,7 +163,7 @@ async def init_db():
         "ALTER TABLE message ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE",
         "ALTER TABLE announcement ADD COLUMN IF NOT EXISTS is_important BOOLEAN DEFAULT FALSE",
         # GuestProfile: 직전 방문일 (몇 일만에 방문 계산용)
-        "ALTER TABLE guestprofile ADD COLUMN IF NOT EXISTS prev_last_visit DATETIME NULL",
+        "ALTER TABLE guestprofile ADD COLUMN IF NOT EXISTS prev_last_visit TIMESTAMP NULL",
         # Store: 데이터 공개 동의 (월 ¥1,000 할인 플랜)
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS data_open_consent BOOLEAN DEFAULT FALSE",
         # OrderItem: 食べ放題 대상 마킹
@@ -167,7 +171,7 @@ async def init_db():
         "ALTER TABLE orderitem ADD COLUMN IF NOT EXISTS tabehoudai_session_id INT NULL",
         # StaffAttendance 테이블은 SQLModel.metadata.create_all로 자동 생성됨 (신규 테이블)
         # staffmember.clock_in_at 컬럼이 없는 경우 대비 safeguard
-        "ALTER TABLE staffmember ADD COLUMN IF NOT EXISTS clock_in_at DATETIME NULL",
+        "ALTER TABLE staffmember ADD COLUMN IF NOT EXISTS clock_in_at TIMESTAMP NULL",
         # [2026-05-02] My Home Page — qraku.com/{shop_id} 매장 공개 페이지 컨텐츠
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS about_description TEXT NULL",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS specialty VARCHAR(1000) NULL",
@@ -192,8 +196,8 @@ async def init_db():
         'ALTER TABLE "order" ADD COLUMN IF NOT EXISTS used_coupon_id INT NULL',
         # photoreview / rewardcoupon 테이블은 SQLModel.metadata.create_all 가 자동 생성
         # [2026-05-04] RewardCoupon 보강: 만료일·사용시각·발급출처
-        "ALTER TABLE rewardcoupon ADD COLUMN IF NOT EXISTS used_at DATETIME NULL",
-        "ALTER TABLE rewardcoupon ADD COLUMN IF NOT EXISTS expires_at DATETIME NULL",
+        "ALTER TABLE rewardcoupon ADD COLUMN IF NOT EXISTS used_at TIMESTAMP NULL",
+        "ALTER TABLE rewardcoupon ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP NULL",
         "ALTER TABLE rewardcoupon ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'photo_contest'",
         # [2026-05-04] 멱등성: 결제 ID 중복 주문 방지 (NULL 은 다중 허용)
         # [DBM-05] ADD UNIQUE INDEX → CREATE UNIQUE INDEX IF NOT EXISTS (MySQL+PG 양 DB 호환)

@@ -14,7 +14,7 @@ class KitchenColorMode(str, Enum):
     TABLE = "TABLE"
 
 class KitchenMode(str, Enum):
-    KDS = "kds"       # 내부 KiosPad 태블릿 KDS 모드 (기본값)
+    KDS = "KDS"       # 내부 KiosPad 태블릿 KDS 모드 (기본값)
     SQUARE = "square" # Square POS / 프린터 연동 모드
 
 class StoreCategory(str, Enum):
@@ -184,7 +184,7 @@ class Store(SQLModel, table=True):
 class TableStatus(str, Enum):
     READY = "ready"
     OCCUPIED = "occupied"
-    CHECKOUT_REQUESTED = "CHECKOUT_REQUESTED"
+    CHECKOUT_REQUESTED = "checkout_requested"
 
 class Table(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

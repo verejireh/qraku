@@ -19,7 +19,7 @@ async def run():
     async with engine.begin() as conn:
         # kitchen_mode カラム追加
         try:
-            await conn.execute(text("ALTER TABLE store ADD COLUMN kitchen_mode VARCHAR NOT NULL DEFAULT 'kds'"))
+            await conn.execute(text("ALTER TABLE store ADD COLUMN kitchen_mode VARCHAR NOT NULL DEFAULT 'KDS'"))
             print("✅ kitchen_mode column added")
         except Exception as e:
             print(f"ℹ️  kitchen_mode column may already exist: {e}")

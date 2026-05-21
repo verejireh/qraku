@@ -51,14 +51,14 @@ def _safe_exec(cur, sql: str, params=None) -> list[dict]:
 
 ENUM_CHECKS = [
     # (table, column, valid_values_set)
-    ("store", "kitchen_mode",        {"kds", "square"}),
+    ("store", "kitchen_mode",        {"KDS", "square"}),
     ("store", "category",            {"restaurant", "cafe", "bar", "other"}),
     ("store", "subscription_type",   {"FREE", "MONTHLY", "SIXMONTH", "YEARLY"}),
     ("store", "subscription_status", {"TRIAL", "ACTIVE", "EXPIRED"}),
     ("store", "payment_options",     {"cash_only", "card_and_cash"}),
     ("store", "point_accrual_type",  {"PERCENT", "FIXED"}),
     ("store", "kitchen_color_mode",  {"CATEGORY", "MENU", "TABLE"}),
-    ('"table"', "status",            {"ready", "occupied", "CHECKOUT_REQUESTED"}),
+    ('"table"', "status",            {"ready", "occupied", "checkout_requested"}),
     ('"order"', "order_type",        {"eat_in", "take_out"}),
     ('"order"', "payment_status",    {"unpaid", "paid", "partial", "refunded"}),
     ("orderitem", "status",          {"pending", "cooking_complete", "pickup_ready", "served", "cancelled"}),

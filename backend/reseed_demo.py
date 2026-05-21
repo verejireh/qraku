@@ -123,16 +123,16 @@ async def run():
         delete_ids = [st.id for st in all_stores if st.id not in KEEP_STORE_IDS]
         print(f"삭제할 매장 IDs: {delete_ids}")
         for sid in delete_ids:
-            await s.execute(text(f"DELETE FROM menu WHERE store_id = {sid}"))
-            await s.execute(text(f"DELETE FROM `table` WHERE store_id = {sid}"))
-            await s.execute(text(f"DELETE FROM store WHERE id = {sid}"))
+            await s.execute(text("DELETE FROM menu WHERE store_id = :sid"), {"sid": sid})
+            await s.execute(text('DELETE FROM "table" WHERE store_id = :sid'), {"sid": sid})
+            await s.execute(text("DELETE FROM store WHERE id = :sid"), {"sid": sid})
             print(f"  ✅ 매장 {sid} 삭제 완료")
         await s.commit()
 
         # ── 2. Tonton Katsu (1234568) 데이터 초기화 ────────────────
         sid = STORE_INFO["id"]
-        await s.execute(text(f"DELETE FROM menu WHERE store_id = {sid}"))
-        await s.execute(text(f"DELETE FROM `table` WHERE store_id = {sid}"))
+        await s.execute(text("DELETE FROM menu WHERE store_id = :sid"), {"sid": sid})
+        await s.execute(text('DELETE FROM "table" WHERE store_id = :sid'), {"sid": sid})
         print(f"  🗑️  매장 {sid} 기존 메뉴·테이블 초기화")
         await s.commit()
 

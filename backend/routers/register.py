@@ -167,16 +167,16 @@ async def get_register_tables(
             "call_staff": t.call_staff,
         })
 
-    # 정렬: CHECKOUT_REQUESTED 오래된 순 → OCCUPIED → READY
+    # 정렬: checkout_requested 오래된 순 → occupied → ready
     def sort_key(row):
         status = row["status"]
         if hasattr(status, "value"):
             status = status.value
-        if status == "CHECKOUT_REQUESTED":
+        if status == "checkout_requested":
             # None은 뒤로
             ts = row["checkout_requested_at"] or "9999"
             return (0, ts)
-        if status == "OCCUPIED":
+        if status == "occupied":
             return (1, "")
         return (2, "")
 

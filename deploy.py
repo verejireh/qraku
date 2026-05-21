@@ -40,8 +40,9 @@ def create_deploy_package():
     start_time = time.time()
     
     with zipfile.ZipFile(ZIP_FILENAME, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        # 프로젝트 루트의 backend, frontend-react, uv 메타파일, 셸 스크립트 포함
-        for target in ['backend', 'frontend-react', 'setup_server.sh', 'pyproject.toml', 'uv.lock']:
+        # 프로젝트 루트의 backend, frontend-react, tools, uv 메타파일, 셸 스크립트 포함
+        # tools/ = PG 컷오버 후 운영 검증 도구 (check_pg_sequences, data_consistency_audit 등)
+        for target in ['backend', 'frontend-react', 'tools', 'setup_server.sh', 'pyproject.toml', 'uv.lock']:
             if not os.path.exists(target):
                 continue
                 

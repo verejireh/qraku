@@ -688,3 +688,30 @@ DiscoverView 에 "近くのお店" 모드 추가. 브라우저 Geolocation → S
 **잔여 (운영자 작업)**:
 - D+7 (2026-05-26): `sudo systemctl stop mysql && sudo systemctl disable mysql`
 - D+14 (2026-06-02): `sudo apt-get purge mysql-server mysql-client && rm -rf /var/lib/mysql`
+
+## 2026-05-21 — DBM-13 MySQL 의존 코드 정리
+
+### 산출물
+
+| 파일 | 변경 내용 |
+|---|---|
+| `backend/.env.example` | MySQL URL 제거 → PG `postgresql+asyncpg://` 기본값, Cloud SQL 개별 변수 가이드 추가 |
+| `docker-compose.yml` | `mysql` 서비스 + `mysql_data` volume 제거. backend1/2/worker를 `postgres` 서비스로 전환 |
+| `Dockerfile` | `default-libmysqlclient-dev` 제거 (psycopg2-binary 번들드, 불필요) |
+| `alembic/env.py` | comment: MySQL+aiomysql → asyncpg→psycopg2 전용으로 수정 |
+| `backend/workers/db.py` | docstring: 양 DB 지원 → PostgreSQL 전용 명시 |
+| `backend/utils/db_compat.py` | module docstring 간소화 (MySQL 언급 제거, +1 보정 이유 유지) |
+
+### 주의: 역사적 도구 보존
+
+`tools/migration_check.py`, `tools/pg_data_migrator.py`, `tools/rollback_resync.py` 는 DBM 사이클 도구로 코드에 MySQL 참조가 남아있으나 삭제하지 않음 — 롤백/감사 시나리오 대비 역사적 참조용.
+
+### 남은 운영자 작업
+
+- **2026-05-26** (D+7): `sudo systemctl stop mysql && sudo systemctl disable mysql`
+- **2026-06-02** (D+14): `sudo apt-get purge mysql-server mysql-client -y && sudo apt-get autoremove -y`
+
+### 커밋
+
+`1b5ddbb` — `chore(DBM-13): MySQL 의존 코드 정리 — PG 전용으로 단순화`
+

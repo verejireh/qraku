@@ -8,6 +8,86 @@
 
 ---
 
+## 2026-05-22 — PG 컷오버 위험 감사 운영 VM 검증 + orphan restart loop 발견·해소
+
+### 운영 VM 검증 체크리스트 8개 실행 (pg-cutover-risk-audit.md §검증)
+
+SSH 접속 (key permission 정리: `~/.ssh/qraku` 로 복사) + CRLF .env 우회 (`tr -d '\r'`) + uv PATH 우회 (`.venv/bin/python` 직접 호출) 후 8개 검증.
+
+| 체크 | 결과 | 닫힘 |
+|---|---|---|
+| 1 KitchenMode 정규화 | `SELECT DISTINCT kitchen_mode FROM store` → `KDS` 단일 | P0 #1 ✅ |
+| 2 TIMESTAMP 컬럼 | `trial_start_date`/`subscription_expires_at` = `timestamp without time zone` | P0 #2 ✅ |
+| 3 시퀀스 정합 | 28개 테이블 `next_value >= MAX(id)+1` 전부 OK | P0 #6 ✅ |
+| 4 PostGIS GIST 매치 | `Index Scan using idx_store_geo` plan 확인 | P0 #5 ✅ |
+| 5 pg_stat_statements | 미설치 (plpgsql + postgis 만) | 🟡 OPR-15 |
+| 6 autovacuum | on / 2ms / 1min ✅, max_connections=100 ⚠️ | P2 |
+| 7 부팅 마이그레이션 stderr | 9cd70de 적용 후 enum 노이즈 해소 ✅ | 확인 |
+| 8 Alembic baseline | `script_location` 미설정 — OPR-07 미완 | 🟡 운영자 |
+
+**P0 6개 전부 닫힘 확인** ✅. 결과 보고서: [`pg-cutover-verification-results.md`](./pg-cutover-verification-results.md).
+
+### 부가 발견 — qrorder restart loop (P0 즉시 대응)
+
+검증 7번 (journalctl) 진행 중 systemd `NRestarts=413` 발견. 7~13초 주기 재시작 + `code=exited, status=1/FAILURE`.
+
+근본 원인:
+- PID 290514 — PPID=1, etimes=5213초 (~87분), 시점 ~14:01 UTC = 마지막 deploy 직후
+- `python -m uvicorn ... --host 0.0.0.0 --port 8003` 가 포트 8003 점유
+- systemd 가 띄우는 새 인스턴스는 매번 `[Errno 98] address already in use` → 종료 → 재시작 루프
+
+조치:
+```
+sudo kill 290514  # SIGTERM
+# T+30s: NRestarts=444 안정 (변동 0), MainPID=299126, cgroup=qrorder.service, healthz=200
+```
+
+restart loop 완전 종료 확인.
+
+### 데이터 일관성 감사 (별도 실행)
+
+`tools/data_consistency_audit.py`:
+```
+[1/5] ENUM 컬럼 유효성    ✅ PASS
+[2/5] JSON-as-TEXT 파싱   ✅ PASS
+[3/5] datetime NULL/이상  ✅ PASS
+[4/5] FK orphan 검출      ✅ PASS
+[5/5] NOT NULL 위반       ✅ PASS
+종합: ✅ PASS — 데이터 이상 없음
+```
+
+### 재발 방지 패치 (72e3e50)
+
+`setup_server.sh`:
+- `if [ ! -f $SERVICE_FILE ]` 가드 제거 → 매 deploy 마다 unit 갱신
+- nohup fallback 제거 (orphan 생성의 직접 원인)
+- 새 unit: `ExecStartPre=fuser -k 8003/tcp` + `KillMode=mixed` + `TimeoutStopSec=10` + `After=cloud-sql-proxy.service`
+- 실행 검증: `is-active` + `healthz 200` 이중 확인
+
+`tools/check_pg_sequences.py`: `sys.path.insert(0, repo root)` 추가 — PYTHONPATH 의존성 제거.
+
+`.gitattributes` (신규): `*.sh / *.py` LF 강제 — bash heredoc CRLF 깨짐 방지.
+
+### GPT-5.5 교차 검토 지시서 작성 (e73bbfa)
+
+이전 17항목 cross-review 응답이 디스크 미저장으로 유실된 교훈 → 이번에는 응답 즉시 `tasks/gpt-pg-verification-review.md` 로 저장 + 커밋 명시.
+
+지시서: [`gpt-pg-verification-review-instructions.md`](./gpt-pg-verification-review-instructions.md).
+핵심 검토 요청:
+1. CHECK 1~8 검증 충분성 + 결과 해석 정확성 (특히 lat/lng 0건 상태의 GIST plan 신뢰성)
+2. orphan 근본 원인 가설 검증 + systemd unit 개선안 안전성
+3. P1 #8/#9 (init_db race, uvicorn worker) restart loop 발견 근거로 P0 승격?
+
+### 잔여 액션
+
+- 🟡 라이브 VM 에 setup_server.sh + 새 unit 정의 적용 (다음 deploy 사이클)
+- 🟡 OPR-15 신규 (pg_stat_statements 활성화)
+- 🟡 OPR-07 alembic stamp 미완
+- 🟢 codex_survey.md 처리 결정 (untracked)
+- 🟢 P1 #7~#11 카드 분리
+
+---
+
 ## 2026-05-21 — STB-00 머지 + smoke + 첫 핫픽스
 
 ### 머지

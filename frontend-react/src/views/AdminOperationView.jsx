@@ -146,7 +146,7 @@ export default function AdminOperationView() {
                     <p className="text-xs text-slate-400 italic mb-4">변경は即座に保存され、次回の注文から反映されます。</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <button onClick={() => {
-                            handleStoreUpdate('kitchen_mode', 'kds')
+                            handleStoreUpdate('kitchen_mode', 'KDS')
                             handleStoreUpdate('pos_mode', 'basic')
                         }}
                             className={`p-5 rounded-2xl border-2 text-left transition-all ${storeData?.kitchen_mode !== 'square' ? 'border-adminprimary/50 bg-adminprimary/5' : 'border-slate-200 hover:border-adminprimary/30'}`}>

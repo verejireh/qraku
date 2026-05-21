@@ -292,7 +292,7 @@ export default function KitchenView() {
     const activeSessionTokens = useMemo(() => {
         return new Set(
             tables
-                .filter(t => t.status === 'occupied' || t.status === 'CHECKOUT_REQUESTED')
+                .filter(t => t.status === 'occupied' || t.status === 'checkout_requested')
                 .map(t => t.session_token)
                 .filter(Boolean)
         );

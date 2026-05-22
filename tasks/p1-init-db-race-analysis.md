@@ -114,39 +114,65 @@ orphan uvicorn 으로 인한 restart loop 시 매 7~13초마다 init_db 실행:
 
 목적: `--workers N` 변경 시 동시 init_db 호출 시 N-1 개 워커가 skip.
 
-**패치** (`backend/database.py:init_db`):
+**패치** (`backend/database.py:init_db`) — **단일 transaction advisory lock**:
+
+> ⚠️ **2026-05-22 GPT cross-review 반영**: 최초 분석에서 `create_all` 과 `migration_sqls` 를 두 개의 별도 `engine.begin()` 트랜잭션에 분리하는 안을 제시했으나, 트랜잭션 사이 race 가능 (다른 worker 가 끼어들어 migration loop 중간에 진입). **하나의 트랜잭션에서 advisory lock 획득 후 create_all + migration_sqls 전체 직렬화**.
+
 ```python
+INIT_DB_LOCK_KEY = 0x71726164755F0001  # 'qraku_' + version marker = 8174723217201008641
+# signed bigint 범위 안 (< 2^63 - 1 = 9223372036854775807). 안전.
+
 async def init_db():
-    """서버 시작 시 PG 스키마 마이그레이션 — pg_advisory_lock 으로 단일 실행 보장."""
-    from models import Store, Table, ...
+    """서버 시작 시 PG 스키마 마이그레이션 — pg_advisory_xact_lock 으로 단일 실행 보장.
+
+    동일 PG 인스턴스에서 같은 lock key 를 잡으려는 워커는 1개만 통과, 나머지는
+    트랜잭션 종료까지 wait. transaction-scoped 라 SIGTERM/SIGKILL 시 connection
+    drop 으로 자동 해제 (session lock 보다 안전).
+    """
+    from models import Store, Table, StaffAttendance, PhotoReview, RewardCoupon, RefundLog, BetaApplication, EventLog, WebhookEvent
     
-    # 동일 PG 인스턴스에서 같은 lock key 를 사용하는 워커는 1개만 통과,
-    # 나머지는 대기 후 마이그레이션 완료 시 NOOP 으로 진행.
-    INIT_DB_LOCK_KEY = 0x71_72_61_6B_75_00_00_01  # 'qraku\0\0\x01' 의 8 바이트 정수
+    migration_sqls = [...]  # 기존 그대로
+    ignored_migration_errors = ("already exists", "42701", "42P07")
     
+    # ── 단일 트랜잭션 안에서 advisory lock + create_all + migration loop ─────
     async with engine.begin() as conn:
-        # 트랜잭션 단위 advisory lock — 트랜잭션 끝나면 자동 해제.
-        # 동시에 들어온 워커는 첫 번째 가 끝날 때까지 wait (몇 초 이내).
-        await conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": INIT_DB_LOCK_KEY})
+        await conn.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": INIT_DB_LOCK_KEY},
+        )
         
-        # 이미 마이그레이션 끝났는지 빠른 체크 (옵션 — 향후 schema_migrations 테이블 도입 시)
+        # 모든 테이블 + enum 타입 생성 (멱등)
         await conn.run_sync(SQLModel.metadata.create_all)
-    
-    # 마이그레이션 SQL 들도 lock 안에서 실행
-    async with engine.begin() as conn:
-        await conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": INIT_DB_LOCK_KEY})
+        
+        # 마이그레이션 SQL 들 — 매 SQL 마다 별도 트랜잭션을 열지 않음 (race 방지).
+        # 단일 트랜잭션 안에서 항목별 SAVEPOINT 로 에러 격리.
         for sql in migration_sqls:
             try:
-                await conn.execute(text(sql))
+                async with conn.begin_nested():  # SAVEPOINT
+                    await conn.execute(text(sql))
+                print(f"✅ Migration: {sql[:60]}...")
             except Exception as e:
-                # ... 기존 에러 처리
-                pass
+                err_str = str(e)
+                if any(s in err_str for s in ignored_migration_errors):
+                    pass  # SAVEPOINT 자동 rollback → 다음 SQL 진행
+                else:
+                    print(f"⚠️ Migration skipped ({sql[:40]}...): {e}", file=sys.stderr)
     
     print("✅ DB 테이블 초기화 완료")
 ```
 
-**리스크**: 워커 부팅이 1~2초 추가 (lock 대기). 트랜잭션이 끝나면 자동 해제이므로 dead-lock 위험 없음.
-**검증**: `--workers 4` 시 stderr 에 "Migration skipped" / "already exists" 0건.
+**핵심 변경점** (GPT 권고):
+- ✅ **단일 `engine.begin()`** — 매 SQL 마다 begin() 열던 기존 구조 제거. lock 유지 보장.
+- ✅ **SAVEPOINT (`conn.begin_nested`)** — 단일 트랜잭션 안에서도 항목별 에러 격리. 기존 "항목별 트랜잭션 분리" 의도 보존하면서 lock race 해소.
+- ✅ **advisory key 0x71726164755F0001** — signed bigint 범위 안, 문서화된 hard-coded 상수.
+
+**리스크**: 낮음.
+- 워커 부팅이 1~2초 추가 (lock 대기 + 단일 트랜잭션 commit).
+- **주의**: `CREATE INDEX CONCURRENTLY` 는 트랜잭션 블록 안에서 실행 불가. 현재 `migration_sqls` 에는 없으므로 안전. 향후 추가 시 Alembic 으로 분리 필요.
+
+**검증**: 
+- `--workers 4` 시 stderr 에 "Migration skipped" / "already exists" 0건
+- 동시 worker startup 시 PG `pg_locks` 에서 advisory lock 1개만 보임 (`SELECT * FROM pg_locks WHERE locktype='advisory'`)
 
 ### 장기 (출시 후 1개월) — Strategy 3: Alembic 으로 전면 이행
 
@@ -214,7 +240,23 @@ E. **누락된 위험**:
 
 ## 액션 아이템
 
-- [ ] **PG-DB-RACE-01** (즉시): Strategy 1 — enum cast WHERE 절 패치 + 자체 정규화 NOOP 라인 제거 (~10 SQL 수정, 검증 30분)
-- [ ] **PG-DB-RACE-02** (출시 직후): Strategy 2 — pg_advisory_xact_lock 도입 + `--workers 4` 전환 후 stderr 0 건 확인
-- [ ] **PG-DB-RACE-03** (D+30): Strategy 3 — Alembic 이행 + OPR-07 baseline stamp 의존
-- [ ] **GPT-PG-DB-RACE-REVIEW**: 본 분석을 GPT-5.5 에 cross-review 요청 (위 5 질문)
+- [x] **PG-DB-RACE-01** (faf87aa, 2026-05-22): Strategy 1 — enum cast WHERE 절 패치 + 자체 정규화 NOOP 라인 제거
+- [x] **GPT-PG-DB-RACE-REVIEW** (6b232fb, 2026-05-22): GPT cross-review 응답 수신 + 본 doc 갱신
+- [ ] **PG-DB-RACE-02** (출시 직후): Strategy 2 — **단일 트랜잭션** advisory_xact_lock + SAVEPOINT (GPT 권고 반영) + `--workers 4` 전환 후 stderr 0건 확인
+- [ ] **PG-DB-RACE-03** (D+30): Strategy 3 — Alembic 이행. **선행 조건**: OPR-07 (script_location 정합성 + baseline stamp) 완료. **자동 hook 금지** — 수동 운영 명령으로 시작 (GPT 권고).
+
+---
+
+## GPT cross-review 추가 권고 — 누락된 위험 7개
+
+[`gpt-p1-init-db-race-review.md`](./gpt-p1-init-db-race-review.md) §E 참조:
+
+| # | 위험 | 단기 대응 | 장기 대응 |
+|---|---|---|---|
+| 1 | non-ignored migration error swallowing — schema drift 은닉 | `readyz` 에 최근 migration error flag 반영 | `STRICT_INIT_DB=true` 모드 |
+| 2 | Redis 초기화 실패 = sys.exit(1) → systemd restart loop | `StartLimitBurst=5` (이미 적용 — ff0bf27) | Redis fail 시 graceful degradation |
+| 3 | shutdown 미완 트랜잭션 | advisory **xact** lock 채택 (transaction-scoped, SIGKILL 시 자동 해제) | — |
+| 4 | long transaction side effect (큰 backfill/CREATE INDEX) | `migration_sqls` 에 무거운 작업 추가 금지 명시 | Alembic 으로 분리 |
+| 5 | external migration race (Alembic + app 동시) | 외부 도구도 같은 advisory key 사용 | deploy window 에서 app stop 후 migration |
+| 6 | healthz vs readyz — deploy script 가 healthz 200 으로 만족하면 DB/Redis 장애 놓침 | deploy 스크립트 health 체크를 `/api/readyz` 로 변경 | — |
+| 7 | import path 정합성 (`backend/main.py` vs `alembic/env.py`) | Alembic 이행 전 import path 정합성 검증 | — |

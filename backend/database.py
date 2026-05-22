@@ -47,11 +47,27 @@ engine = create_async_engine(
     max_overflow=20,
 )
 
+# [2026-05-22] P1 #8 Strategy 2 (PG-DB-RACE-02) — advisory lock key.
+# 동일 PG 인스턴스에서 같은 lock key 를 잡으려는 워커는 1개만 통과.
+# 'qraku_' + version marker 의 8 바이트 정수. signed bigint 범위 안.
+#   0x71726164755F0001 = 8174723217201008641 < 2^63-1 = 9223372036854775807 ✅
+# GPT cross-review (gpt-p1-init-db-race-review.md) §B 검증 완료.
+INIT_DB_LOCK_KEY = 0x71726164755F0001
+
+
 async def init_db():
-    """서버 시작 시 PostgreSQL에 모든 테이블 생성 + 스키마 마이그레이션"""
+    """서버 시작 시 PostgreSQL에 모든 테이블 생성 + 스키마 마이그레이션.
+
+    [2026-05-22] P1 #8 Strategy 2 — 단일 트랜잭션 + pg_advisory_xact_lock 으로
+    다중 worker race 차단. 매 SQL 마다 별도 engine.begin() 을 열던 기존 구조는
+    트랜잭션 사이에 다른 worker 가 끼어들 여지가 있었음 (GPT cross-review 권고).
+    이제 하나의 트랜잭션에서 lock → create_all → migration loop (SAVEPOINT 격리)
+    순서로 직렬화.
+
+    transaction-scoped lock 이라 SIGTERM/SIGKILL 시 connection drop 으로 자동
+    해제 (session lock 보다 안전).
+    """
     from models import Store, Table, StaffAttendance, PhotoReview, RewardCoupon, RefundLog, BetaApplication, EventLog, WebhookEvent  # 지연 import로 순환 방지
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
 
     # ── 자동 스키마 마이그레이션: 신규 컬럼이 없으면 추가 ──────────────────────
     # SQLModel의 create_all은 기존 테이블 컬럼을 추가하지 않으므로 수동 ALTER
@@ -244,18 +260,37 @@ async def init_db():
         "42P07",           # PG SQLSTATE: duplicate_table/index
     )
 
-    # 항목별 트랜잭션 분리: 단일 항목 실패 시 전체 abort 방지
-    for sql in migration_sqls:
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(text(sql))
+    # ── 단일 트랜잭션 + advisory_xact_lock + create_all + migration loop ─────
+    # GPT cross-review (gpt-p1-init-db-race-review.md §C) 권고 반영:
+    #   - 매 SQL 별 begin() 분리 시 트랜잭션 사이 다른 worker 가 진입 가능
+    #   - 단일 트랜잭션 안에서 SAVEPOINT (begin_nested) 로 항목별 에러 격리
+    #   - CREATE INDEX CONCURRENTLY 는 트랜잭션 블록 불가 — 현재 SQL 에는 없음.
+    #     향후 큰 인덱스 필요시 Alembic / 수동 운영 migration 으로 분리해야 함.
+    async with engine.begin() as conn:
+        # Advisory xact lock — 같은 key 잡으려는 다른 worker 는 wait.
+        # transaction 끝나면 자동 해제. SIGTERM/SIGKILL 시에도 connection drop
+        # 으로 PG 가 transaction rollback + lock 해제.
+        await conn.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": INIT_DB_LOCK_KEY},
+        )
+
+        # 모든 테이블 + enum 타입 생성 (idempotent)
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+        # 마이그레이션 SQL 들 — SAVEPOINT 로 항목별 에러 격리
+        for sql in migration_sqls:
+            try:
+                async with conn.begin_nested():  # SAVEPOINT
+                    await conn.execute(text(sql))
                 print(f"✅ Migration: {sql[:60]}...")
-        except Exception as e:
-            err_str = str(e)
-            if any(s in err_str for s in IGNORED_MIGRATION_ERRORS):
-                pass
-            else:
-                print(f"⚠️ Migration skipped ({sql[:40]}...): {e}", file=sys.stderr)
+            except Exception as e:
+                err_str = str(e)
+                if any(s in err_str for s in IGNORED_MIGRATION_ERRORS):
+                    # SAVEPOINT 자동 rollback → 다음 SQL 진행
+                    pass
+                else:
+                    print(f"⚠️ Migration skipped ({sql[:40]}...): {e}", file=sys.stderr)
 
     print("✅ DB 테이블 초기화 완료")
 

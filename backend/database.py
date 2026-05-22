@@ -38,6 +38,9 @@ if "sqlite" in _url_str.lower():
     sys.exit(1)
 
 # PostgreSQL 전용 비동기 엔진 (pool_pre_ping으로 끊긴 연결 자동 복구)
+# [2026-05-22] PG-CAP-01: pool_recycle=300 추가 — Cloud SQL Proxy + idle connection
+# 누수 예방. 5분마다 connection 갱신. 위험 0 (활성 connection 은 그대로 유지).
+# tasks/p1-capacity-model-analysis.md §즉시 처리 액션 참조.
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
@@ -45,6 +48,7 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
+    pool_recycle=300,
 )
 
 # [2026-05-22] P1 #8 Strategy 2 (PG-DB-RACE-02) — advisory lock key.

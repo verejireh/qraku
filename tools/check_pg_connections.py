@@ -67,9 +67,10 @@ def main() -> int:
         """)).all()
         state_counts = {row.state or "(unknown)": row.n for row in rows}
 
-        # 가장 오래 점유 중인 connection 5개
+        # 가장 오래 점유 중인 connection 5개 (wait_event 포함 — GPT capacity review §추가 지적)
         long_rows = conn.execute(text("""
             SELECT pid, usename, application_name, state,
+                   wait_event_type, wait_event,
                    EXTRACT(EPOCH FROM (now() - state_change))::int AS state_secs,
                    EXTRACT(EPOCH FROM (now() - query_start))::int AS query_secs,
                    LEFT(query, 100) AS query_preview
@@ -86,6 +87,8 @@ def main() -> int:
                 "user": r.usename,
                 "app": r.application_name,
                 "state": r.state,
+                "wait_event_type": r.wait_event_type,
+                "wait_event": r.wait_event,
                 "state_secs": r.state_secs,
                 "query_secs": r.query_secs,
                 "preview": r.query_preview,
@@ -129,8 +132,9 @@ def main() -> int:
         if long_holders:
             print(f"  oldest 5 holders:")
             for h in long_holders:
+                wait_str = f" wait={h['wait_event_type']}/{h['wait_event']}" if h['wait_event'] else ""
                 print(f"    pid={h['pid']} user={h['user']} app={h['app']} "
-                      f"state={h['state']} for {h['state_secs']}s — {h['preview']}")
+                      f"state={h['state']}{wait_str} for {h['state_secs']}s — {h['preview']}")
 
     # 경고/에러 종료 코드
     if pct >= 90:

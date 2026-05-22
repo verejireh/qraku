@@ -321,10 +321,88 @@ E. **누락된 위험**:
 
 ## 액션 아이템
 
-- [ ] **PG-DT-FIX-01** (즉시): Strategy 1 적용 — 헬퍼 + 3 버그 수정 + business_hours guard (~30분)
-- [ ] **GPT-PG-DT-REVIEW**: Strategy 1~3 GPT cross-review (위 5 질문)
-- [ ] **PG-DT-MIGRATE-02** (D+7): Strategy 2 — 80곳 일괄 교체 (이후 GPT 응답 반영)
-- [ ] **PG-DT-MIGRATE-03** (D+30): Strategy 3 — TIMESTAMPTZ 이행 (P1 #8 Strategy 3 의존)
+- [x] **PG-DT-FIX-01** (12e6ca5, 2026-05-22): Strategy 1 적용 — 헬퍼 + 3 버그 수정 + business_hours guard
+- [x] **GPT-PG-DT-REVIEW** (b9ae66b, 2026-05-22): Strategy 1~3 GPT cross-review 응답 수신 + 본 doc 갱신
+- [x] **PG-DT-FIX-01b** (이번 커밋): `today_start_jst_as_utc_naive(now=None)` 인자 추가 (GPT 권고 — unit test 용이성)
+- [ ] **PG-DT-MIGRATE-02** (D+7): Strategy 2 — 80곳 일괄 교체. **단순 sed 금지** (GPT 권고) — 분류별 review 필요:
+    - DB 저장/비교 → `now_utc_naive()`
+    - 이벤트 payload `"Z"` 문자열 → `datetime.now(timezone.utc).isoformat()`
+    - JWT exp → semantic 유지 (`now_utc_naive()`), Strategy 3 에서 aware 전환
+    - seed/migration scripts → 우선순위 낮음
+- [ ] **PG-DT-MIGRATE-03** (D+30): Strategy 3 — TIMESTAMPTZ 이행. **선행 조건**: P1 #8 Strategy 3 (Alembic 이행) + anomaly detection (GPT §B) + date/hour grouping 정책 확정
+- [ ] **PG-DT-DATE-GROUPING** (신규, P1 #7 후속): `register/stats/insights/super_admin` 의 `date_only(Order.created_at)` UTC day 문제 — JST date 로 변환. 별도 분석 doc 필요 (GPT §E1)
+- [ ] **PG-DT-CRON-TZ** (신규): 향후 daily cron 추가 시 `CRON_TZ=Asia/Tokyo` 또는 systemd timer `Asia/Tokyo` 명시 (GPT §E4)
+
+---
+
+## GPT-5.5 cross-review 반영 (2026-05-22, [`gpt-p1-datetime-review.md`](./gpt-p1-datetime-review.md))
+
+### 새로 식별된 큰 위험 — `date_only()`/`hour()` UTC day 문제
+
+GPT 가 본 분석에서 다루지 않은 **별도 카테고리**의 datetime 위험 지적:
+
+```python
+# register.py, stats.py, insights.py, super_admin.py 에서 발견되는 패턴:
+date_only(Order.created_at) == date.today()
+group_by(date_only(Order.created_at))
+```
+
+- `Order.created_at` 은 naive UTC
+- `date_only(...)` 또는 `DATE(...)` 는 **UTC 날짜**
+- 일본 매장 기준 "오늘 매출", "오늘 주문 건수" 가 JST 자정 ~ JST 9시 사이에 9 시간 어긋남
+
+PostgreSQL 변환:
+```sql
+-- naive UTC → JST date 그룹화
+DATE((created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Tokyo')
+
+-- TIMESTAMPTZ 전환 후 (Strategy 3 시점)
+DATE(created_at AT TIME ZONE 'Asia/Tokyo')
+```
+
+별도 카드 (**PG-DT-DATE-GROUPING**) 로 분리. 본 P1 #7 Strategy 1 의 3 버그와 같은 계열이지만 영향 범위가 다름 (집계/분석 표시) — 우선순위 P1 (사장님 신뢰도 영향).
+
+### `business_hours.py` guard 4-phase 전환 타임라인
+
+GPT 권고 — 즉시 `raise ValueError` 는 위험. 4 단계 점진적 전환:
+
+| Phase | 시점 | 동작 |
+|---|---|---|
+| 1 (현재) | 12e6ca5 적용 후 | `DeprecationWarning` + `now.replace(tzinfo=JST)` fallback |
+| 2 | D+7 | `warnings.warn` + `logger.warning` 추가 (운영 로그에서 naive caller 발견) |
+| 3 | D+14 또는 caller 0건 확인 후 | `STRICT_TIMEZONE_GUARD=1` env 시 raise. CI 에서만 ON |
+| 4 | D+30 / TIMESTAMPTZ 이행 시점 | fallback 제거, raise 기본 |
+
+### Strategy 별 GPT 합의 판정
+
+| Strategy | GPT 판정 |
+|---|---|
+| 1 (helper + 3 버그 수정 + guard) | ✅ 진행 적합. 이미 반영된 구현 방향 맞음 |
+| 2 (80곳 utcnow 교체) | ✅ 진행 적합. **단순 sed 금지** — 분류별 review (DB/이벤트/JWT/seed) |
+| 3 (TIMESTAMPTZ 이행) | ⏸ 장기 정답. **선행조건**: Alembic baseline + anomaly detection + date/hour grouping 정책 + Pydantic 표시 정책 |
+
+### 추가 누락 위험 (GPT §E)
+
+| # | 위험 | 우선순위 |
+|---|---|---|
+| 1 | `date_only()`/`hour()` UTC day/hour 통계 | 🔴 별도 카드 (PG-DT-DATE-GROUPING) |
+| 2 | `date.today()` 가 서버 로컬 timezone (UTC on VM) 의존 | 같은 카드 |
+| 3 | cron timezone — `food_rescue_scheduler` 는 OK, 미래 daily cron 추가 시 명시 필요 | PG-DT-CRON-TZ |
+| 4 | Cloud SQL `TimeZone` 확인 — 운영 측정: **UTC** ✅ (DB session timezone OK) | 무위험 |
+| 5 | `timezone(timedelta(hours=9))` vs `ZoneInfo("Asia/Tokyo")` 혼용 — `food_rescue_scheduler.py`, `admin.py` 정리 대상 | Strategy 2 합본 |
+| 6 | JWT exp Strategy 3 시점 aware 전환 — PyJWT smoke 필요 | Strategy 3 |
+| 7 | naive/aware partial migration `TypeError` — Strategy 3 은 helper+model+column+code 묶음 단위로 진행 | Strategy 3 |
+
+### Pydantic + 브라우저 timezone (GPT §C)
+
+두 종류 시간 분리 정책 명시:
+
+| 종류 | 예시 | 처리 |
+|---|---|---|
+| **Instant time** | 주문 생성, 결제 완료, 쿠폰 만료, 출퇴근, 세션 만료 | aware UTC datetime (ISO 8601 + offset) — 브라우저 `Date()` 정상 |
+| **Store business wall time** | 영업시간 `"11:00~22:00"`, 메뉴 시간대 `active_from`, `pickup_time` 문자열 | `Date()` 변환 금지 — 문자열 또는 `{h, m, tz: "Asia/Tokyo"}` 형태 유지 |
+
+→ 프론트 점검 항목: `business_hours`, `active_from/to`, `pickup_time` 에 `new Date()` 호출하지 않는지 확인.
 
 ---
 

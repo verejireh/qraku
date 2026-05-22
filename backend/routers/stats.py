@@ -7,6 +7,7 @@ from models import Order, OrderItem, Menu, Store
 from datetime import datetime, date, timedelta
 from utils.jwt import require_admin
 from utils.db_compat import hour, year, month, day_of_week, date_only
+from utils.time_helpers import today_jst
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
@@ -96,9 +97,10 @@ async def get_hourly_orders(
     admin_store: Store = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
-    """오늘 시간대별 주문 수 (0~23시)"""
+    """오늘 시간대별 주문 수 (0~23시) — JST 기준"""
     _assert_store_access(admin_store, shop_id)
-    today = date.today()
+    # [2026-05-22] PG-DT-DG-01 — JST today + db_compat hour/date_only 도 JST
+    today = today_jst()
 
     query = select(
         hour(Order.created_at).label("hour"),
@@ -256,9 +258,10 @@ async def get_hourly_guests(
     admin_store: Store = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
-    """시간대별 손님수 (유니크 테이블 수 기준)"""
+    """시간대별 손님수 (유니크 테이블 수 기준) — JST 기준"""
     _assert_store_access(admin_store, shop_id)
-    d = date.fromisoformat(target_date) if target_date else date.today()
+    # [2026-05-22] PG-DT-DG-01 — target_date 미지정 시 JST today 사용
+    d = date.fromisoformat(target_date) if target_date else today_jst()
 
     query = select(
         hour(Order.created_at).label("hour"),

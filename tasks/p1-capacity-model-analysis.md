@@ -49,7 +49,14 @@ Dramatiq worker 는 별도 service. 현재 1 프로세스 추정.
 - `effective_cache_size` ≈ 1.46GB
 - `work_mem` = 4MB
 
-→ 총 RAM 추정: 5~6GB (Cloud SQL `db-custom-2-7680` = 2 vCPU / 7.5GB 매칭)
+→ 총 RAM 추정: 5~6GB
+
+**[2026-05-22 갱신] 실제 tier 확정** (`gcloud sql instances describe postgre-sql`):
+- tier: **`db-custom-1-3840`** (1 vCPU / 3.75GB) — 추정보다 **작음**
+- dataDiskSizeGb: 250
+- availabilityType: **REGIONAL** (자동 standby replica 보유)
+
+→ shared_buffers 1222MB / 3.75GB ≈ 33%. Cloud SQL 가 작은 인스턴스에 더 공격적 비율 적용.
 
 ### 실제 활성 connection 분포
 
@@ -224,11 +231,15 @@ ExecStart=.../python -m uvicorn main:app --app-dir backend \
 
 ## 즉시 처리 가능 액션 아이템
 
-- [ ] **PG-CAP-01** (다음 deploy 와 함께): `pool_recycle=300` 추가 — idle connection 누수 예방. 1줄 변경, 위험 0.
-- [ ] **PG-CAP-02** (출시 직후): 운영자 모니터링 스크립트 작성 + 매주 1회 실행 (현재 connection 사용량 기록)
+- [x] **PG-CAP-01** (e5d7a57, 2026-05-22): async engine `pool_recycle=300` 추가
+- [x] **PG-CAP-01b** (이번 커밋): worker sync engine 도 `pool_recycle=300` 추가 (GPT 권고 §B)
+- [x] **PG-CAP-02** (e5d7a57): `tools/check_pg_connections.py` 모니터링 도구 작성. 이번 커밋에서 `wait_event_type/wait_event` 컬럼 추가 (GPT 권고)
+- [x] **GPT-PG-CAP-REVIEW** (ee26972): GPT cross-review 응답 수신 + 본 doc 갱신
 - [ ] **PG-CAP-03** (D+30 평가): `tools/pg_query_audit.py` 단일 worker p95 측정 → 증설 필요 판정
-- [ ] **PG-CAP-04** (필요 시): pool_size=5 / max_overflow=10 축소 + `--workers 2` 적용
-- [ ] **OPR-MAX-CONN** (운영자, 필요 시): Cloud SQL `max_connections` 100 → 200 flag 변경
+- [ ] **PG-CAP-04** (필요 시): pool_size=5 / max_overflow=10 축소 + `--workers 2` 적용. **선행 조건**: Strategy 2 (advisory lock) 라이브 적용 + translate_menu DB session 분리
+- [ ] **PG-CAP-05** (신규, GPT 권고): `translate_menu` 외부 API 호출 중 DB session 점유 분리 (3-단계: load → API → write)
+- [ ] **PG-CAP-06** (신규): WS load test — 100/500/1000 idle 연결에서 memory/fd/CPU 측정
+- [ ] **OPR-MAX-CONN** (운영자, 필요 시): Cloud SQL `max_connections` 100 → 200 flag 변경 (instance restart 필요)
 
 ---
 
@@ -275,6 +286,57 @@ F. **Cloud SQL tier 추정 정확도**:
 ```
 
 응답 저장: `tasks/gpt-p1-capacity-review.md`
+
+---
+
+## GPT-5.5 cross-review 반영 (2026-05-22, [`gpt-p1-capacity-review.md`](./gpt-p1-capacity-review.md))
+
+### 트래픽 모델 정밀화
+
+Claude 의 초기 모델이 **주문 생성만** 회계 — 실제 피크에는 read API/register polling/admin refresh/WS token/translation burst 가 더해짐.
+
+GPT 권장 보정 모델:
+```text
+DB active connections ~= sum(endpoint_rps * db_hold_seconds_per_request)
+
+peak_rps @ 50 stores:
+  order_create:     0.35 rps
+  menu/read:        5~15 rps
+  register/KDS:     1~5  rps
+  admin/stats:      0.5~2 rps
+```
+
+→ 50 매장에서 active DB **20~30 upper bound** 결론은 보수적으로 유지 가능 (read API 가 짧은 query 라 occupancy 작음).
+
+### 새로 식별된 위험
+
+| # | 위험 | 영향 | 액션 |
+|---|---|---|---|
+| 1 | `translate_menu` 가 외부 API 호출 동안 DB session 유지 (~9개 lang × 3 fields = 최대 27초 hold) | Dramatiq worker 확장 시 DB occupancy ↑↑ | **PG-CAP-05** (신규) |
+| 2 | WS send_text 실패 시 dead connection 누적 | memory/fd 누수 | **이번 커밋** — `_local_broadcast_*` 가 send 실패 시 connection 제거 |
+| 3 | WS load 가 DB 가 아닌 Redis/memory/fd/pub-sub fanout 압박 | 별도 회계 필요 | **PG-CAP-06** (load test) |
+| 4 | multi-worker 시 Redis pubsub listener 가 worker 마다 1개 + cross-worker fanout | Redis connection 부담 | docker-compose `dramatiq -p 2 -t 4` 경로 점검 필요 |
+| 5 | PgBouncer transaction mode + asyncpg prepared statement cache 충돌 | 도입 시 fail | `statement_cache_size=0` + `NullPool` 별도 spike |
+| 6 | `pool_size+max_overflow` 는 burst 상한이지 상시 점유 아님 — 관측치 별도 필요 | 의사결정 정밀도 | `pg_stat_statements` 활성화 + access log 분석 |
+
+### 권장 실행 순서 (GPT 합의)
+
+1. ✅ single worker 유지 (현재 상태)
+2. ✅ `pool_recycle=300` async + sync engine 모두 적용
+3. ⏸ peak hour `pg_stat_activity` 1분 간격 30~60분 수집 (운영자)
+4. ⏸ `pg_stat_statements` 활성화 (OPR-15)
+5. ⏸ `translate_menu` DB session hold 분리 (PG-CAP-05)
+6. ⏸ worker 2 적용 전 async pool 축소 (`pool_size=5, max_overflow=10`)
+7. ⏸ worker 2 적용 후 p95, active conn, idle in tx, CPU 비교
+8. ⏸ workers 3+ 또는 500 매장 전 Cloud SQL tier upgrade / max_connections / PgBouncer 중 선택
+
+### 1 vCPU 인스턴스의 의미
+
+Cloud SQL tier 확정 (`db-custom-1-3840` = 1 vCPU) 가 **worker 증설 ROI 평가에 영향**:
+
+- 단일 vCPU PG → backend uvicorn N workers 가 PG CPU 1개를 공유. worker 증설은 PG CPU 가 아닌 backend CPU 분산 효과만.
+- backend VM 도 vCPU 가 PG 와 별개이므로 worker 증설은 backend latency 분산에는 효과 있음.
+- 500 매장 확장 시: PG `db-custom-4-15360` (4 vCPU) 또는 read replica 분기가 backend worker 보다 먼저 ROI 발생.
 
 ---
 

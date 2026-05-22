@@ -24,6 +24,7 @@ from models import (
 )
 from utils.jwt import require_staff_or_admin
 from utils.db_compat import date_only
+from utils.time_helpers import today_jst
 from datetime import datetime, date
 import uuid
 import json
@@ -414,7 +415,10 @@ async def get_today_sales(
     if store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
     shop_variants = _shop_id_variants(store)
-    today = date.today()
+    # [2026-05-22] PG-DT-DG-01 — date.today() (서버 로컬 = UTC on VM) 대신
+    # today_jst() (JST 자정 기준). date_only(Order.created_at) 가 JST date 를
+    # 반환하도록 db_compat.py 가 변경됐으므로 caller 의 today 도 JST 필수.
+    today = today_jst()
 
     stmt = select(Order).where(
         Order.shop_id.in_(shop_variants),
@@ -473,7 +477,8 @@ async def get_takeout_orders(
     if store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
     shop_variants = _shop_id_variants(store)
-    today = date.today()
+    # [2026-05-22] PG-DT-DG-01 — JST 기준 today 사용
+    today = today_jst()
 
     # 픽업 완료(served)된 주문은 픽업 큐에서 제외
     stmt = select(Order).where(

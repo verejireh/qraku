@@ -8,12 +8,30 @@
 
 ---
 
-## 🔴 다음 deploy 사이클에 적용 필요
+## ✅ Deploy 완료 (2026-05-22 12:30 JST)
 
-| ID | 항목 | 변경 사항 | 검증 |
-|---|---|---|---|
-| **PG-AUDIT-FIX** | setup_server.sh + qrorder.service unit 갱신 | 72e3e50 + ff0bf27 — orphan 재발 방지 (ExecStartPre 2단계, KillMode=mixed, on-failure, StartLimit, nohup 제거) | 다음 deploy 시 자동 적용. 적용 후 `systemctl show qrorder` 로 `KillMode=mixed`, `StartLimitBurst=5` 확인 |
-| **PG-DT-FIX-01** | datetime UTC/JST 9시간 오프셋 버그 3건 수정 | (이번 커밋) — TIME_WINDOW 메뉴 그룹 / 메뉴 필터 / 테이크아웃 픽업 코드 today 경계 | 다음 deploy 후 점심 시간 (JST 11:00~14:00) 에 TIME_WINDOW 그룹이 실제로 active 되는지 확인 |
+모든 P0/P1 변경이 라이브 적용됨. backend.log + systemctl 검증 완료.
+
+| 적용 항목 | 검증 결과 |
+|---|---|
+| systemd unit 갱신 (KillMode=mixed, on-failure, StartLimit, ExecStartPre 2단계) | ✅ `systemctl show qrorder` 로 확인 |
+| restart_uvicorn.sh deprecation | ✅ 로컬 + VM `~/restart_uvicorn.sh` 둘 다 교체 |
+| datetime 9시간 오프셋 3건 (menu_groups, menus, orders pickup) | ✅ 다음 점심 시간 (JST 11:00~14:00) 실 손님 검증 가능 |
+| init_db advisory_xact_lock 단일 트랜잭션 | ✅ backend.log `✅ DB 테이블 초기화 완료` 1회 출력 |
+| enum cast (`::text`) | ✅ stderr 노이즈 0건 (이전 매 부팅 7건) |
+| db_compat.py JST 변환 | ✅ 운영 PG SQL 검증 통과 |
+| WS dead connection cleanup | ✅ 적용 (실 동작은 send 실패 발생 시 가시) |
+| pool_recycle=300 (async + sync) | ✅ 적용 |
+| Dockerfile --reload 제거 | ✅ 적용 (production docker 미사용이라 무영향) |
+| deploy.py SSH 키 경로 fix | ✅ 이번 커밋 — 다음 deploy 부터 worktree 에서 직접 실행 가능 |
+
+배포 시 발견된 후속 버그 (수정 완료):
+- deploy.py 의 `os.path.dirname(__file__) + "../qraku"` 가 worktree 환경에서 실패 → `~/.ssh/qraku` 우선 사용 패턴
+- `.gitattributes` 적용에도 working tree CRLF 잔존 → VM 에서 `tr -d '\r'` 수동 변환 필요 (1회성)
+
+---
+
+
 
 ---
 

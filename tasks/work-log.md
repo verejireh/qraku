@@ -86,6 +86,41 @@ restart loop 완전 종료 확인.
 - 🟢 codex_survey.md 처리 결정 (untracked)
 - 🟢 P1 #7~#11 카드 분리
 
+### 2026-05-22 12:30 JST — Production Deploy 실행 + 모든 변경 라이브 발동
+
+자이라가 deploy 실시 지시. deploy.py 실행:
+- 로컬 npm build + zip (7.4 MB) 성공
+- **SSH 키 path 오류 발견** — `os.path.dirname(__file__) + "../qraku"` 가 worktree 환경에서 `D:\myproject\orderservice\.claude\worktrees\qraku` 가리킴 (존재 안 함). 자동 전송 실패.
+- 워크어라운드: 수동 scp + 원격 setup_server.sh 실행
+
+추가 발견 — **CRLF 문제**: `.gitattributes` 적용에도 working tree의 `setup_server.sh` 가 CRLF 유지 → zip 안에 CRLF로 들어가서 bash `$'\r': command not found` + heredoc syntax error.
+운영 VM에서 `tr -d '\r' < setup_server.sh > setup_server.lf && mv setup_server.lf setup_server.sh` 로 즉시 복구.
+
+setup_server.sh 재실행 결과:
+- ✅ `Restart=on-failure`, `KillMode=mixed`, `StartLimitBurst=5`, `ExecStartPre` 적용
+- ✅ ExecStartPre 부팅 시 잔류 PID 362358 → TERM 정리 (`status=15/TERM`)
+- ✅ MainPID 362362, NRestarts=0 (deploy 후 2분+ 안정)
+- ✅ healthz/readyz 200
+- ✅ backend.log 에 `✅ Migration: ... WHERE kitchen_mode::text = 'kds'` (enum cast 적용 확인) + 모든 100+ migration ✅ + `✅ DB 테이블 초기화 완료`
+- ✅ port 8003 단일 점유, orphan 없음
+
+VM 정리:
+- ~/qr-order-system/deploy_package.zip 제거 (7.4MB)
+- ~/restart_uvicorn.sh 를 deprecation warning + exit 1 버전으로 교체
+
+후속 패치 (이번 커밋):
+- deploy.py SSH 키 우선순위: DEPLOY_SSH_KEY env → ~/.ssh/qraku → legacy <project>/../qraku
+- 다음 deploy 부터 worktree 에서 직접 실행 가능
+
+모든 P0/P1 라이브 효과 발동:
+- restart loop 재발 방지 (KillMode=mixed + StartLimit + ExecStartPre)
+- enum 정규화 stderr 노이즈 0건 (`::text` 캐스트)
+- init_db advisory_xact_lock 단일 트랜잭션 race 차단
+- datetime 9시간 오프셋 3건 수정 (점심 메뉴, 픽업 코드)
+- date_only/hour JST 변환 (오늘 매출, 시간별 분포)
+- WS dead connection cleanup
+- pool_recycle=300 async + sync
+
 ### GPT-5.5 cross-review 응답 처리 (faf87aa 이후)
 
 GPT 리뷰: 신뢰도 82/100. 방향은 맞지만 운영상 날카로운 부분 보강 필요.

@@ -88,12 +88,15 @@ async def init_db():
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS square_connected BOOLEAN DEFAULT FALSE",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS supported_languages VARCHAR(255) DEFAULT 'ja,en,ko,zh'",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS payment_options VARCHAR(255) DEFAULT 'cash_only'",
-        # 데이터 복구용 UPDATE 구문 추가
+        # 데이터 복구용 UPDATE 구문 — enum 타입 컬럼은 ::text 캐스트로 비교
+        # (옛 enum value 가 새 enum type 에 없으면 PG 가 WHERE 절 캐스트에서
+        #  InvalidTextRepresentationError 던짐. 캐스트하면 text=text 비교로 안전.)
+        # [2026-05-22] enum cast 패치 — P1 #8 Strategy 1 (p1-init-db-race-analysis.md)
         "ALTER TABLE store ALTER COLUMN kitchen_mode SET DEFAULT 'KDS'",
         "ALTER TABLE store ALTER COLUMN payment_options SET DEFAULT 'cash_only'",
-        "UPDATE store SET kitchen_mode = 'KDS' WHERE kitchen_mode = 'kds'",
-        "UPDATE store SET payment_options = 'cash_only' WHERE payment_options = 'CASH_ONLY'",
-        "UPDATE store SET payment_options = 'card_and_cash' WHERE payment_options = 'CARD_AND_CASH'",
+        "UPDATE store SET kitchen_mode = 'KDS' WHERE kitchen_mode::text = 'kds'",
+        "UPDATE store SET payment_options = 'cash_only' WHERE payment_options::text = 'CASH_ONLY'",
+        "UPDATE store SET payment_options = 'card_and_cash' WHERE payment_options::text = 'CARD_AND_CASH'",
         # POS Mode & View Toggles (new Square architecture)
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS pos_mode VARCHAR(50) DEFAULT 'basic'",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS use_register_view BOOLEAN DEFAULT TRUE",
@@ -108,13 +111,12 @@ async def init_db():
         # Table guest count
         'ALTER TABLE "table" ADD COLUMN IF NOT EXISTS guest_count INT NULL',
         # TableStatus migration: normalize existing values (safe UPDATE)
-        # Step 2: Normalize all old values
+        # [2026-05-22] enum cast 패치 — ::text 캐스트로 옛 enum value 비교 안전화
+        # NOOP self-update 라인 ('occupied'→'occupied', 'ready'→'ready') 제거 — 무의미
         'ALTER TABLE "table" ALTER COLUMN status SET DEFAULT \'ready\'',
-        'UPDATE "table" SET status = \'ready\' WHERE status IN (\'EMPTY\', \'empty\', \'PAID\', \'paid\', \'READY\')',
-        'UPDATE "table" SET status = \'occupied\' WHERE status IN (\'ORDERING\', \'ordering\', \'OCCUPIED\')',
-        'UPDATE "table" SET status = \'occupied\' WHERE status IN (\'occupied\')',
-        'UPDATE "table" SET status = \'ready\' WHERE status IN (\'ready\')',
-        'UPDATE "table" SET status = \'checkout_requested\' WHERE status IN (\'CHECKOUT_REQUESTED\', \'checkout_requested\')',
+        'UPDATE "table" SET status = \'ready\' WHERE status::text IN (\'EMPTY\', \'empty\', \'PAID\', \'paid\', \'READY\')',
+        'UPDATE "table" SET status = \'occupied\' WHERE status::text IN (\'ORDERING\', \'ordering\', \'OCCUPIED\')',
+        'UPDATE "table" SET status = \'checkout_requested\' WHERE status::text = \'CHECKOUT_REQUESTED\'',
         # Staff call + serving tracking
         'ALTER TABLE "table" ADD COLUMN IF NOT EXISTS call_staff BOOLEAN DEFAULT FALSE',
         'ALTER TABLE "order" ADD COLUMN IF NOT EXISTS needs_serving BOOLEAN DEFAULT TRUE',

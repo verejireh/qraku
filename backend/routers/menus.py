@@ -5,6 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 from database import get_session
 from models import Menu, SystemConfig, Store, MenuGroup, MenuGroupItem, MenuGroupType
+from utils.time_helpers import now_jst
 import logging
 
 router = APIRouter(prefix="/menus", tags=["menus"])
@@ -248,7 +249,10 @@ async def read_menus(
     for gid, mid in items_res.all():
         menu_to_groups.setdefault(mid, set()).add(gid)
 
-    now = datetime.now()
+    # [2026-05-22] P1 #7 Bug 2 — datetime.now() (서버 로컬 = UTC on VM) →
+    # active_from/to (JST 시간 문자열) 와 비교 시 9시간 오프셋 버그.
+    # now_jst() 로 JST aware datetime 사용.
+    now = now_jst()
     active_group_ids = set()
     for g in groups:
         if g.group_type == MenuGroupType.MANUAL and g.is_active:

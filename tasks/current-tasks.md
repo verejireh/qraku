@@ -12,7 +12,8 @@
 
 | ID | 항목 | 변경 사항 | 검증 |
 |---|---|---|---|
-| **PG-AUDIT-FIX** | setup_server.sh + qrorder.service unit 갱신 | 72e3e50 — orphan 재발 방지 (ExecStartPre fuser, KillMode=mixed, TimeoutStopSec=10, nohup 제거) | 다음 deploy 시 자동 적용. 적용 후 `systemctl show qrorder` 로 `KillMode=mixed` 확인 |
+| **PG-AUDIT-FIX** | setup_server.sh + qrorder.service unit 갱신 | 72e3e50 + ff0bf27 — orphan 재발 방지 (ExecStartPre 2단계, KillMode=mixed, on-failure, StartLimit, nohup 제거) | 다음 deploy 시 자동 적용. 적용 후 `systemctl show qrorder` 로 `KillMode=mixed`, `StartLimitBurst=5` 확인 |
+| **PG-DT-FIX-01** | datetime UTC/JST 9시간 오프셋 버그 3건 수정 | (이번 커밋) — TIME_WINDOW 메뉴 그룹 / 메뉴 필터 / 테이크아웃 픽업 코드 today 경계 | 다음 deploy 후 점심 시간 (JST 11:00~14:00) 에 TIME_WINDOW 그룹이 실제로 active 되는지 확인 |
 
 ---
 

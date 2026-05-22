@@ -13,6 +13,7 @@ from datetime import datetime, time
 
 from database import get_session
 from models import MenuGroup, MenuGroupItem, MenuGroupType, Store, Menu
+from utils.time_helpers import now_jst
 from utils.jwt import require_admin
 
 router = APIRouter(prefix="/menu-groups", tags=["menu-groups"])
@@ -263,7 +264,11 @@ async def list_active_groups_public(
     COURSE 그룹은 별도 (TabehoudaiSession 기반).
     """
     store = await _resolve_store(store_id, session)
-    now = datetime.now()
+    # [2026-05-22] P1 #7 Bug 1 — datetime.now() 는 서버 로컬 (UTC on VM) →
+    # active_from/to (JST "11:00" 등) 와 비교 시 9시간 오프셋 버그.
+    # now_jst() 로 JST aware 사용 — _is_time_window_active 는 now.time() 만
+    # 쓰므로 tz 차이 무시되고 시:분 비교만 수행 (정확).
+    now = now_jst()
 
     result = await session.execute(
         select(MenuGroup).where(

@@ -49,11 +49,29 @@
 
 ---
 
+## 🤖 GPT-5.5 cross-review 대기 (2 세션 병렬 전송 가능)
+
+| ID | 항목 | 분석 doc | 전송 프롬프트 |
+|---|---|---|---|
+| **세션 F** | PG-CAP-05 translate_menu DB session 분리 | [`p1-cap05-translate-task-refactor-analysis.md`](./p1-cap05-translate-task-refactor-analysis.md) | [`zaira-gpt-send-prompts-pg-cap05-dt-migrate02.md`](./zaira-gpt-send-prompts-pg-cap05-dt-migrate02.md) §F |
+| **세션 G** | PG-DT-MIGRATE-02 utcnow 113건 분류 | [`p1-dt-migrate-02-utcnow-classification-analysis.md`](./p1-dt-migrate-02-utcnow-classification-analysis.md) | 동상 §G |
+
+응답 저장:
+- `tasks/gpt-pg-cap05-review.md`
+- `tasks/gpt-pg-dt-migrate-02-review.md`
+
+응답 수신 후 Claude 가 분석 doc 끝에 §"GPT cross-review 반영" 추가 + 실 코드 패치.
+
+---
+
 ## ✅ GPT-5.5 cross-review 완료
 
 | ID | 항목 | 결과 |
 |---|---|---|
-| **GPT-PG-REVIEW-2** | 운영 VM 검증 결과 2nd opinion | [`gpt-pg-verification-review.md`](./gpt-pg-verification-review.md) 신뢰도 82/100. 6개 보강 항목 적용 완료 (`restart_uvicorn` deprecation, systemd `on-failure`+StartLimit, 2단계 KILL, Dockerfile `--reload` 제거, CHECK 4 실데이터 재검증, worker 증설 차단 카드 분리) |
+| **GPT-PG-REVIEW-2** | 운영 VM 검증 결과 2nd opinion | [`gpt-pg-verification-review.md`](./gpt-pg-verification-review.md) 신뢰도 82/100. 6개 보강 항목 적용 완료 |
+| **세션 C** | P1 #7 datetime 전략 | [`gpt-p1-datetime-review.md`](./gpt-p1-datetime-review.md). date_only UTC day 신규 발견 → PG-DT-DG 별도 카드 분리 |
+| **세션 D** | P1 #9 capacity 모델 | [`gpt-p1-capacity-review.md`](./gpt-p1-capacity-review.md). translate_menu DB session hold → PG-CAP-05 분리 |
+| **세션 E** | PG-DT-DG (date_only JST 옵션 A) | [`gpt-p1-date-grouping-review.md`](./gpt-p1-date-grouping-review.md). 성능 우려 (인덱스 매칭) → PG-DT-DG-04 핫패스 range 전환 카드 분리 |
 
 ---
 

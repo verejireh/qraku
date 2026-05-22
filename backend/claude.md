@@ -1,8 +1,12 @@
 # Backend CLAUDE.md
 
-백엔드(FastAPI) + 데이터베이스(MySQL/SQLModel) 개발 가이드.
+백엔드(FastAPI) + 데이터베이스(PostgreSQL/SQLModel) 개발 가이드.
 
 > 📁 프로젝트 전반 규칙은 [루트 claude.md](../claude.md) 참조
+>
+> ⚠️ **DB**: 2026-05-19 PostgreSQL 컷오버 완료 (DBM-12). MySQL/SQLite 런타임 모두 금지.
+> 운영은 Cloud SQL PostgreSQL via Auth Proxy (127.0.0.1:5432). 인라인 ALTER 마이그레이션은
+> 2026-05-22 부터 `pg_advisory_xact_lock` 단일 트랜잭션 + SAVEPOINT 패턴 (ad19215).
 
 ---
 
@@ -13,8 +17,8 @@
 | 파일/폴더 | 역할 |
 |---|---|
 | `main.py` | FastAPI 엔트리포인트. 모든 API 라우터는 `/api` 하위 마운트. 나머지는 React SPA(`frontend-react/dist/`) 서빙 |
-| `models.py` | 모든 SQLModel/MySQL 모델의 단일 진실 공급원 |
-| `database.py` | MySQL 전용 (SQLite 런타임 금지). `aiomysql` 비동기 엔진. 서버 시작 시 `ALTER TABLE` 마이그레이션 인라인 실행 |
+| `models.py` | 모든 SQLModel/PostgreSQL 모델의 단일 진실 공급원 |
+| `database.py` | PostgreSQL 전용 (`asyncpg` async + `psycopg2` sync via `to_sync_url`). SQLite/MySQL 런타임 금지. 서버 시작 시 `pg_advisory_xact_lock` 으로 보호된 단일 트랜잭션 안에서 `ALTER TABLE` 인라인 마이그레이션 + SAVEPOINT 격리 |
 | `routers/` | 피처 도메인별 1파일 |
 | `services/pos/` | 결제 어댑터 패턴 |
 | `utils/` | 헬퍼 유틸리티 |
@@ -160,7 +164,9 @@ if not entity or entity.store_id != resolved_store.id:
 ### 환경 변수 (`backend/.env`)
 
 ```
-DATABASE_URL=mysql+aiomysql://user:pass@host/dbname
+# 로컬 개발 (단일 URL):
+DATABASE_URL=postgresql+asyncpg://qraku:qraku@localhost:5432/qraku
+# 운영 (개별 변수 — 특수문자 비번 안전): DB_USER/DB_PASS/DB_HOST/DB_PORT/DB_NAME 우선
 SECRET_KEY=...                  # JWT 서명 키
 ENCRYPTION_KEY=...              # Fernet 암호화 키 (PayPay/Square API 키 암호화)
 SQUARE_APPLICATION_ID=...       # Square 공개 앱 ID

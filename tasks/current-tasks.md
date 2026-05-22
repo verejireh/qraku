@@ -35,6 +35,27 @@
 
 ---
 
+## 🟡 DBM-13 후속 — codex_survey 항목 정리 (2026-05-22)
+
+[`codex-survey-2026-05-21.md`](./codex-survey-2026-05-21.md) 의 8개 항목 처리 결과:
+
+| # | 항목 | 상태 |
+|---|---|---|
+| 1 | `docker-compose.yml` PG 기본 | ✅ 이미 정리됨 (검증만) |
+| 2 | `backend/.env.example` PG 기본 | ✅ 이미 정리됨 (검증만) |
+| 3 | `docs/deployment.md` MySQL 절차 제거 | 🟡 **별도 카드** (499줄 재작성 필요) |
+| 4 | `docs/architecture.md` DB 설명 갱신 | 🟡 **별도 카드** (263줄 재작성 필요) |
+| 5 | `backend/claude.md` PG 갱신 | ✅ 이번 커밋 (3 곳 수정) |
+| 6 | SQLite legacy migrate scripts | ✅ 이번 커밋 (`backend/legacy/` 14 파일 이동 + README) |
+| 7 | DB URL 변환 helper 검증 | ✅ 기능 OK (utils/db.py to_sync_url) |
+| 8 | E2E 산출물 gitignore | ✅ a25dbf4 |
+
+신규 카드:
+- **DBM-13c** docs/deployment.md PG 재작성 (~499줄)
+- **DBM-13d** docs/architecture.md PG 재작성 (~263줄)
+
+---
+
 ## 🟢 살아있는 카드 — 운영자 실행 필요
 
 | ID | 항목 | 담당 | 기한 | 비고 |

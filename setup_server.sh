@@ -94,16 +94,26 @@ sudo bash -c "cat > $SERVICE_FILE" << 'SERVICE'
 Description=QRaku FastAPI Server
 After=network.target cloud-sql-proxy.service
 Wants=cloud-sql-proxy.service
+# [2026-05-22] GPT cross-review 권고 — bind 실패 같은 deterministic failure 시
+# Restart=always + RestartSec=5 가 NRestarts 폭주 (이번 사고 413회) 를 만듦.
+# 5분 안에 5회 실패하면 systemd 가 더 이상 재시작 안 함 → 운영자 개입 신호.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=verejireh
 WorkingDirectory=/home/verejireh/qr-order-system
-# 시작 전 포트 8003 점유 stale 프로세스 정리 (orphan 재발 방지)
-# fuser 가 없을 수도 있으니 lsof 폴백 + 실패 무시 (-).
-ExecStartPre=-/bin/bash -c '/usr/bin/fuser -k 8003/tcp 2>/dev/null || /usr/bin/lsof -ti :8003 | xargs -r kill -TERM 2>/dev/null || true'
+# ExecStartPre 의 포트 정리는 deploy preflight 가 메인 책임. unit 내부 정리는
+# 같은 유저 (verejireh) 프로세스에 한정 (sudo 없음) → GPT 권고대로 2단계 처리:
+#   1) TERM 으로 graceful 요청
+#   2) 0.5초 대기 후 KILL fallback
+# 실패는 무시 (`-` 접두사). 정상 운영 (포트 비어있음) 시 NOOP.
+ExecStartPre=-/bin/bash -c 'PID=$(/usr/bin/lsof -ti :8003 -u verejireh 2>/dev/null); if [ -n "$PID" ]; then kill -TERM $PID 2>/dev/null; sleep 0.5; kill -KILL $PID 2>/dev/null || true; fi'
 ExecStart=/home/verejireh/qr-order-system/.venv/bin/python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8003
-Restart=always
+# [2026-05-22] Restart=always → on-failure 변경. deterministic bind 실패에서
+# 무한 재시작 폭주 차단. systemctl stop 같은 정상 종료에서는 재시작 안 함.
+Restart=on-failure
 RestartSec=5
 # graceful shutdown 타임아웃을 RestartSec 와 정합. 10초 내 종료 못 하면 SIGKILL.
 TimeoutStopSec=10

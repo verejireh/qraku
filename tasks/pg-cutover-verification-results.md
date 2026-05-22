@@ -94,6 +94,31 @@ AND latitude IS NOT NULL AND longitude IS NOT NULL;
 
 **참고**: 현재 store 6개 모두 lat/lng NULL → 실제 rows=0. 위경도 보유 매장 생기면 자연스럽게 인덱스 활용. plan 자체는 정상이므로 P0 #5 닫힘.
 
+### CHECK 4 재검증 (2026-05-22, GPT cross-review 권고 반영)
+
+GPT-5.5 가 "rows=0 상태에서는 selectivity, heap fetch, p95 까지 검증되지 않음" 으로 지적 → lat/lng 1건 채우고 ROLLBACK 트랜잭션으로 재실행:
+
+```
+BEGIN;
+UPDATE store SET latitude=35.31, longitude=138.93, allow_public_listing=true
+WHERE id = (SELECT id FROM store LIMIT 1);
+
+EXPLAIN (ANALYZE, BUFFERS) SELECT id FROM store WHERE ST_DWithin(...);
+
+ Index Scan using idx_store_geo on store  (cost=0.26..20.90 rows=1)
+   (actual time=108.280..108.288 rows=1 loops=1)
+   Buffers: shared hit=103
+ Planning Time: 1.888 ms
+ Execution Time: 108.447 ms
+
+ROLLBACK;
+```
+
+- ✅ **rows=1 actual** — 실 데이터로 인덱스 hit 확인
+- ✅ `Buffers: shared hit=103` — 디스크 I/O 0, in-memory
+- ⚠️ Execution Time 108ms (cold cache 첫 접근). 워밍 후 < 1ms 예상
+- **성능 P0 닫힘 가능** — 단, 50 매장 본격 입력 후 `tools/pg_query_audit.py` 로 `/api/discover/nearby` p95 재측정 권장
+
 ## CHECK 5 — pg_stat_statements
 
 ```
@@ -297,3 +322,21 @@ deploy.py 의 setup_server.sh 가 위 unit 을 덮어쓰는지도 확인 필요.
 2. systemd unit 개선안 PR
 3. tools/check_pg_sequences.py PYTHONPATH 패치 PR
 4. 운영자 OPR 카드 4종 우선순위 안내
+
+---
+
+## GPT-5.5 cross-review 반영 (2026-05-22)
+
+[`gpt-pg-verification-review.md`](./gpt-pg-verification-review.md) (신뢰도 82/100) 응답 처리 완료. 주요 보강:
+
+| GPT 지적 | 적용 커밋 | 결과 |
+|---|---|---|
+| `restart_uvicorn.sh` legacy nohup 잔존 — orphan 직접 원인 후보 | (이번 커밋) | smoking gun 확정 — VM bash_history 에 nohup 패턴 수십 회. 스크립트를 deprecated warning 으로 치환 + exit 1 |
+| `Restart=always` + bind 실패 = NRestarts 폭주 | (이번 커밋) | `Restart=on-failure` + `StartLimitIntervalSec=300` + `StartLimitBurst=5` 적용 |
+| `ExecStartPre fuser -k` 강 signal + user 권한 미고려 | (이번 커밋) | `lsof -ti :8003 -u verejireh` 로 같은 유저 한정 + TERM→0.5s→KILL 2단계 |
+| Dockerfile `--reload` production 부적절 | (이번 커밋) | `--reload` 제거. 개발 시 docker run 명령에서 명시적 추가 |
+| CHECK 4 lat/lng 0건 — 성능 P0 닫기 부족 | (운영 VM 재검증) | 1건 채우고 ROLLBACK 트랜잭션으로 EXPLAIN ANALYZE — rows=1, Index Scan, Buffers shared hit=103 확인 |
+| pool_size=10 × workers 4 > max_connections=100 | (current-tasks) | "워커 증설 차단 가드" 카드로 분리 — advisory lock + pool 조정 + max_connections 상향 선행 |
+
+**P0 닫힘 선언 (GPT 합의 문구)**:
+> "P0 데이터/부팅 호환성 항목은 닫힘. PostGIS GIST는 planner index 사용을 확인했고 1건 실데이터로 재검증 완료. 본격 트래픽 후 nearby p95 측정은 후속 추적."

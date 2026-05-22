@@ -86,6 +86,39 @@ restart loop 완전 종료 확인.
 - 🟢 codex_survey.md 처리 결정 (untracked)
 - 🟢 P1 #7~#11 카드 분리
 
+### GPT-5.5 cross-review 응답 처리 (faf87aa 이후)
+
+GPT 리뷰: 신뢰도 82/100. 방향은 맞지만 운영상 날카로운 부분 보강 필요.
+
+**보강 적용**:
+
+1. **`restart_uvicorn.sh` smoking gun 확정 + deprecate**
+   - GPT 가 "nohup 잔존 — orphan 재발 위험" 지적
+   - VM `~/.bash_history` 에 `nohup ... uvicorn ... &` 패턴 수십 회 실행 흔적 발견
+   - PID 290514 의 command line 시그니처와 정확히 일치 → **확정**
+   - 스크립트 본문을 deprecation warning + `exit 1` 로 치환
+
+2. **systemd unit 추가 보강** (`setup_server.sh`)
+   - `Restart=always` → `on-failure` (deterministic bind 실패에서 폭주 차단)
+   - `[Unit] StartLimitIntervalSec=300`, `StartLimitBurst=5` (5분 내 5회 실패 시 systemd 가 더 이상 재시작 안 함 — 이번 NRestarts=413 같은 사고 방지)
+   - `ExecStartPre` 2단계: `lsof -ti :8003 -u verejireh` → TERM → 0.5s → KILL (같은 유저 한정 + graceful 우선)
+
+3. **Dockerfile `--reload` 제거**
+   - production 환경에서 파일 변경 감지 reload 폭주 가능
+   - 개발 시 docker run 명령에서 명시적 추가 패턴으로 변경
+
+4. **CHECK 4 재검증** (운영 VM, lat/lng 1건 + ROLLBACK)
+   - rows=1 actual, Index Scan, Buffers shared hit=103, Execution 108ms (cold)
+   - 성능 P0 닫힘 가능 (단, 본격 트래픽 후 p95 재측정 권장)
+
+5. **워커 증설 차단 카드** (`current-tasks.md` 신규)
+   - GPT 가 `pool_size=10 × max_overflow=20 × workers=4 = 120 > max_connections=100` 충돌 지적
+   - advisory lock + pool 조정 + max_connections 상향 + p95 통과 4 조건 충족 전 보류
+
+**다음 cross-review 후보**:
+- Strategy 2 (advisory lock) 코드 작성 후 GPT 검증
+- P1 #7 datetime UTC 통일 전략 분석
+
 ---
 
 ## 2026-05-21 — STB-00 머지 + smoke + 첫 핫픽스

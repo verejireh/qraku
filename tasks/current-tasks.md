@@ -30,11 +30,24 @@
 
 ---
 
-## 🟡 GPT-5.5 cross-review 대기
+## ✅ GPT-5.5 cross-review 완료
 
-| ID | 항목 | 상태 |
+| ID | 항목 | 결과 |
 |---|---|---|
-| **GPT-PG-REVIEW-2** | 운영 VM 검증 결과 2nd opinion | 지시서 작성됨 ([`gpt-pg-verification-review-instructions.md`](./gpt-pg-verification-review-instructions.md)) — 자이라가 GPT-5.5 에 전송 + 응답을 `gpt-pg-verification-review.md` 로 저장 |
+| **GPT-PG-REVIEW-2** | 운영 VM 검증 결과 2nd opinion | [`gpt-pg-verification-review.md`](./gpt-pg-verification-review.md) 신뢰도 82/100. 6개 보강 항목 적용 완료 (`restart_uvicorn` deprecation, systemd `on-failure`+StartLimit, 2단계 KILL, Dockerfile `--reload` 제거, CHECK 4 실데이터 재검증, worker 증설 차단 카드 분리) |
+
+---
+
+## 🔴 워커 증설 차단 (GPT 권고 — 선행조건 충족 전 보류)
+
+`--workers > 1` 적용 전 다음 모두 충족 필요:
+
+| 조건 | 상태 |
+|---|---|
+| P1 #8 advisory lock 또는 Alembic 이행 | 분석 완료 ([`p1-init-db-race-analysis.md`](./p1-init-db-race-analysis.md)), Strategy 2/3 미적용 |
+| DB pool 총량 재계산 (`pool_size=10` × `max_overflow=20` × N workers ≤ Cloud SQL `max_connections`) | 현재 `max_connections=100`, 1 worker × 30 = 30 OK. workers=4 이면 120 > 100 → 차단 |
+| Cloud SQL `max_connections` 상향 또는 pool 축소 | 미진행 |
+| `tools/pg_query_audit.py` p95 기준 통과 | 미실행 |
 
 ---
 

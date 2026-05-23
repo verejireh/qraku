@@ -81,13 +81,16 @@ PG-DT-MIGRATE-02 코드 변환 완료:
 - ✅ **PG-DT-MIGRATE-02b** (fa47244): Cat-2 rolling window + loyalty_analytics JST month 버그 수정
 - ✅ **PG-DT-MIGRATE-02a** (eeab9e9): Cat-1/3/4/6 일괄 (95건 / 21 파일) + models.py default_factory 29건
 
-## 🤖 GPT-5.5 cross-review 대기
+## ✅ GPT-5.5 cross-review 세션 H 완료 + 반영
 
-| ID | 항목 | 전송 프롬프트 |
-|---|---|---|
-| **세션 H** | PG-DT-MIGRATE-02a 구현 결과 sampling 검증 (JWT / SQLModel default_factory / event ts / 운영 smoke 우선순위 / deploy 일정 분리) | [`zaira-gpt-send-prompt-pg-dt-migrate-02a-impl.md`](./zaira-gpt-send-prompt-pg-dt-migrate-02a-impl.md) |
-
-응답 저장: `tasks/gpt-pg-dt-migrate-02a-impl-review.md`
+| 항목 | 결과 |
+|---|---|
+| 세션 H 응답 | [`gpt-pg-dt-migrate-02a-impl-review.md`](./gpt-pg-dt-migrate-02a-impl-review.md) (9b38125, GPT) |
+| **02a deploy 가능 판정** | ✅ 승인 — naive UTC DB 계약 보존, schema 변경 없음 |
+| **PG-CAP-05 + 02a 한 deploy** | ✅ 권고 (둘 다 독립적, schema 변경 없음) |
+| 정정 — JWT 라이브러리 | python-jose (PyJWT 아님). 의미는 동일 |
+| Cleanup — `ws_token.py` Z → +00:00 일관성 | 이번 커밋 |
+| 운영 smoke 자동화 — `tools/predeploy_smoke.py` | 이번 커밋, local 6/6 PASS |
 
 남은 후속 카드 (응답 무관 진행 가능):
 - 🟢 **PG-DT-MIGRATE-02c**: Cat-5 seed scripts (3건, 운영 무영향)

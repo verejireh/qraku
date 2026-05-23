@@ -344,7 +344,8 @@ grep -rn "endsWith.*Z\|/Z\\$/\|\\.includes.*Z" frontend-react/src
 - [x] **GPT-PG-DT-MIGRATE-02-REVIEW** (fa01c1e): GPT cross-review 응답 수신 + 본 doc 갱신
 - [x] **PG-DT-MIGRATE-02-prep** (66bc7c0): tzdata dep 추가 + JST fallback + 신규 helper 2개 (`days_ago_jst_as_utc_naive`, `months_ago_jst_month_start_as_utc_naive`)
 - [x] **PG-DT-MIGRATE-02b** (fa47244): Cat-2 rolling window 변환 + loyalty_analytics JST month 버그 수정
-- [x] **PG-DT-MIGRATE-02a** (이번 커밋): Cat-1/3/4/6 일괄 변환 (95건 / 21 파일) + models.py default_factory 29건 + Cat-3 wire format Z→+00:00 + 운영 VM compileall + models import smoke
+- [x] **PG-DT-MIGRATE-02a** (eeab9e9): Cat-1/3/4/6 일괄 변환 (95건 / 21 파일) + models.py default_factory 29건 + Cat-3 wire format Z→+00:00 + 운영 VM compileall + models import smoke
+- [x] **PG-DT-MIGRATE-02a 검증** (이번 커밋): GPT 세션 H review 반영 + ws_token.py 일관성 정리 + `tools/predeploy_smoke.py` 6 단계 자동화. local 6/6 PASS
 - [ ] **PG-DT-MIGRATE-02c**: Cat-5 seed scripts 정리 (낮은 우선순위)
 - [ ] **PG-DT-MIGRATE-02-VERIFY**: `rg "datetime\.utcnow"` 0건 (괄호 없이!) + JWT smoke + 만료 비교 경계 + 프론트 Z suffix grep + reporting regression smoke
 
@@ -420,6 +421,62 @@ def months_ago_jst_month_start_as_utc_naive(months: int, now: Optional[datetime]
 - `days_ago_jst_as_utc_naive(7)` → `2026-05-15 15:00:00` (JST 2026-05-16 00:00 의 UTC) ✅
 - `months_ago_jst_month_start_as_utc_naive(2)` → `2026-02-28 15:00:00` (JST 2026-03-01 00:00) ✅
 - `months_ago_jst_month_start_as_utc_naive(13)` → `2025-03-31 15:00:00` (연도 넘김 정확) ✅
+
+---
+
+## 02a 구현 GPT cross-review 반영 (2026-05-24, [`gpt-pg-dt-migrate-02a-impl-review.md`](./gpt-pg-dt-migrate-02a-impl-review.md))
+
+### 합의 사항
+
+- ✅ 02a 구현 deploy 가능 — naive UTC DB 계약 보존, schema 변경 없음.
+- ✅ SQLModel `Field(default_factory=now_utc_naive)` 29건 안전 (Optional/lambda/Relationship 모두).
+- ✅ Event ts `Z` → `+00:00` 브라우저 호환 (frontend grep 1건 `endsWith('Z')` 발견했지만 `!since.includes('+')` 가드 있어 호환).
+- ✅ PG-CAP-05 + PG-DT-MIGRATE-02 한 deploy 묶기 가능 (둘 다 schema 변경 없고 독립).
+
+### 정정 사항
+
+- **JWT 라이브러리는 PyJWT 가 아니라 `python-jose`** — 본 분석 doc 의 "PyJWT" 표기는 잘못된 가정. naive UTC `exp` 동작은 양쪽 모두 동일.
+
+### 추가 cleanup (이번 커밋)
+
+- `backend/routers/ws_token.py:64-79` — `exp.isoformat() + "Z"` → aware UTC ISO (+00:00). `events.py` / `translate_tasks.py` 의 ts 형식과 일관.
+
+### 운영 smoke 자동화 (`tools/predeploy_smoke.py`)
+
+6 단계 — GPT §D Smoke Priority 그대로:
+
+```
+1. compile      backend 전체 py_compile
+2. import       app-dir 컨텍스트 (PYTHONPATH=backend) + models + time_helpers
+3. grep         datetime.utcnow 0건 (legacy/seed 제외)
+4. JWT          create_admin/super/staff_token + decode_admin (python-jose)
+5. event_ts     +00:00 wire format
+6. helpers      모든 신규 helper 동작 (days_ago / months_ago / day_range)
+```
+
+local 6/6 PASS 확인. 종료 코드: 0 = OK / 1 = warning / 2 = critical.
+
+운영 VM 실행은 deploy 후. 사용:
+```bash
+cd ~/qr-order-system && ./.venv/bin/python tools/predeploy_smoke.py
+```
+
+### Top 3 Regression Risk (GPT §D)
+
+1. PYTHONPATH / app-dir 컨텍스트 — `from backend.models` vs `from models` 분기. `predeploy_smoke.py` 가 PYTHONPATH=backend 로 실행해 해결.
+2. Event ts wire format un-grepped consumer — 운영 변경 후 KDS/admin WS 실 동작 확인 필요 (수동 smoke).
+3. 향후 Strategy 3 partial aware leak — 02a 는 안 함. 미래 작업 가드 필요.
+
+### Deploy 일정 권고 (GPT §E)
+
+**단일 deploy 권장**:
+- PG-CAP-05 + PG-DT-MIGRATE-02 둘 다 schema 변경 없음, 독립적.
+- predeploy_smoke 통과 후 deploy + 즉시 수동 smoke (admin login / KDS / stats).
+- 분리 시: PG-CAP-05 먼저 (translation worker capacity) → 02a 두번째.
+
+### Cat-5 처리 일정
+
+GPT 권고: legacy/seed `datetime.utcnow` 잔존을 명시 수용 또는 cleanup 전 PG-DT-MIGRATE-02 전체 close 하지 말 것. 본 카드의 후속 PG-DT-MIGRATE-02c 가 처리.
 
 ---
 

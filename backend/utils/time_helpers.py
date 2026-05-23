@@ -121,9 +121,16 @@ def jst_day_range_as_utc_naive(
     """
     if day is None:
         day = datetime.now(JST).date()
-    # JST aware datetime [day 00:00, (day+1) 00:00) → UTC naive
+    # JST aware datetime [day 00:00, (day+1) 00:00) → UTC naive.
+    # [2026-05-24] GPT 세션 I 권고 (gpt-pg-dt-dg-04-review.md §A) — end_jst 를
+    # `day + timedelta(days=1)` 의 local midnight 으로 계산. JST 는 DST 없어
+    # 결과 동일하지만, 미래 다국가 운영 시 DST zone (예: America/New_York) 에서
+    # `start_jst + 24h` 가 다음날 자정과 다른 시각이 될 수 있음 (DST 시작/종료).
+    # `datetime.combine(day+1, midnight)` 이 명시적이고 안전.
     start_jst = datetime.combine(day, datetime.min.time()).replace(tzinfo=JST)
-    end_jst = start_jst + timedelta(days=1)
+    end_jst = datetime.combine(
+        day + timedelta(days=1), datetime.min.time()
+    ).replace(tzinfo=JST)
     start_utc = start_jst.astimezone(timezone.utc).replace(tzinfo=None)
     end_utc = end_jst.astimezone(timezone.utc).replace(tzinfo=None)
     return start_utc, end_utc

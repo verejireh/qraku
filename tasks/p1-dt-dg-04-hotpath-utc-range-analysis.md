@@ -275,7 +275,9 @@ Order with `created_at = 2026-05-21 15:00:00 (naive UTC)` → JST 2026-05-22 00:
 - [x] **PG-DT-DG-04-ANALYSIS** (이번 doc): 영향 매핑 + EXPLAIN 측정 + helper 설계
 - [x] **PG-DT-DG-04-IMPL** (이번 커밋): `jst_day_range_as_utc_naive` helper + 4 위치 변환 (register × 2 + stats × 2)
 - [x] **PG-DT-DG-04-VERIFY** (이번 커밋): boundary smoke + 변환 후 EXPLAIN 비교
-- [ ] **PG-DT-DG-04b (옵션, 후순위)**: group_by 7 곳에 expression index 신설 — 1.8M rows 시점에 p95 측정 후 결정
+- [x] **GPT 세션 I cross-review** (cee4e68, [`gpt-pg-dt-dg-04-review.md`](./gpt-pg-dt-dg-04-review.md)): DG-04 deploy 승인 + helper refinement 권고
+- [x] **Helper refinement** (이번 커밋): `end_jst` 를 `day + timedelta(days=1)` 의 local midnight 으로 계산 (DST-aware zone 미래 호환). JST 는 결과 동일.
+- [ ] **PG-DT-DG-04b (옵션, 후순위)**: group_by 7 곳에 expression index 신설 — **GPT 권고: 측정 후 결정**. 1.8M rows 운영 EXPLAIN 결과 p95 SLO 초과 시에만. Alembic/수동 CONCURRENTLY 로 (inline migration 금지).
 
 ### 변환 후 EXPLAIN 측정 (운영 VM, 151 orders)
 
@@ -348,6 +350,99 @@ E. PG-DT-DG-04-IMPL 을 다음 deploy 와 함께 라이브 적용할지, 별도 
 
 응답을 tasks/gpt-pg-dt-dg-04-review.md 로 저장 + 커밋 부탁.
 ```
+
+---
+
+## GPT 세션 I cross-review 반영 (2026-05-24, [`gpt-pg-dt-dg-04-review.md`](./gpt-pg-dt-dg-04-review.md))
+
+### 합의 사항
+
+- ✅ PG-DT-DG-04 deploy 승인 — 4 핫패스 변환 semantic 동일 + 인덱스 사용 향상
+- ✅ Helper boundary 정확 (leap year / month end / year end / DST 없는 JST)
+- ✅ group_by 7건 expression index 보류 — 측정 후 결정
+
+### Helper refinement 적용 (이번 커밋)
+
+```python
+# Before:
+end_jst = start_jst + timedelta(days=1)
+
+# After (GPT 권고 §A):
+end_jst = datetime.combine(day + timedelta(days=1), datetime.min.time()).replace(tzinfo=JST)
+```
+
+JST 는 DST 없어 결과 동일. 미래 DST zone (예: America/New_York) 운영 시 `start + 24h` 와 next local midnight 가 다를 수 있음 — 명시적 패턴이 안전.
+
+### Edge case smoke 결과
+
+```
+leap day     day=2028-02-29  start=2028-02-28 15:00  end=2028-02-29 15:00  delta=1day ✅
+month end    day=2026-01-31  start=2026-01-30 15:00  end=2026-01-31 15:00  delta=1day ✅
+year end     day=2026-12-31  start=2026-12-30 15:00  end=2026-12-31 15:00  delta=1day ✅
+regular      day=2026-05-24  start=2026-05-23 15:00  end=2026-05-24 15:00  delta=1day ✅
+```
+
+### Future scale 권고 (GPT §B)
+
+본 hot scale 시 더 효과적인 composite index 옵션:
+
+```sql
+-- 일반 composite
+CREATE INDEX CONCURRENTLY idx_order_shop_created_at
+ON "order" (shop_id, created_at);
+
+-- 'paid' 전용 partial composite (오늘 매출 쿼리에 최적)
+CREATE INDEX CONCURRENTLY idx_order_shop_paid_created_at
+ON "order" (shop_id, created_at)
+WHERE payment_status = 'paid';
+```
+
+→ **운영 EXPLAIN 에서 현재 plan 불충분 증명 후에만** 적용. 사전 추가 금지.
+
+### 1.8M Synthetic 시뮬레이션 SQL (GPT §C)
+
+운영자가 staging 환경에서 plan 비교 시 사용:
+
+```sql
+CREATE TABLE order_synth (
+  id bigserial PRIMARY KEY,
+  shop_id text NOT NULL,
+  payment_status text NOT NULL,
+  created_at timestamp without time zone NOT NULL,
+  total_amount numeric NOT NULL DEFAULT 1000
+);
+
+INSERT INTO order_synth (shop_id, payment_status, created_at)
+SELECT
+  'shop_' || (g % 50),
+  CASE WHEN g % 5 = 0 THEN 'pending' ELSE 'paid' END,
+  timestamp '2025-05-01 00:00:00' + (g || ' minutes')::interval
+FROM generate_series(1, 1800000) AS g;
+
+CREATE INDEX idx_order_synth_created_at ON order_synth (created_at);
+CREATE INDEX idx_order_synth_shop_id ON order_synth (shop_id);
+ANALYZE order_synth;
+
+-- 비교: 기존 (Option A 만) vs 새 (range)
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT count(*) FROM order_synth
+WHERE shop_id='shop_1' AND payment_status='paid'
+  AND CAST(timezone('Asia/Tokyo', timezone('UTC', created_at)) AS date) = DATE '2026-05-22';
+
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT count(*) FROM order_synth
+WHERE shop_id='shop_1' AND payment_status='paid'
+  AND created_at >= TIMESTAMP '2026-05-21 15:00:00'
+  AND created_at <  TIMESTAMP '2026-05-22 15:00:00';
+```
+
+비교 지표: planning time / execution time / shared hit/read / rows removed / scan 종류.
+
+### Group-by Expression Index 결정 룰 (GPT §D)
+
+1. Grouped report p95 < SLO → index 추가 금지
+2. p95 > SLO + buffers full-table pressure → staging 에서 expression index 테스트
+3. 추가 시 Alembic / 수동 CONCURRENTLY (inline `init_db` 금지 — transaction block 충돌)
 
 ---
 

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime, timedelta
+from utils.time_helpers import now_utc_naive
 from database import get_session
 from models import Store, Table, PhotoReview, RewardCoupon
 from sqlalchemy.orm import selectinload
@@ -113,7 +114,7 @@ def _validate_password(password: str):
 @router.post("/", response_model=Store)
 async def create_store(store: Store, session: AsyncSession = Depends(get_session)):
     # Auto-grant 60-day Free Trial
-    now = datetime.utcnow()
+    now = now_utc_naive()
     store.subscription_status = "TRIAL"
     store.subscription_type = "FREE"
     store.trial_start_date = now
@@ -154,7 +155,7 @@ async def signup_with_password(body: SignupRequest, session: AsyncSession = Depe
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="このメールアドレスは既に登録されています。")
 
-    now = datetime.utcnow()
+    now = now_utc_naive()
     store = Store(
         name=body.store_name,
         owner_id=body.email,
@@ -575,7 +576,7 @@ async def update_photo_review_status(
     if new_status == "best_of_month" and not was_best:
         # 동일 guest 에게 최근 30일 내 photo_contest 쿠폰이 이미 있다면 재발급 안 함
         from datetime import timedelta as _td
-        recent_cut = datetime.utcnow() - _td(days=30)
+        recent_cut = now_utc_naive() - _td(days=30)
         recent_res = await session.execute(
             select(RewardCoupon).where(
                 RewardCoupon.store_id == store_id,
@@ -596,7 +597,7 @@ async def update_photo_review_status(
                 discount_amount=amount,
                 is_used=False,
                 source="photo_contest",
-                expires_at=datetime.utcnow() + timedelta(days=90),
+                expires_at=now_utc_naive() + timedelta(days=90),
             )
             session.add(coupon)
 

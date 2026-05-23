@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from database import get_session
 from models import TakeoutTimeQuery, Store
 from datetime import datetime
+from utils.time_helpers import now_utc_naive
 import json
 
 router = APIRouter(prefix="/takeout", tags=["takeout"])
@@ -52,7 +53,7 @@ async def create_time_query(body: TimeQueryCreate, session: AsyncSession = Depen
         old.total_amount = body.total_amount
         old.query_type = body.query_type
         old.requested_time = body.requested_time
-        old.created_at = datetime.utcnow()
+        old.created_at = now_utc_naive()
         session.add(old)
         await session.commit()
         await session.refresh(old)
@@ -143,13 +144,13 @@ async def staff_respond(query_id: int, body: StaffResponse, session: AsyncSessio
         q.status = "declined"
         q.staff_response = body.message or "申し訳ございません。現在テイクアウトは承れません。"
     elif body.response_type == "minutes":
-        now = datetime.utcnow()
+        now = now_utc_naive()
         mins = body.minutes or 15
         ready_dt = now.replace(second=0, microsecond=0)
         ready_dt = ready_dt.replace(minute=ready_dt.minute + mins)
         # 분 overflow 처리
         from datetime import timedelta
-        ready_dt = datetime.utcnow() + timedelta(minutes=mins)
+        ready_dt = now_utc_naive() + timedelta(minutes=mins)
         t_str = ready_dt.strftime("%H:%M")
         q.status = "responded"
         q.staff_response = f"{mins}分後（{t_str}頃）にご用意できます。"

@@ -5,6 +5,7 @@ from database import get_session
 from models import GlobalReview, ReviewCreate, Customer, Store, CustomerPoint, PointHistory, PointTransactionType
 import json
 from datetime import datetime
+from utils.time_helpers import now_utc_naive
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
@@ -47,7 +48,7 @@ async def create_review(review_in: ReviewCreate, session: AsyncSession = Depends
             )
         
         pt_record.balance += points_earned
-        pt_record.updated_at = datetime.utcnow()
+        pt_record.updated_at = now_utc_naive()
         session.add(pt_record)
         
         # Log History

@@ -1,7 +1,7 @@
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +30,7 @@ async def _emit(
         "type": type,
         "event_id": _event_id(),
         "store_id": store_id,
-        "ts": datetime.utcnow().isoformat() + "Z",
+        "ts": datetime.now(timezone.utc).isoformat(),
         "priority": priority,
         "data": data,
     }

@@ -5,6 +5,7 @@ from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime, timedelta
+from utils.time_helpers import now_utc_naive
 from database import get_session
 from models import Store, ReferralCode, ReferralClaim
 from utils.jwt import require_admin
@@ -27,7 +28,7 @@ async def generate_code(
     session: AsyncSession = Depends(get_session),
 ):
     """소개 코드 신규 생성 (사장님 전용)."""
-    expires_at = datetime.utcnow() + timedelta(days=expires_days) if expires_days else None
+    expires_at = now_utc_naive() + timedelta(days=expires_days) if expires_days else None
 
     # 충돌 방지: 최대 5회 재시도
     for _ in range(5):
@@ -120,7 +121,7 @@ async def claim_code(
     if not ref:
         raise HTTPException(status_code=404, detail="コードが見つからないか、無効です。")
 
-    now = datetime.utcnow()
+    now = now_utc_naive()
     if ref.expires_at and ref.expires_at < now:
         raise HTTPException(status_code=410, detail="このコードは期限切れです。")
 

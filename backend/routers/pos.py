@@ -7,6 +7,7 @@ from models import Table, Order, TableStatus, OrderItem, Menu, Store
 from utils.jwt import require_staff_or_admin
 import uuid
 from datetime import datetime
+from utils.time_helpers import now_utc_naive
 
 router = APIRouter(prefix="/pos", tags=["pos"])
 
@@ -68,7 +69,7 @@ async def request_checkout(
         raise HTTPException(status_code=403, detail="Access denied")
     
     table.status = TableStatus.CHECKOUT_REQUESTED
-    table.checkout_requested_at = datetime.utcnow()
+    table.checkout_requested_at = now_utc_naive()
     session.add(table)
     await session.commit()
     return {"message": "Checkout requested", "status": table.status}
@@ -121,7 +122,7 @@ async def complete_payment(
                 pt_record = CustomerPoint(customer_id=customer_id, store_id=table.store_id, balance=0)
             
             pt_record.balance += points_to_award
-            pt_record.updated_at = datetime.utcnow()
+            pt_record.updated_at = now_utc_naive()
             session.add(pt_record)
             
             # Log History

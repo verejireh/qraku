@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime, timedelta
+from utils.time_helpers import now_utc_naive
 
 from database import get_session
 from models import (
@@ -75,7 +76,7 @@ async def _build_session_read(s: TabehoudaiSession, session: AsyncSession) -> Se
         select(MenuGroupItem.menu_id).where(MenuGroupItem.group_id == s.group_id)
     )
     menu_ids = [r[0] for r in items_res.all()]
-    now = datetime.utcnow()
+    now = now_utc_naive()
     seconds_remaining = int((s.expires_at - now).total_seconds())
     is_last_order = seconds_remaining <= group.last_order_minutes * 60 and seconds_remaining > 0
     return SessionRead(
@@ -165,7 +166,7 @@ async def start_session(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="既にアクティブなコースがあります")
 
-    now = datetime.utcnow()
+    now = now_utc_naive()
     new_session = TabehoudaiSession(
         table_id=body.table_id,
         group_id=body.group_id,
@@ -201,7 +202,7 @@ async def end_session(
         raise HTTPException(status_code=403, detail="Access denied")
 
     s.status = "settled"
-    s.settled_at = datetime.utcnow()
+    s.settled_at = now_utc_naive()
     session.add(s)
     await session.commit()
     await session.refresh(s)
@@ -229,7 +230,7 @@ async def get_active_by_table(
         return None
 
     # 만료 시각 지났으면 자동 expire 처리
-    now = datetime.utcnow()
+    now = now_utc_naive()
     if s.expires_at < now:
         s.status = "expired"
         session.add(s)

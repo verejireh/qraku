@@ -14,7 +14,7 @@ from typing import Optional
 from utils.auth import verify_password
 from utils.jwt import create_super_admin_token, require_super_admin
 from utils.db_compat import date_only
-from utils.time_helpers import days_ago_jst_as_utc_naive
+from utils.time_helpers import days_ago_jst_as_utc_naive, now_utc_naive
 
 router = APIRouter(prefix="/super-admin", tags=["super-admin"])
 
@@ -306,9 +306,9 @@ async def update_store_status(
     if expires_at is not None:
         store.subscription_expires_at = datetime.fromisoformat(expires_at)
     if extend_days is not None:
-        base = store.subscription_expires_at or datetime.utcnow()
-        if base < datetime.utcnow():
-            base = datetime.utcnow()
+        base = store.subscription_expires_at or now_utc_naive()
+        if base < now_utc_naive():
+            base = now_utc_naive()
         store.subscription_expires_at = base + timedelta(days=extend_days)
         if store.subscription_status == SubscriptionStatus.EXPIRED:
             store.subscription_status = SubscriptionStatus.ACTIVE
@@ -329,7 +329,7 @@ async def subscription_summary(
     stores_q = await session.execute(select(Store).order_by(Store.created_at.desc()))
     stores = stores_q.scalars().all()
 
-    now = datetime.utcnow()
+    now = now_utc_naive()
     summary = {
         "total": len(stores),
         "active": 0,
@@ -460,7 +460,7 @@ async def save_config(
     config = await session.get(SystemConfig, key)
     if config:
         config.value = value
-        config.updated_at = datetime.utcnow()
+        config.updated_at = now_utc_naive()
     else:
         config = SystemConfig(key=key, value=value)
     session.add(config)

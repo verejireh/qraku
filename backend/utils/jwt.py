@@ -10,6 +10,7 @@ Admin JWT 인증 유틸리티
 import os
 import sys
 from datetime import datetime, timedelta
+from utils.time_helpers import now_utc_naive
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
@@ -31,7 +32,7 @@ def create_admin_token(store_id: int, owner_id: str, slug: str = "") -> str:
         "owner_id": owner_id,
         "slug": slug,
         "type": "admin",
-        "exp": datetime.utcnow() + timedelta(hours=ADMIN_TOKEN_EXPIRE_HOURS),
+        "exp": now_utc_naive() + timedelta(hours=ADMIN_TOKEN_EXPIRE_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -63,7 +64,7 @@ async def _check_subscription(store: Store, session: AsyncSession):
     """구독 만료 여부 확인. 만료 시 DB 상태 자동 갱신 후 402 반환."""
     if not store.subscription_expires_at:
         return  # expires_at 없는 구버전 스토어는 허용
-    if datetime.utcnow() <= store.subscription_expires_at:
+    if now_utc_naive() <= store.subscription_expires_at:
         return  # 유효
 
     # 만료됨 — DB 상태 동기화
@@ -106,7 +107,7 @@ SUPER_ADMIN_TOKEN_EXPIRE_HOURS = 12
 def create_super_admin_token() -> str:
     payload = {
         "type": "super_admin",
-        "exp": datetime.utcnow() + timedelta(hours=SUPER_ADMIN_TOKEN_EXPIRE_HOURS),
+        "exp": now_utc_naive() + timedelta(hours=SUPER_ADMIN_TOKEN_EXPIRE_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -136,7 +137,7 @@ def create_staff_token(store_id: int, shop_id: str) -> str:
         "store_id": store_id,
         "shop_id": shop_id,
         "type": "staff",
-        "exp": datetime.utcnow() + timedelta(hours=STAFF_TOKEN_EXPIRE_HOURS),
+        "exp": now_utc_naive() + timedelta(hours=STAFF_TOKEN_EXPIRE_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 

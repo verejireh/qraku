@@ -3,6 +3,7 @@ import secrets
 import json
 import logging
 from datetime import datetime, timedelta
+from utils.time_helpers import now_utc_naive
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -60,7 +61,7 @@ async def _issue_token(
     store_id: int, audience: str, table_number: Optional[str]
 ) -> dict:
     token = secrets.token_urlsafe(32)
-    exp = datetime.utcnow() + timedelta(seconds=WS_AUTH_TOKEN_TTL_SECONDS)
+    exp = now_utc_naive() + timedelta(seconds=WS_AUTH_TOKEN_TTL_SECONDS)
     info = {
         "store_id": store_id,
         "audience": audience,

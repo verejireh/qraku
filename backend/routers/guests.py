@@ -5,6 +5,7 @@ from database import get_session
 from models import GuestProfile, Store, StampCard
 from pydantic import BaseModel
 from datetime import datetime, timezone
+from utils.time_helpers import now_utc_naive
 from typing import List, Optional
 
 router = APIRouter(prefix="/guests", tags=["guests"])
@@ -35,7 +36,7 @@ async def get_guest_batch(body: BatchRequest, session: AsyncSession = Depends(ge
     result = await session.execute(select(GuestProfile).where(GuestProfile.guest_uuid.in_(uuids)))
     guests = result.scalars().all()
 
-    now = datetime.utcnow()
+    now = now_utc_naive()
     out = []
     for g in guests:
         days = None
@@ -106,7 +107,7 @@ async def get_guest_stamp_card(guest_uuid: str, store_id: int, session: AsyncSes
 async def get_guest_coupons(guest_uuid: str, store_id: int, session: AsyncSession = Depends(get_session)):
     from sqlmodel import select, or_
     from models import RewardCoupon
-    now = datetime.utcnow()
+    now = now_utc_naive()
     result = await session.execute(
         select(RewardCoupon).where(
             RewardCoupon.guest_uuid == guest_uuid,

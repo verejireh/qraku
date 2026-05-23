@@ -24,7 +24,7 @@ from models import (
 )
 from utils.jwt import require_staff_or_admin
 from utils.db_compat import date_only
-from utils.time_helpers import today_jst
+from utils.time_helpers import today_jst, now_utc_naive
 from datetime import datetime, date
 import uuid
 import json
@@ -243,7 +243,7 @@ async def get_table_detail(
         guest_uuid = guest_uuids[0]
         guest = await session.get(GuestProfile, guest_uuid)
         if guest:
-            now = datetime.utcnow()
+            now = now_utc_naive()
             days = None
             if guest.prev_last_visit:
                 days = (now.replace(tzinfo=None) - guest.prev_last_visit.replace(tzinfo=None)).days
@@ -320,7 +320,7 @@ async def complete_payment(
         if group:
             tabehoudai_total += group.price_per_person * s.num_people
         s.status = "settled"
-        s.settled_at = datetime.utcnow()
+        s.settled_at = now_utc_naive()
         session.add(s)
 
     if not orders and not pending_sessions:
@@ -357,7 +357,7 @@ async def complete_payment(
                     customer_id=customer_id, store_id=store.id, balance=0
                 )
             pt_record.balance += points_to_award
-            pt_record.updated_at = datetime.utcnow()
+            pt_record.updated_at = now_utc_naive()
             session.add(pt_record)
 
             history = PointHistory(

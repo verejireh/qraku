@@ -99,6 +99,36 @@ def months_ago_jst_month_start_as_utc_naive(
     return start_jst.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def jst_day_range_as_utc_naive(
+    day: Optional[date] = None,
+) -> tuple[datetime, datetime]:
+    """JST 특정 날짜의 [00:00, 다음날 00:00) range 를 naive UTC tuple 로 반환.
+
+    핫패스 쿼리용 — `date_only(Order.created_at) == d` 패턴을 인덱스 사용 가능한
+    `created_at >= start AND < end` range predicate 로 변환할 때 사용.
+
+    [2026-05-22] PG-DT-DG-04 — GPT 세션 E review (gpt-p1-date-grouping-review.md §A)
+    권고. db_compat.date_only 가 함수형 변환이라 일반 B-tree 인덱스 사용 불가 →
+    핫패스는 range 로 전환해 created_at index (models.py:627 `index=True`) 활용.
+
+    Args:
+        day: JST 기준 날짜 (date 객체). None 이면 today_jst().
+
+    Returns:
+        (start_utc_naive, end_utc_naive): [start, end) 반열린 구간.
+            start = JST day 00:00 의 UTC 표현
+            end = JST (day+1) 00:00 의 UTC 표현
+    """
+    if day is None:
+        day = datetime.now(JST).date()
+    # JST aware datetime [day 00:00, (day+1) 00:00) → UTC naive
+    start_jst = datetime.combine(day, datetime.min.time()).replace(tzinfo=JST)
+    end_jst = start_jst + timedelta(days=1)
+    start_utc = start_jst.astimezone(timezone.utc).replace(tzinfo=None)
+    end_utc = end_jst.astimezone(timezone.utc).replace(tzinfo=None)
+    return start_utc, end_utc
+
+
 def today_jst() -> date:
     """매장 운영일 (JST) 기준 오늘 date 반환.
 

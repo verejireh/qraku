@@ -11,6 +11,7 @@ from utils.time_helpers import (
     today_jst,
     days_ago_jst_as_utc_naive,
     months_ago_jst_month_start_as_utc_naive,
+    jst_day_range_as_utc_naive,
 )
 
 router = APIRouter(prefix="/stats", tags=["stats"])
@@ -103,15 +104,17 @@ async def get_hourly_orders(
 ):
     """오늘 시간대별 주문 수 (0~23시) — JST 기준"""
     _assert_store_access(admin_store, shop_id)
-    # [2026-05-22] PG-DT-DG-01 — JST today + db_compat hour/date_only 도 JST
-    today = today_jst()
+    # [2026-05-22] PG-DT-DG-04 — date_only equality → UTC range (인덱스 활용).
+    # hour(Order.created_at) 은 그룹화 함수라 그대로 (JST 변환 내장됨).
+    today_start, today_end = jst_day_range_as_utc_naive()
 
     query = select(
         hour(Order.created_at).label("hour"),
         func.count(Order.id).label("count")
     ).where(
         Order.shop_id == shop_id,
-        date_only(Order.created_at) == today
+        Order.created_at >= today_start,
+        Order.created_at < today_end,
     ).group_by(
         hour(Order.created_at)
     ).order_by(
@@ -264,15 +267,17 @@ async def get_hourly_guests(
 ):
     """시간대별 손님수 (유니크 테이블 수 기준) — JST 기준"""
     _assert_store_access(admin_store, shop_id)
-    # [2026-05-22] PG-DT-DG-01 — target_date 미지정 시 JST today 사용
+    # [2026-05-22] PG-DT-DG-04 — date_only equality → UTC range (인덱스 활용)
     d = date.fromisoformat(target_date) if target_date else today_jst()
+    day_start, day_end = jst_day_range_as_utc_naive(d)
 
     query = select(
         hour(Order.created_at).label("hour"),
         func.count(func.distinct(Order.table_number)).label("guests")
     ).where(
         Order.shop_id == shop_id,
-        date_only(Order.created_at) == d
+        Order.created_at >= day_start,
+        Order.created_at < day_end,
     ).group_by(hour(Order.created_at)).order_by(hour(Order.created_at))
 
     result = await session.execute(query)

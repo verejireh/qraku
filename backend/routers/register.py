@@ -24,7 +24,7 @@ from models import (
 )
 from utils.jwt import require_staff_or_admin
 from utils.db_compat import date_only
-from utils.time_helpers import today_jst, now_utc_naive
+from utils.time_helpers import today_jst, now_utc_naive, jst_day_range_as_utc_naive
 from datetime import datetime, date
 import uuid
 import json
@@ -415,15 +415,16 @@ async def get_today_sales(
     if store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
     shop_variants = _shop_id_variants(store)
-    # [2026-05-22] PG-DT-DG-01 — date.today() (서버 로컬 = UTC on VM) 대신
-    # today_jst() (JST 자정 기준). date_only(Order.created_at) 가 JST date 를
-    # 반환하도록 db_compat.py 가 변경됐으므로 caller 의 today 도 JST 필수.
-    today = today_jst()
+    # [2026-05-22] PG-DT-DG-04 — date_only equality (함수형 변환, B-tree 인덱스 못 씀)
+    # → UTC range predicate 로 전환. Order.created_at 의 B-tree 인덱스 활용 가능.
+    # semantic 동일: JST today 00:00 ~ JST 내일 00:00 의 UTC range.
+    today_start, today_end = jst_day_range_as_utc_naive()
 
     stmt = select(Order).where(
         Order.shop_id.in_(shop_variants),
         Order.payment_status == "paid",
-        date_only(Order.created_at) == today,
+        Order.created_at >= today_start,
+        Order.created_at < today_end,
     )
     result = await session.execute(stmt)
     paid_orders = result.scalars().all()
@@ -477,8 +478,8 @@ async def get_takeout_orders(
     if store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
     shop_variants = _shop_id_variants(store)
-    # [2026-05-22] PG-DT-DG-01 — JST 기준 today 사용
-    today = today_jst()
+    # [2026-05-22] PG-DT-DG-04 — date_only equality → UTC range (인덱스 활용)
+    today_start, today_end = jst_day_range_as_utc_naive()
 
     # 픽업 완료(served)된 주문은 픽업 큐에서 제외
     stmt = select(Order).where(
@@ -487,7 +488,7 @@ async def get_takeout_orders(
         Order.status != "served",
         (
             (Order.payment_status == "unpaid") |
-            (date_only(Order.created_at) == today)
+            ((Order.created_at >= today_start) & (Order.created_at < today_end))
         ),
     ).order_by(
         # 픽업시간 있는 것부터 시간 순, 그 다음 생성시간 순

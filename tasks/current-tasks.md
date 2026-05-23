@@ -91,7 +91,7 @@ PG-DT-MIGRATE-02 코드 변환 완료:
 
 남은 후속 카드 (응답 무관 진행 가능):
 - 🟢 **PG-DT-MIGRATE-02c**: Cat-5 seed scripts (3건, 운영 무영향)
-- 🟢 **PG-DT-DG-04**: 핫패스 `date_only(...) == today` → UTC range 전환 (인덱스 사용 성능)
+- ✅ **PG-DT-DG-04** (이번 커밋): 핫패스 4 위치 UTC range 전환 + `jst_day_range_as_utc_naive` helper. 분석 doc [`p1-dt-dg-04-hotpath-utc-range-analysis.md`](./p1-dt-dg-04-hotpath-utc-range-analysis.md). EXPLAIN 비교 + boundary smoke 완료.
 - 🟢 **PG-DT-DG-05**: raw SQL date function grep + frontend target_date 검증
 - 🟢 **PG-DT-DG-06**: hourly chart `int(row.hour)` 정규화
 - 🟢 **PG-CAP-05b**: time_limit=60_000 모니터링 (옵션 풍부 메뉴 60s 초과)

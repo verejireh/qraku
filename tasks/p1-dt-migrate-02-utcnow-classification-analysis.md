@@ -341,11 +341,85 @@ grep -rn "endsWith.*Z\|/Z\\$/\|\\.includes.*Z" frontend-react/src
 ## 액션 아이템
 
 - [x] **PG-DT-MIGRATE-02-ANALYSIS** (이번 doc): 113건 분류 + 변환 패턴 + helper 설계
-- [ ] **GPT-PG-DT-MIGRATE-02-REVIEW**: 자이라가 GPT 에 핸드오프 프롬프트 전송 + 응답 저장
-- [ ] **PG-DT-MIGRATE-02a**: Cat-1/3/4/6 안전 일괄 변환 (~80건)
-- [ ] **PG-DT-MIGRATE-02b**: Cat-2 rolling window helper 신규 + JST calendar day 변환 (~17건)
-- [ ] **PG-DT-MIGRATE-02c**: Cat-5 seed scripts 정리 (낮은 우선순위, Strategy 3 와 함께)
-- [ ] **PG-DT-MIGRATE-02-VERIFY**: utcnow 0건 grep + JWT smoke + 만료 비교 경계 + 프론트 Z suffix grep
+- [x] **GPT-PG-DT-MIGRATE-02-REVIEW** (fa01c1e): GPT cross-review 응답 수신 + 본 doc 갱신
+- [x] **PG-DT-MIGRATE-02-prep** (이번 커밋): tzdata dep 추가 + JST fallback + 신규 helper 2개 (`days_ago_jst_as_utc_naive`, `months_ago_jst_month_start_as_utc_naive`)
+- [ ] **PG-DT-MIGRATE-02a**: Cat-1/3/4/6 안전 일괄 변환 (~85건) — models.py default_factory 포함
+- [ ] **PG-DT-MIGRATE-02b**: Cat-2 rolling window 변환 (~20건) — stats/insights/super_admin (calendar days) + monthly (month-start helper) + loyalty_analytics (JST month)
+- [ ] **PG-DT-MIGRATE-02c**: Cat-5 seed scripts 정리 (낮은 우선순위)
+- [ ] **PG-DT-MIGRATE-02-VERIFY**: `rg "datetime\.utcnow"` 0건 (괄호 없이!) + JWT smoke + 만료 비교 경계 + 프론트 Z suffix grep + reporting regression smoke
+
+---
+
+## GPT cross-review 반영 (2026-05-22, [`gpt-pg-dt-migrate-02-review.md`](./gpt-pg-dt-migrate-02-review.md))
+
+### 합의 사항
+
+- ✅ 6 카테고리 분류 정확. Strategy 2 진행 가능.
+- ✅ `Field(default_factory=now_utc_naive)` 가 SQLModel/Pydantic 정상 패턴. models.py 변경은 Strategy 2 에서 처리.
+- ✅ JWT exp 는 Strategy 2 에선 `now_utc_naive()` (naive UTC) 유지. Strategy 3 시점에 aware UTC 전환.
+
+### Must-Fix 3개 (이번 커밋)
+
+| # | 항목 | 적용 |
+|---|---|---|
+| 1 | 🔴 **tzdata Windows 환경** — `ZoneInfo("Asia/Tokyo")` 실패 시 `ZoneInfoNotFoundError`. models.py 가 time_helpers import 하면 모델 import 자체 깨짐 | ✅ `pyproject.toml` 에 `tzdata>=2024.1` 추가 + `time_helpers.py` 에 `timezone(timedelta(hours=9))` fallback |
+| 2 | 🔴 **grep 패턴 수정** — `datetime\.utcnow\(\)` 만 grep 시 `default_factory=datetime.utcnow` (괄호 없는 callable) 못 잡음 | ✅ 본 doc 의 검증 절차 + 부록 매핑을 `datetime\.utcnow` 패턴으로 재측정 — 결과 113건 동일 |
+| 3 | 🔴 **rolling window 정밀화** — `stats.py /monthly` 의 `days * 31` 근사 + `loyalty_analytics.py:22` current month 가 UTC 기준 | ✅ `months_ago_jst_month_start_as_utc_naive(months, now=None)` helper 신규 — Cat-2b 에서 활용 |
+
+### 누락 항목 추가 (GPT §B "Additional Items To Classify")
+
+기존 분석에서 빠진 5건을 카테고리에 매핑:
+
+| 위치 | 코드 | 분류 |
+|---|---|---|
+| `routers/stores.py:116` | `now = datetime.utcnow()` (운영시간 판정) | Cat-1 |
+| `routers/stores.py:157` | 동상 | Cat-1 |
+| `routers/stores.py:578` | `recent_cut = datetime.utcnow() - _td(days=30)` photo contest coupon | Cat-2 (rolling 30d × 24h OK — public discovery 유사) |
+| `routers/stores.py:599` | `expires_at = datetime.utcnow() + timedelta(days=90)` | Cat-1 (DB INSERT 만료 시각) |
+| `routers/demo.py:42, 94` | demo cleanup `now = datetime.utcnow()` | Cat-1 (rolling/expiry — `now_utc_naive()` OK) |
+| `routers/loyalty_analytics.py:22` | `now = datetime.utcnow(); month_start = datetime(now.year, now.month, 1)` | **Cat-2 JST month** (사장님 "이번 달 포인트 ROI" — 매월 1일 09:00 JST 에 reset 되는 버그) |
+
+→ `loyalty_analytics.py:22` 가 **새 must-fix 버그** 발견. 사장님이 보는 "이번 달 ROI" 가 JST 1일 00:00 기준이 아닌 UTC 1일 00:00 (= JST 1일 09:00) 기준으로 9시간 어긋남. Cat-2b 변환 시 `months_ago_jst_month_start_as_utc_naive(0)` 또는 `today_start_jst_as_utc_naive().replace(day=1)` 사용.
+
+### `models.py` default factory 타이밍 (GPT §D 합의)
+
+Strategy 2 에서 처리 권장 — `now_utc_naive` 가 naive UTC 보존, 기존 DB contract (TIMESTAMP without timezone) 유지, partial aware 마이그 아님. 단, 변경 후 import smoke 필수:
+
+```bash
+uv run python -c "from backend.models import Store, Order, EventLog; print('models import ok')"
+uv run python -c "from backend.utils.time_helpers import now_utc_naive, today_jst; print(now_utc_naive(), today_jst())"
+```
+
+### Cat-3 wire format 결정 (GPT §A.3)
+
+`utcnow().isoformat() + "Z"` → `now(timezone.utc).isoformat()` 으로 변환 시 wire format 이 `...Z` → `...+00:00` 로 바뀜. 브라우저 `Date()` 는 둘 다 파싱 OK 이지만 프론트 문자열 의존 위험.
+
+**선택지**:
+- (a) `+00:00` 으로 통일 (Python 표준, GPT 권고 첫 번째 안)
+- (b) `Z` 유지: `.isoformat().replace("+00:00", "Z")` (wire format 안정)
+
+→ **(a) +00:00 으로 통일** 잠정 권장. 단, **PG-DT-MIGRATE-02a 전 프론트 grep 필수**:
+
+```bash
+grep -rnE "endsWith\(.Z.\)|/Z\\\$/|\\\.includes\(.Z.\)" frontend-react/src
+```
+
+매치 0건이면 안전. 매치 있으면 (b) 선택.
+
+### 신규 helper 2개 (이번 커밋, `backend/utils/time_helpers.py`)
+
+```python
+def days_ago_jst_as_utc_naive(days: int, now: Optional[datetime] = None) -> datetime:
+    """N JST calendar days 전 자정 (00:00 JST) 의 naive UTC."""
+
+def months_ago_jst_month_start_as_utc_naive(months: int, now: Optional[datetime] = None) -> datetime:
+    """N JST calendar months 전 1일 00:00 JST 의 naive UTC."""
+```
+
+운영 VM smoke 검증:
+- `days_ago_jst_as_utc_naive(7)` → `2026-05-15 15:00:00` (JST 2026-05-16 00:00 의 UTC) ✅
+- `months_ago_jst_month_start_as_utc_naive(2)` → `2026-02-28 15:00:00` (JST 2026-03-01 00:00) ✅
+- `months_ago_jst_month_start_as_utc_naive(13)` → `2025-03-31 15:00:00` (연도 넘김 정확) ✅
 
 ---
 

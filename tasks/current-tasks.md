@@ -70,18 +70,23 @@
 
 ---
 
-## 🤖 GPT-5.5 cross-review 대기 (2 세션 병렬 전송 가능)
+## ✅ GPT-5.5 cross-review F + G 완료 + 반영
 
-| ID | 항목 | 분석 doc | 전송 프롬프트 |
+| ID | 항목 | GPT review | 코드 반영 |
 |---|---|---|---|
-| **세션 F** | PG-CAP-05 translate_menu DB session 분리 | [`p1-cap05-translate-task-refactor-analysis.md`](./p1-cap05-translate-task-refactor-analysis.md) | [`zaira-gpt-send-prompts-pg-cap05-dt-migrate02.md`](./zaira-gpt-send-prompts-pg-cap05-dt-migrate02.md) §F |
-| **세션 G** | PG-DT-MIGRATE-02 utcnow 113건 분류 | [`p1-dt-migrate-02-utcnow-classification-analysis.md`](./p1-dt-migrate-02-utcnow-classification-analysis.md) | 동상 §G |
+| **세션 F** | PG-CAP-05 translate_menu | [`gpt-pg-cap05-review.md`](./gpt-pg-cap05-review.md) | 97713a7 — 3-Phase 분리 + update_menu re-enqueue + 7 must-fix |
+| **세션 G** | PG-DT-MIGRATE-02 utcnow 113건 | [`gpt-pg-dt-migrate-02-review.md`](./gpt-pg-dt-migrate-02-review.md) | 이번 커밋 — tzdata + JST fallback + 2 helpers + 누락 5건 분류 |
 
-응답 저장:
-- `tasks/gpt-pg-cap05-review.md`
-- `tasks/gpt-pg-dt-migrate-02-review.md`
+남은 코드 작업 (PG-DT-MIGRATE-02 본격 변환):
+- 🟡 **PG-DT-MIGRATE-02a**: Cat-1/3/4/6 안전 일괄 (~85건, models.py default_factory 포함)
+- 🟡 **PG-DT-MIGRATE-02b**: Cat-2 rolling window (stats/insights/super_admin calendar days + monthly month-start + loyalty_analytics JST month)
+- 🔴 **loyalty_analytics.py:22** JST month 버그 (Cat-2b 와 함께 처리)
+- 🟢 **PG-DT-MIGRATE-02c**: Cat-5 seed scripts
 
-응답 수신 후 Claude 가 분석 doc 끝에 §"GPT cross-review 반영" 추가 + 실 코드 패치.
+남은 PG-CAP 후속:
+- 🟢 **PG-CAP-05b**: time_limit=60_000 모니터링 (옵션 풍부 메뉴 60s 초과 케이스)
+- 🟢 **PG-CAP-05c**: translate_text strict mode (Gemini exception silent fail 차단)
+- 🟢 **PG-CAP-05d**: translate_batch_with_gemini 활용 (6× 성능 향상)
 
 ---
 

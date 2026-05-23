@@ -9,11 +9,18 @@ DB 컬럼은 모두 `TIMESTAMP without timezone` (naive). 따라서:
 산출물. datetime.utcnow() (Py 3.12+ deprecated) 와 datetime.now() (서버 로컬 = UTC on VM
 이라 JST 비교 시 9시간 오프셋) 의 모범 대체.
 """
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 from typing import Optional
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-JST = ZoneInfo("Asia/Tokyo")
+# [2026-05-22] JST resolution with fallback — GPT review (gpt-pg-dt-migrate-02-review.md §C)
+# 권고. Windows/Python 3.12 에선 tzdata 패키지 없으면 ZoneInfo("Asia/Tokyo") 가
+# ZoneInfoNotFoundError. pyproject.toml 에 tzdata 추가했지만 부분 설치 환경 대비
+# fixed-offset timezone(+09:00) fallback. JST 는 DST 없어 결과 동일.
+try:
+    JST = ZoneInfo("Asia/Tokyo")
+except ZoneInfoNotFoundError:
+    JST = timezone(timedelta(hours=9), name="JST")
 
 
 def now_utc_naive() -> datetime:
@@ -38,6 +45,58 @@ def now_jst() -> datetime:
         datetime: tzinfo=Asia/Tokyo, value=JST 현재 시각.
     """
     return datetime.now(JST)
+
+
+def days_ago_jst_as_utc_naive(days: int, now: Optional[datetime] = None) -> datetime:
+    """N JST calendar days 전 자정 (00:00 JST) 의 naive UTC 표현.
+
+    [2026-05-22] PG-DT-MIGRATE-02 Cat-2 — GPT review (gpt-pg-dt-migrate-02-review.md §B)
+    권고. stats/insights/super_admin 의 "최근 N일 매출/주문" 같은 JST calendar-day
+    rolling 쿼리에 사용. 기존 `datetime.utcnow() - timedelta(days=N)` 패턴은
+    JST 09:00 시점에 경계 이동 (사장님이 보는 "오늘 매출" 과 일관성 깨짐).
+
+    Args:
+        days: 며칠 전 (양수). days=7 이면 7일 전 JST 자정.
+        now: 기준 시각 (test 용). None 이면 현재.
+
+    Returns:
+        datetime: naive UTC, value=(today JST 00:00 - N days) 의 UTC instant.
+    """
+    base = today_start_jst_as_utc_naive(now=now)
+    return base - timedelta(days=days)
+
+
+def months_ago_jst_month_start_as_utc_naive(
+    months: int, now: Optional[datetime] = None
+) -> datetime:
+    """N JST calendar months 전 1일 00:00 JST 의 naive UTC 표현.
+
+    [2026-05-22] PG-DT-MIGRATE-02 Cat-2 — GPT review (gpt-pg-dt-migrate-02-review.md §B)
+    권고. stats.py /monthly 의 기존 `days * 31` 근사를 month-boundary 로 정밀화.
+
+    예: now = JST 2026-05-22 14:00, months=2
+        → JST 2026-03-01 00:00 = UTC 2026-02-28 15:00
+
+    Args:
+        months: 몇 개월 전 (양수). months=2 이면 2개월 전 JST 월초.
+        now: 기준 시각 (test 용). None 이면 현재.
+
+    Returns:
+        datetime: naive UTC, value=(N months ago JST month start) 의 UTC instant.
+    """
+    n_jst = (now.astimezone(JST) if now and now.tzinfo
+             else now.replace(tzinfo=JST) if now
+             else datetime.now(JST))
+    # 현재 JST 월의 1일 00:00
+    cur_month_start_jst = n_jst.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # N 개월 전 — 연/월 산술 (timedelta 는 month 단위 없음)
+    target_year = cur_month_start_jst.year
+    target_month = cur_month_start_jst.month - months
+    while target_month <= 0:
+        target_month += 12
+        target_year -= 1
+    start_jst = cur_month_start_jst.replace(year=target_year, month=target_month)
+    return start_jst.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def today_jst() -> date:

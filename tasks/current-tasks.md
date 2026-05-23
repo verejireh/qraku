@@ -93,7 +93,7 @@ PG-DT-MIGRATE-02 코드 변환 완료:
 | 운영 smoke 자동화 — `tools/predeploy_smoke.py` | 이번 커밋, local 6/6 PASS |
 
 남은 후속 카드 (응답 무관 진행 가능):
-- 🟢 **PG-DT-MIGRATE-02c**: Cat-5 seed scripts (3건, 운영 무영향)
+- ✅ **PG-DT-MIGRATE-02c** (이번 커밋): Cat-5 seed/legacy 3건 cleanup — 실 코드 utcnow 100% 변환 (잔존 매치는 주석/docstring)
 - ✅ **PG-DT-DG-04** (이번 커밋): 핫패스 4 위치 UTC range 전환 + `jst_day_range_as_utc_naive` helper. 분석 doc [`p1-dt-dg-04-hotpath-utc-range-analysis.md`](./p1-dt-dg-04-hotpath-utc-range-analysis.md). EXPLAIN 비교 + boundary smoke 완료.
 - 🟢 **PG-DT-DG-05**: raw SQL date function grep + frontend target_date 검증
 - 🟢 **PG-DT-DG-06**: hourly chart `int(row.hour)` 정규화

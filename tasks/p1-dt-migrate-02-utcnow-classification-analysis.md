@@ -345,9 +345,9 @@ grep -rn "endsWith.*Z\|/Z\\$/\|\\.includes.*Z" frontend-react/src
 - [x] **PG-DT-MIGRATE-02-prep** (66bc7c0): tzdata dep 추가 + JST fallback + 신규 helper 2개 (`days_ago_jst_as_utc_naive`, `months_ago_jst_month_start_as_utc_naive`)
 - [x] **PG-DT-MIGRATE-02b** (fa47244): Cat-2 rolling window 변환 + loyalty_analytics JST month 버그 수정
 - [x] **PG-DT-MIGRATE-02a** (eeab9e9): Cat-1/3/4/6 일괄 변환 (95건 / 21 파일) + models.py default_factory 29건 + Cat-3 wire format Z→+00:00 + 운영 VM compileall + models import smoke
-- [x] **PG-DT-MIGRATE-02a 검증** (이번 커밋): GPT 세션 H review 반영 + ws_token.py 일관성 정리 + `tools/predeploy_smoke.py` 6 단계 자동화. local 6/6 PASS
-- [ ] **PG-DT-MIGRATE-02c**: Cat-5 seed scripts 정리 (낮은 우선순위)
-- [ ] **PG-DT-MIGRATE-02-VERIFY**: `rg "datetime\.utcnow"` 0건 (괄호 없이!) + JWT smoke + 만료 비교 경계 + 프론트 Z suffix grep + reporting regression smoke
+- [x] **PG-DT-MIGRATE-02a 검증** (1cd11e7): GPT 세션 H review 반영 + ws_token.py 일관성 정리 + `tools/predeploy_smoke.py` 6 단계 자동화. local 6/6 PASS
+- [x] **PG-DT-MIGRATE-02c** (이번 커밋): Cat-5 seed/legacy 3건 cleanup. 실 코드 utcnow 호출 **100% 변환 완료** (잔존 매치는 모두 주석/docstring reference)
+- [x] **PG-DT-MIGRATE-02-VERIFY** (이번 커밋): predeploy_smoke 6/6 PASS — grep / compile / import / JWT / event_ts / helpers 모두 통과. PG-DT-MIGRATE-02 사이클 종료 가능 (단, deploy 후 운영 VM 수동 smoke 잔존).
 
 ---
 

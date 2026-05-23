@@ -25,7 +25,8 @@ async def seed_samples():
                 category=StoreCategory.RESTAURANT,
                 theme="modern", # Magnolia uses modern/default
                 slug="magnolia-grand",
-                subscription_expires_at=datetime.datetime.utcnow() + datetime.timedelta(days=365)
+                # [2026-05-24] PG-DT-MIGRATE-02c — datetime.utcnow() Py 3.12+ deprecated
+                subscription_expires_at=datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) + datetime.timedelta(days=365)
             )
             session.add(store)
             await session.commit()

@@ -75,18 +75,39 @@
 | ID | 항목 | GPT review | 코드 반영 |
 |---|---|---|---|
 | **세션 F** | PG-CAP-05 translate_menu | [`gpt-pg-cap05-review.md`](./gpt-pg-cap05-review.md) | 97713a7 — 3-Phase 분리 + update_menu re-enqueue + 7 must-fix |
-| **세션 G** | PG-DT-MIGRATE-02 utcnow 113건 | [`gpt-pg-dt-migrate-02-review.md`](./gpt-pg-dt-migrate-02-review.md) | 이번 커밋 — tzdata + JST fallback + 2 helpers + 누락 5건 분류 |
+| **세션 G** | PG-DT-MIGRATE-02 분석 | [`gpt-pg-dt-migrate-02-review.md`](./gpt-pg-dt-migrate-02-review.md) | 66bc7c0 — tzdata + JST fallback + 2 helpers + 누락 5건 분류 |
 
-남은 코드 작업 (PG-DT-MIGRATE-02 본격 변환):
-- 🟡 **PG-DT-MIGRATE-02a**: Cat-1/3/4/6 안전 일괄 (~85건, models.py default_factory 포함)
-- 🟡 **PG-DT-MIGRATE-02b**: Cat-2 rolling window (stats/insights/super_admin calendar days + monthly month-start + loyalty_analytics JST month)
-- 🔴 **loyalty_analytics.py:22** JST month 버그 (Cat-2b 와 함께 처리)
-- 🟢 **PG-DT-MIGRATE-02c**: Cat-5 seed scripts
+PG-DT-MIGRATE-02 코드 변환 완료:
+- ✅ **PG-DT-MIGRATE-02b** (fa47244): Cat-2 rolling window + loyalty_analytics JST month 버그 수정
+- ✅ **PG-DT-MIGRATE-02a** (eeab9e9): Cat-1/3/4/6 일괄 (95건 / 21 파일) + models.py default_factory 29건
 
-남은 PG-CAP 후속:
-- 🟢 **PG-CAP-05b**: time_limit=60_000 모니터링 (옵션 풍부 메뉴 60s 초과 케이스)
+## 🤖 GPT-5.5 cross-review 대기
+
+| ID | 항목 | 전송 프롬프트 |
+|---|---|---|
+| **세션 H** | PG-DT-MIGRATE-02a 구현 결과 sampling 검증 (JWT / SQLModel default_factory / event ts / 운영 smoke 우선순위 / deploy 일정 분리) | [`zaira-gpt-send-prompt-pg-dt-migrate-02a-impl.md`](./zaira-gpt-send-prompt-pg-dt-migrate-02a-impl.md) |
+
+응답 저장: `tasks/gpt-pg-dt-migrate-02a-impl-review.md`
+
+남은 후속 카드 (응답 무관 진행 가능):
+- 🟢 **PG-DT-MIGRATE-02c**: Cat-5 seed scripts (3건, 운영 무영향)
+- 🟢 **PG-DT-DG-04**: 핫패스 `date_only(...) == today` → UTC range 전환 (인덱스 사용 성능)
+- 🟢 **PG-DT-DG-05**: raw SQL date function grep + frontend target_date 검증
+- 🟢 **PG-DT-DG-06**: hourly chart `int(row.hour)` 정규화
+- 🟢 **PG-CAP-05b**: time_limit=60_000 모니터링 (옵션 풍부 메뉴 60s 초과)
 - 🟢 **PG-CAP-05c**: translate_text strict mode (Gemini exception silent fail 차단)
-- 🟢 **PG-CAP-05d**: translate_batch_with_gemini 활용 (6× 성능 향상)
+- 🟢 **PG-CAP-05d**: translate_batch_with_gemini 활용 (6× 성능)
+
+## 🔴 다음 deploy 사이클 (라이브 적용 대기)
+
+stabilize/post-pg-cutover 누적 변경 라이브 발동:
+- PG-CAP-05 IMPL (translate_menu 3-phase + update_menu re-enqueue)
+- PG-DT-MIGRATE-02 prep + 02b + 02a (95건 + JST month 버그 + tzdata)
+- db_compat JST 변환
+- WS dead connection cleanup
+- pool_recycle (async + sync)
+
+권장 — 세션 H 응답 반영 후 deploy.
 
 ---
 

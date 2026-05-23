@@ -330,9 +330,58 @@ options 는 JSON blob 이라 부분 비교 어려움. 대안:
 ## 액션 아이템
 
 - [x] **PG-CAP-05-ANALYSIS** (이번 doc): 분석 + 3-phase 구현 안 + 위험 분석
-- [ ] **GPT-PG-CAP-05-REVIEW**: 자이라가 GPT 에 핸드오프 프롬프트 전송 + 응답 저장
-- [ ] **PG-CAP-05-IMPL**: GPT 응답 반영 + 코드 패치 (translate_tasks.py 재구성)
-- [ ] **PG-CAP-05-VERIFY**: 운영 VM 에서 100개 메뉴 일괄 import 시 worker connection 수 측정
+- [x] **GPT-PG-CAP-05-REVIEW** (50059ce): GPT cross-review 응답 수신 + 본 doc 갱신
+- [x] **PG-CAP-05-IMPL** (이번 커밋): GPT must-fix 7개 반영 + 코드 패치 (translate_tasks.py 3-phase + menus.py update_menu enqueue)
+- [ ] **PG-CAP-05-VERIFY**: 운영 VM 에서 100개 메뉴 일괄 import 시 worker connection 수 측정 (다음 deploy 후)
+
+---
+
+## GPT cross-review 반영 (2026-05-22, [`gpt-pg-cap05-review.md`](./gpt-pg-cap05-review.md))
+
+### 합의 사항
+
+- ✅ 3-Phase 분리 방향 적합 — DB connection hold 차단 효과 충분
+- ✅ stale source drop + missing-field-only write 패턴 권장 (Option A)
+- ✅ Per-task GEMINI_API_KEY 로딩 유지
+- ✅ max_retries=3 + backoff 유지
+
+### Must-Fix 7개 (모두 이번 커밋 반영)
+
+| # | 항목 | 적용 |
+|---|---|---|
+| 1 | 🔴 `update_menu` 에 source 필드 변경 시 actor 재enqueue | ✅ `backend/routers/menus.py:299` — old_source 보존 + commit 후 diff + enqueue |
+| 2 | Phase 2 primitive snapshot only (ORM 객체 X) | ✅ `snapshot` dict 으로 추출 후 session close |
+| 3 | name_jp/description_jp stale source drop | ✅ Phase 3 가드 적용 |
+| 4 | options raw JSON 동등 가드 | ✅ Phase 3 `m.options == snapshot["options_raw"]` |
+| 5 | missing-field-only writes 유지 | ✅ `if not getattr(...)` 가드 보존 |
+| 6 | `translate_text` 가 DB session 밖에 있는지 검증 | ✅ Phase 2 의 `_translate_options` 헬퍼도 session 밖 |
+| 7 | `time_limit=60_000` 재평가 | ⚠️ 유지하되 운영 모니터링 필요 — 옵션 풍부 메뉴 (30-90 calls) 에선 60s 빠듯. PG-CAP-05b 후속 카드 |
+
+### 추가 발견 (GPT §C 권고)
+
+- 🟡 `translate_text` 가 Gemini exception 을 catch 후 원본 반환 → API 실패 시 retry trigger 안 됨. 별도 strict mode helper 검토 (**PG-CAP-05c**)
+- 🟡 옵션 풍부 메뉴 batch 화 → `translate_batch_with_gemini` 활용 시 6× 성능 향상 (**PG-CAP-05d**)
+
+### 코드 변경 요약
+
+**`backend/routers/menus.py:299` update_menu**:
+```python
+TRANSLATION_SOURCE_FIELDS = ("name_jp", "description_jp", "options")
+old_source = {f: getattr(menu, f, None) for f in TRANSLATION_SOURCE_FIELDS}
+# ... update 적용 + commit + refresh ...
+new_source = {f: getattr(menu, f, None) for f in TRANSLATION_SOURCE_FIELDS}
+source_changed = any(old_source[f] != new_source[f] for f in TRANSLATION_SOURCE_FIELDS)
+if source_changed and menu.name_jp:
+    translate_menu_task.send(menu.id)
+```
+
+**`backend/workers/translate_tasks.py:translate_menu`**: 3-Phase 패턴 (분석 doc §"권장 구현" 그대로 + `_translate_options` 헬퍼 분리).
+
+### 검증
+
+- ✅ Python syntax OK (운영 VM venv)
+- ⏸ 운영 VM 검증 — 다음 deploy 후 100개 메뉴 일괄 import + `pg_stat_activity` 측정 (PG-CAP-05-VERIFY)
+- ⏸ Smoke 케이스 (GPT §"Suggested Tests" 5 항목)
 
 ---
 

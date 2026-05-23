@@ -7,7 +7,11 @@ from models import Order, OrderItem, Menu, Store
 from datetime import datetime, date, timedelta
 from utils.jwt import require_admin
 from utils.db_compat import hour, year, month, day_of_week, date_only
-from utils.time_helpers import today_jst
+from utils.time_helpers import (
+    today_jst,
+    days_ago_jst_as_utc_naive,
+    months_ago_jst_month_start_as_utc_naive,
+)
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
@@ -35,7 +39,7 @@ async def get_summary(
 ):
     """KPI 요약: 총 매출, 주문 수, 평균 객단가 (기간 필터 포함)"""
     _assert_store_access(admin_store, shop_id)
-    since = datetime.utcnow() - timedelta(days=days)
+    since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b] JST calendar
 
     q_sales = select(
         func.coalesce(func.sum(Order.total_amount), 0).label("total_sales"),
@@ -67,7 +71,7 @@ async def get_daily_sales(
 ):
     """기간별 일별 매출 집계"""
     _assert_store_access(admin_store, shop_id)
-    since = datetime.utcnow() - timedelta(days=days)
+    since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b] JST calendar
 
     query = select(
         date_only(Order.created_at).label("day"),
@@ -134,7 +138,7 @@ async def get_top_menus(
 ):
     """기간 내 인기 메뉴 Top N (판매량 기준)"""
     _assert_store_access(admin_store, shop_id)
-    since = datetime.utcnow() - timedelta(days=days)
+    since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b] JST calendar
 
     # OrderItem.menu_item_id는 str이므로 int 캐스팅 후 Menu와 조인
     query = select(
@@ -184,7 +188,7 @@ async def get_sales_by_category(
 ):
     """카테고리별 매출 집계"""
     _assert_store_access(admin_store, shop_id)
-    since = datetime.utcnow() - timedelta(days=days)
+    since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b] JST calendar
 
     query = select(
         Menu.category,
@@ -217,7 +221,7 @@ async def get_sales_by_menu(
 ):
     """메뉴별 매출 집계"""
     _assert_store_access(admin_store, shop_id)
-    since = datetime.utcnow() - timedelta(days=days)
+    since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b] JST calendar
 
     query = select(
         OrderItem.menu_item_id,
@@ -290,7 +294,8 @@ async def get_monthly_sales(
 ):
     """월별 매출 집계"""
     _assert_store_access(admin_store, shop_id)
-    since = datetime.utcnow() - timedelta(days=months * 31)
+    # [2026-05-22] PG-DT-MIGRATE-02b — months*31 근사 → JST month-start 정밀화
+    since = months_ago_jst_month_start_as_utc_naive(months)
 
     query = select(
         year(Order.created_at).label("yr"),
@@ -323,7 +328,7 @@ async def get_weekly_sales(
 ):
     """요일별 매출 집계 (0=월~6=일)"""
     _assert_store_access(admin_store, shop_id)
-    since = datetime.utcnow() - timedelta(days=days)
+    since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b] JST calendar
 
     query = select(
         day_of_week(Order.created_at).label("dow"),

@@ -342,9 +342,9 @@ grep -rn "endsWith.*Z\|/Z\\$/\|\\.includes.*Z" frontend-react/src
 
 - [x] **PG-DT-MIGRATE-02-ANALYSIS** (이번 doc): 113건 분류 + 변환 패턴 + helper 설계
 - [x] **GPT-PG-DT-MIGRATE-02-REVIEW** (fa01c1e): GPT cross-review 응답 수신 + 본 doc 갱신
-- [x] **PG-DT-MIGRATE-02-prep** (이번 커밋): tzdata dep 추가 + JST fallback + 신규 helper 2개 (`days_ago_jst_as_utc_naive`, `months_ago_jst_month_start_as_utc_naive`)
+- [x] **PG-DT-MIGRATE-02-prep** (66bc7c0): tzdata dep 추가 + JST fallback + 신규 helper 2개 (`days_ago_jst_as_utc_naive`, `months_ago_jst_month_start_as_utc_naive`)
+- [x] **PG-DT-MIGRATE-02b** (이번 커밋): Cat-2 rolling window 변환 + loyalty_analytics JST month 버그 수정
 - [ ] **PG-DT-MIGRATE-02a**: Cat-1/3/4/6 안전 일괄 변환 (~85건) — models.py default_factory 포함
-- [ ] **PG-DT-MIGRATE-02b**: Cat-2 rolling window 변환 (~20건) — stats/insights/super_admin (calendar days) + monthly (month-start helper) + loyalty_analytics (JST month)
 - [ ] **PG-DT-MIGRATE-02c**: Cat-5 seed scripts 정리 (낮은 우선순위)
 - [ ] **PG-DT-MIGRATE-02-VERIFY**: `rg "datetime\.utcnow"` 0건 (괄호 없이!) + JWT smoke + 만료 비교 경계 + 프론트 Z suffix grep + reporting regression smoke
 

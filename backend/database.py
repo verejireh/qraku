@@ -135,6 +135,10 @@ async def init_db():
         "UPDATE paymentsettings SET payment_method_type = 'PAY_AT_COUNTER' WHERE payment_method_type::text = 'pay_at_counter'",
         "UPDATE paymentsettings SET payment_method_type = 'SQUARE_INTEGRATED' WHERE payment_method_type::text = 'square_integrated'",
         "UPDATE paymentsettings SET payment_method_type = 'PAYPAY_DIRECT' WHERE payment_method_type::text = 'paypay_direct'",
+        # [2026-05-24] PG-AUDIT-ENUM-CONSISTENCY: MenuGroupType name == value 통일
+        "UPDATE menugroup SET group_type = 'TIME_WINDOW' WHERE group_type::text = 'time_window'",
+        "UPDATE menugroup SET group_type = 'COURSE' WHERE group_type::text = 'course'",
+        "UPDATE menugroup SET group_type = 'MANUAL' WHERE group_type::text = 'manual'",
         # [2026-05-24] PG-AUDIT-PAYMENT-OPT: 역방향 — 9cd70de 가 소문자로
         # 정규화했지만 SQLAlchemy Enum 컬럼은 멤버 name(대문자) 기반 lookup
         # 이라 admin login 500 발생. 데이터를 다시 대문자로 통일.

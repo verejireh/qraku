@@ -22,7 +22,7 @@ const WEEKDAYS = [
 
 const GROUP_TYPES = [
     {
-        key: 'time_window',
+        key: 'TIME_WINDOW',
         label: 'ランチ・ディナー',
         sublabel: '時間帯で自動切替',
         icon: 'schedule',
@@ -32,7 +32,7 @@ const GROUP_TYPES = [
         steps: ['グループ名を入力（例：ランチセット）', '開始・終了時刻を設定', '適用する曜日を選択（未選択=毎日）', 'グループに含めるメニューをチェック'],
     },
     {
-        key: 'course',
+        key: 'COURSE',
         label: '食べ放題・飲み放題',
         sublabel: 'コース制 時間制限あり',
         icon: 'restaurant',
@@ -42,7 +42,7 @@ const GROUP_TYPES = [
         steps: ['グループ名を入力（例：90分食べ放題）', '1人あたり料金・時間・ラストオーダーを設定', '食べ放題 / 飲み放題 / 両方 を選択', 'グループに含めるメニューをチェック', 'スタッフページ「食べ放題」タブからテーブルごとに開始'],
     },
     {
-        key: 'manual',
+        key: 'MANUAL',
         label: '手動切替',
         sublabel: 'ON/OFFで随時切替',
         icon: 'toggle_on',
@@ -56,7 +56,7 @@ const GROUP_TYPES = [
 function emptyForm() {
     return {
         name: '',
-        group_type: 'time_window',
+        group_type: 'TIME_WINDOW',
         active_from: '11:00',
         active_to: '15:00',
         weekdays: '',
@@ -131,13 +131,13 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
             const payload = {
                 name: editingGroup.name.trim(),
                 group_type: editingGroup.group_type,
-                active_from: editingGroup.group_type === 'time_window' ? editingGroup.active_from : null,
-                active_to: editingGroup.group_type === 'time_window' ? editingGroup.active_to : null,
-                weekdays: editingGroup.group_type === 'time_window' ? (editingGroup.weekdays || null) : null,
-                price_per_person: editingGroup.group_type === 'course' ? editingGroup.price_per_person : 0,
-                duration_minutes: editingGroup.group_type === 'course' ? editingGroup.duration_minutes : 90,
-                last_order_minutes: editingGroup.group_type === 'course' ? editingGroup.last_order_minutes : 10,
-                course_type: editingGroup.group_type === 'course' ? editingGroup.course_type : null,
+                active_from: editingGroup.group_type === 'TIME_WINDOW' ? editingGroup.active_from : null,
+                active_to: editingGroup.group_type === 'TIME_WINDOW' ? editingGroup.active_to : null,
+                weekdays: editingGroup.group_type === 'TIME_WINDOW' ? (editingGroup.weekdays || null) : null,
+                price_per_person: editingGroup.group_type === 'COURSE' ? editingGroup.price_per_person : 0,
+                duration_minutes: editingGroup.group_type === 'COURSE' ? editingGroup.duration_minutes : 90,
+                last_order_minutes: editingGroup.group_type === 'COURSE' ? editingGroup.last_order_minutes : 10,
+                course_type: editingGroup.group_type === 'COURSE' ? editingGroup.course_type : null,
                 is_active: editingGroup.is_active,
                 sort_order: editingGroup.sort_order,
             }
@@ -259,13 +259,13 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
                                                         <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${colorClass(meta.color)} border`}>{meta.label}</span>
                                                     </div>
                                                     <div className="text-xs text-slate-500 mt-0.5">
-                                                        {g.group_type === 'time_window' && (
+                                                        {g.group_type === 'TIME_WINDOW' && (
                                                             <>{g.active_from}〜{g.active_to}{g.weekdays ? ` · ${g.weekdays.split(',').map(d => WEEKDAYS.find(w => w.key === d)?.label).join('')}` : ' · 毎日'}</>
                                                         )}
-                                                        {g.group_type === 'course' && (
+                                                        {g.group_type === 'COURSE' && (
                                                             <>¥{g.price_per_person.toLocaleString()}/人 · {g.duration_minutes}分 · {g.course_type === 'food' ? '食べ放題' : g.course_type === 'drink' ? '飲み放題' : '食べ&飲み放題'}</>
                                                         )}
-                                                        {g.group_type === 'manual' && (
+                                                        {g.group_type === 'MANUAL' && (
                                                             <span className={g.is_active ? 'text-green-600 font-bold' : 'text-slate-400'}>{g.is_active ? '● 有効' : '○ 無効'}</span>
                                                         )}
                                                         <span className="ml-2 text-slate-400">· メニュー {g.menu_ids?.length || 0}件</span>
@@ -382,8 +382,8 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
                                             value={editingGroup.name}
                                             onChange={e => setEditingGroup(prev => ({ ...prev, name: e.target.value }))}
                                             placeholder={
-                                                editingGroup.group_type === 'time_window' ? '例: ランチセット / ディナーメニュー' :
-                                                editingGroup.group_type === 'course' ? '例: 90分食べ放題 / 飲み放題プラン' :
+                                                editingGroup.group_type === 'TIME_WINDOW' ? '例: ランチセット / ディナーメニュー' :
+                                                editingGroup.group_type === 'COURSE' ? '例: 90分食べ放題 / 飲み放題プラン' :
                                                 '例: 季節限定メニュー / 本日のおすすめ'
                                             }
                                             className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-adminprimary/50"
@@ -391,7 +391,7 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
                                     </div>
 
                                     {/* タイプ別 추가 입력 */}
-                                    {editingGroup.group_type === 'time_window' && (
+                                    {editingGroup.group_type === 'TIME_WINDOW' && (
                                         <div className="space-y-3 p-4 bg-amber-50/60 rounded-xl border border-amber-200">
                                             <p className="text-xs font-bold text-amber-700 flex items-center gap-1.5">
                                                 <span className="material-symbols-outlined text-[16px]">schedule</span>
@@ -430,7 +430,7 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
                                         </div>
                                     )}
 
-                                    {editingGroup.group_type === 'course' && (
+                                    {editingGroup.group_type === 'COURSE' && (
                                         <div className="space-y-3 p-4 bg-rose-50/60 rounded-xl border border-rose-200">
                                             <p className="text-xs font-bold text-rose-700 flex items-center gap-1.5">
                                                 <span className="material-symbols-outlined text-[16px]">restaurant</span>
@@ -473,7 +473,7 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
                                         </div>
                                     )}
 
-                                    {editingGroup.group_type === 'manual' && (
+                                    {editingGroup.group_type === 'MANUAL' && (
                                         <div className="p-4 bg-sky-50/60 rounded-xl border border-sky-200 space-y-3">
                                             <p className="text-xs font-bold text-sky-700 flex items-center gap-1.5">
                                                 <span className="material-symbols-outlined text-[16px]">toggle_on</span>

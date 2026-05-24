@@ -543,10 +543,10 @@ export default function StorePublicView() {
                         <div className="flex items-center gap-2 mb-3 pb-2 border-b-2 border-rose-200">
                             <span className="bg-rose-500 text-white text-xs font-black px-2 py-0.5 rounded-full">特集</span>
                             <h2 className="text-lg font-bold text-rose-600">{group.name}</h2>
-                            {group.group_type === 'time_window' && group.active_from && group.active_to && (
+                            {group.group_type === 'TIME_WINDOW' && group.active_from && group.active_to && (
                                 <span className="text-xs text-gray-400">{group.active_from} – {group.active_to}</span>
                             )}
-                            {group.group_type === 'course' && group.price_per_person && (
+                            {group.group_type === 'COURSE' && group.price_per_person && (
                                 <span className="text-xs text-rose-500 ml-auto">¥{group.price_per_person.toLocaleString()} / 1名</span>
                             )}
                         </div>

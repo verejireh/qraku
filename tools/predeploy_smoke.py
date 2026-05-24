@@ -248,11 +248,8 @@ import models
 # 2026-05-24 운영 PG verify 로 hydration 안전 확인된 mismatch.
 # 새 mismatch 가 추가되면 회귀 위험 — FAIL.
 ALLOWLIST = {
-    ("MenuGroupType", "TIME_WINDOW"),
-    ("MenuGroupType", "COURSE"),
-    ("MenuGroupType", "MANUAL"),
     # 2026-05-24 PG-AUDIT-KITCHEN-SQUARE: SQUARE = "SQUARE" 로 통일하여 allowlist 제거.
-    # 2026-05-24 PG-AUDIT-ENUM-CONSISTENCY: MessageSenderType / StoreCategory / POSType / PaymentMethodType name == value 통일하여 allowlist 제거.
+    # 2026-05-24 PG-AUDIT-ENUM-CONSISTENCY: 5개 enum (MessageSenderType / StoreCategory / POSType / PaymentMethodType / MenuGroupType) name == value 통일하여 allowlist 모두 제거.
 }
 
 def unwrap_optional(t):

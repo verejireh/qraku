@@ -532,9 +532,10 @@ class POSType(str, Enum):
 # Menu Group: 점심/저녁/食べ放題 등을 통합한 메뉴 그룹화 모델
 # ──────────────────────────────────────────────────────────────────
 class MenuGroupType(str, Enum):
-    TIME_WINDOW = "time_window"  # 시간대 기반 자동 활성화 (ランチ, ディナー)
-    COURSE = "course"            # 좌석 코스 (食べ放題/飲み放題)
-    MANUAL = "manual"            # 사장님 수동 토글
+    # [2026-05-24] PG-AUDIT-ENUM-CONSISTENCY: name == value 통일.
+    TIME_WINDOW = "TIME_WINDOW"  # 시간대 기반 자동 활성화 (ランチ, ディナー)
+    COURSE = "COURSE"            # 좌석 코스 (食べ放題/飲み放題)
+    MANUAL = "MANUAL"            # 사장님 수동 토글
 
 
 class MenuGroup(SQLModel, table=True):

@@ -1,5 +1,7 @@
 /* QRaku Service Worker — cache-first for static assets, network-first for API */
-const CACHE = 'qraku-v1'
+// [2026-05-24] PG-AUDIT-SW: v2 — fetch handler 의 res.clone() 타이밍 버그 fix.
+// version bump 으로 install 된 사용자 브라우저의 옛 SW 즉시 교체.
+const CACHE = 'qraku-v2'
 const PRECACHE = ['/discover']
 
 self.addEventListener('install', e => {
@@ -34,7 +36,13 @@ self.addEventListener('fetch', e => {
         caches.match(request).then(cached => {
             const networkFetch = fetch(request).then(res => {
                 if (res.ok) {
-                    caches.open(CACHE).then(c => c.put(request, res.clone()))
+                    // res.clone() 은 fetch resolve 직후 즉시 실행 — caches.open
+                    // promise 가 resolve 될 때까지 기다리면 그 사이 브라우저가
+                    // `return res` 의 body 를 read 시작해 clone 이 fail
+                    // ("Response body is already used"). e.waitUntil 로 cache
+                    // 작업이 SW life cycle 내 완료되도록.
+                    const copy = res.clone()
+                    e.waitUntil(caches.open(CACHE).then(c => c.put(request, copy)))
                 }
                 return res
             })

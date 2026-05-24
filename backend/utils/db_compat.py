@@ -11,10 +11,20 @@ DB 컬럼은 naive UTC 저장 컨벤션. 일본 매장 기준 "오늘 매출", "
 주의: ``day_of_week`` 는 역사적 호환을 위해 1=Sun..7=Sat 의미 유지
 (PG DOW 0=Sun..6=Sat 에 +1 보정).
 """
-from sqlalchemy import func, cast, Date
+from sqlalchemy import func, cast, Date, literal_column
 
 # 매장 운영 timezone. 다국가 운영 시점에 store 별로 분기 가능 (현재 일본 only).
 STORE_TZ = "Asia/Tokyo"
+
+# [2026-05-24] PG-AUDIT-GROUPBY: timezone 인자를 SQL literal 로 inline 처리.
+# func.timezone(STORE_TZ, col) 에서 STORE_TZ 가 Python str 이면 SQLAlchemy 가
+# bindparam 으로 컴파일 → 같은 expression 이 SELECT/GROUP BY/ORDER BY 에 동시
+# 등장할 때 매번 다른 bind 인덱스($1 vs $6 vs $8)가 부여되어 PG 가 별개 표현
+# 으로 인식, GroupingError "column must appear in GROUP BY" 발생.
+# stats/super_admin/insights 의 일별·시간별·월별 집계 8 endpoint 가 모두 500.
+# literal_column 으로 inline 화하면 모든 위치에서 동일 AST → 매칭 OK.
+_STORE_TZ_LITERAL = literal_column(f"'{STORE_TZ}'")
+_UTC_LITERAL = literal_column("'UTC'")
 
 
 def _to_store_tz(col):
@@ -22,8 +32,11 @@ def _to_store_tz(col):
 
     PG: ``(col AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Tokyo'``
         먼저 naive 를 UTC instant 로 해석한 뒤 매장 zone 으로 변환.
+
+    timezone 인자는 ``literal_column`` 으로 SQL literal 화 — Python str 을
+    그대로 넘기면 SQLAlchemy 가 bindparam 으로 만들어 GROUP BY 매칭 실패함.
     """
-    return func.timezone(STORE_TZ, func.timezone("UTC", col))
+    return func.timezone(_STORE_TZ_LITERAL, func.timezone(_UTC_LITERAL, col))
 
 
 def hour(col):

@@ -4,7 +4,39 @@
 >
 > **PG 컷오버 위험 감사** (2026-05-21~22): P0 6개 코드 수정 + 운영 VM 검증 완료. [`pg-cutover-verification-results.md`](./pg-cutover-verification-results.md) 참조.
 >
-> 본 브랜치는 main 머지 대기 중. 아래 운영자 카드 + 라이브 unit 적용 후 병합.
+> **2026-05-24 자이라 수동 smoke 사이클**: 8 회귀 발견·즉시 fix·deploy 완료 (work-log 2026-05-24). 본 브랜치는 main 머지 대기 중.
+
+---
+
+## 🔥 2026-05-24 자이라 수동 smoke 사이클 — 8 fix 완료
+
+자이라가 브라우저 console error 보고 → claude 가 트레이스·root cause·fix·deploy 사이클 반복. 운영 즉시 hotfix + 4 deploy.
+
+| # | Commit | 카드 | 상태 |
+|---|---|---|---|
+| 1 | 5fc4305 | **PG-AUDIT-PAYMENT-OPT** — admin login 500 fix | ✅ deploy + 검증 |
+| 2 | 697adac | **PG-AUDIT-GROUPBY** — db_compat timezone literal | ✅ deploy + 운영 PG verify |
+| 3 | 08cf920 | **PG-AUDIT-GROUPBY** follow-up — `+1` literal | ✅ deploy + 운영 PG verify |
+| 4 | 92a4879 | **PG-AUDIT-MANIFEST** — SPA fallback 정적 자산 우선 | ✅ deploy + curl 검증 |
+| 5 | 118db7a | **PG-AUDIT-DECIMAL** — `hour/year/month/day_of_week` Integer 캐스트 | ✅ deploy + 운영 PG verify |
+| 6 | 5071572 | **PG-AUDIT-FAVICON** — manifest icon sizes 정합 | ✅ deploy + curl 검증 |
+| 7 | b5bd322 | **PG-AUDIT-SW** — sw.js `res.clone()` 타이밍 + v2 | ✅ deploy |
+| 8 | 54d2d06 | **PG-AUDIT-SW2** — `e.waitUntil` 제거, v3 | ✅ deploy + sw.js curl 검증 |
+
+운영 즉시 hotfix:
+- `UPDATE store SET payment_options = 'CASH_ONLY' WHERE = 'cash_only'` + `CARD_AND_CASH` (6 rows) — admin login 즉시 복구
+
+상세: [`work-log.md` 2026-05-24](./work-log.md).
+
+### 본 사이클에서 갈라진 후속 카드
+
+| ID | 항목 | 우선도 |
+|---|---|---|
+| **PG-AUDIT-SIBLING-GREP** | 다른 라우터의 `func.X(literal, col)` SELECT/GROUP BY 동시 사용 grep — 동일 회귀 패턴 잠재 | 🟢 |
+| **PREDEPLOY-SMOKE-EXT** | predeploy_smoke 에 GROUP BY compile 회귀 + Integer cast + enum name=value 회귀 검증 케이스 추가 | 🟢 |
+| **PG-AUDIT-OPTIONAL-NAMEERR** | backend.log line 58 `NameError: Optional` 단발 트레이스 분석 (옛 부팅 1회, 새 PID 재현 여부) | 🟡 |
+| **PG-AUDIT-TABLE-STATUS** | TableStatus 자매 enum mismatch — `table.status` 가 `ready`/`occupied` (enum.value) 저장인데도 LookupError 미발생. KDS/register path hit 분석 | 🟡 |
+| **PWA-ICON-HIRES** | manifest 의 192/512 PNG 생성 (PWA install icon 품질) | 🟢 선택 |
 
 ---
 

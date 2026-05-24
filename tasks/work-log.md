@@ -8,6 +8,81 @@
 
 ---
 
+## 2026-05-24 — 자이라 수동 smoke → 8건 회귀 발견·즉시 fix 사이클
+
+자이라가 브라우저에서 admin/메인/매장 페이지를 차례로 확인하며 console error 보고 → claude 가 트레이스 추출 → root cause 분석 → fix → deploy → 검증을 반복한 대화형 디버깅 세션. 8 commit + 4 deploy.
+
+### 발견 회귀 8건 (모두 PG 컷오버 사이클의 잠재 회귀)
+
+| # | Commit | 증상 | 근본 원인 |
+|---|---|---|---|
+| 1 | 5fc4305 | admin login 500 `LookupError: 'cash_only'` | 9cd70de 의 자매 회귀 — `PaymentOptions` 의 Python enum value 와 DB 값이 비대칭 (KitchenMode 는 통일했지만 PaymentOptions 는 데이터만 소문자로 raw UPDATE) |
+| 2 | 697adac | stats 8 endpoint 500 `GroupingError: column "order.created_at" must appear in GROUP BY` | `db_compat._to_store_tz` 의 `func.timezone(STORE_TZ, col)` 가 Python str 을 bindparam 으로 변환. 같은 expression 이 SELECT/GROUP BY/ORDER BY 에 등장 시 매번 다른 bind 인덱스 → PG AST 비교 실패 |
+| 3 | 08cf920 | weekly 만 GroupingError 잔존 | `day_of_week` 의 `+ 1` 도 Python int → bindparam → 동일 회귀 |
+| 4 | 92a4879 | `qraku.com/manifest.json` MIME `text/html` | `app.mount("/assets", ...)` 만 mount. dist 루트 정적 파일은 SPA catch-all 로 fallback → index.html 반환. line 165 의 `endswith → FileResponse(INDEX_HTML)` 도 잘못된 fallback |
+| 5 | 118db7a | monthly 만 500 `ValueError: invalid format string` | PG `EXTRACT(month)` 가 numeric (Decimal) 반환. `f"{row.mo:02d}"` 가 Decimal 에 int format spec 미지원 |
+| 6 | 5071572 | `Manifest icon size not correct` | manifest 가 favicon.png 을 192×192/512×512 거짓 선언. 실제 favicon.png 는 32×32 |
+| 7 | b5bd322 | `sw.js TypeError: Response body is already used` | stale-while-revalidate 의 `caches.open(CACHE).then(c => c.put(request, res.clone()))` 에서 clone 이 caches.open resolve 후 호출 → 그 사이 호출자가 body read 시작 |
+| 8 | 54d2d06 | `sw.js InvalidStateError: e.waitUntil ... already finished` | b5bd322 의 `e.waitUntil` 추가가 새 회귀. cached hit 으로 e.respondWith 가 일찍 settle 된 후 background networkFetch 의 e.waitUntil 호출 시 event finished |
+
+### 운영 즉시 hotfix (코드 deploy 전)
+
+- **payment_options 데이터 정규화**: `UPDATE store SET payment_options = 'CASH_ONLY' WHERE = 'cash_only'` + `CARD_AND_CASH` → 6 rows 정상화. admin login 즉시 복구. backend engine 통한 SSH oneliner (CRLF .env 우회 `tr -d '\r'`).
+
+### 핵심 fix 패턴 정리
+
+#### A. SQLAlchemy `func.X(literal, col)` GROUP BY 매칭 회귀
+- 옛 코드: `func.timezone(STORE_TZ, col)` — Python str → bindparam → 매번 다른 `$N`
+- 새 코드: `func.timezone(literal_column(f"'{STORE_TZ}'"), col)` — SQL literal 로 inline → 동일 AST
+- `_to_store_tz` + `day_of_week` 의 `_ONE_LITERAL` 까지 일괄 처리
+- **자매 회귀 위험**: 다른 라우터의 `func.X(literal, ...)` SELECT/GROUP BY 동시 사용 패턴 — 별도 grep 카드 (B)
+
+#### B. PG EXTRACT 반환 Decimal → Integer 캐스트
+- `cast(func.extract(...), Integer)` 로 helper 내 캐스트 → 모든 호출자가 자동 int
+- `hour`, `year`, `month`, `day_of_week` 일괄 적용
+- `date_only` 는 이미 `cast(Date)` 라 미변경
+- PG-DT-DG-06 카드 (hourly chart 정규화) 가 같은 사안 — 본 fix 로 해소
+
+#### C. SPA catch-all 의 정적 자산 처리
+- `serve_spa` 진입 즉시 dist 루트의 실제 파일이 있으면 `FileResponse` 반환
+- traversal 방어 (`/`, `\`, `..` 차단)
+- 옛 잘못된 `endswith → FileResponse(INDEX_HTML)` 제거
+
+#### D. Service Worker stale-while-revalidate 안전 패턴
+- `res.clone()` 은 fetch resolve 직후 즉시 (body read 전)
+- cache write 는 `caches.open(CACHE).then(c => c.put(request, copy)).catch(() => {})` fire-and-forget
+- `e.waitUntil` 은 cached-hit 시 InvalidStateError 위험 — 사용 금지
+- CACHE version bump 으로 옛 SW 즉시 교체
+
+#### E. PaymentOptions enum value 통일 (KitchenMode 패턴 재적용)
+- `models.py`: enum value 대문자로 (`CASH_ONLY = "CASH_ONLY"`)
+- `database.py`: DEFAULT + UPDATE 역방향 정규화
+- `data_consistency_audit.py`: 기대값 set 동기화
+- `frontend-react/OrderView.jsx`: fallback 'CASH_ONLY'
+- 다른 mismatch enum (TableStatus, StoreCategory 등) 은 운영 데이터가 enum.name 로 저장되어 즉시 위험 없음 — 별도 분석 카드 (E)
+
+### Deploy 사이클
+
+총 4 deploy. 각 deploy 후 ORM SELECT oneliner 로 즉시 검증 (LookupError / GroupingError / format error 재현 여부). 운영 PID: 539873 → 602010 → 607289 → 609183 → 612219.
+
+### predeploy_smoke 한계 노출
+
+predeploy_smoke 가 ORM compile / 실제 SQL 실행을 검증하지 않아 본 8건 모두 통과 후 운영 발견. 다음 카드 (C) 로 회귀 차단 케이스 자동화 권장:
+- SQL compile 패턴: `tz_bind == 0`, `dow_int_bind == 0`, `INTEGER_cast == True`
+- PaymentOptions / KitchenMode 등 enum name == value 검증
+
+### 환경 보고만
+
+- Google Maps `gen_204?csp_test=true` `ERR_BLOCKED_BY_CLIENT` — 사용자의 광고 차단기/Brave shields 가 Maps telemetry 비콘 차단. Maps 자체 동작 무영향. 코드 fix 불요.
+
+### 운영 상태 (세션 종료)
+
+- PID 새로 갱신, active/running, healthz 200
+- admin login / stats 5 endpoint / manifest / favicon / sw.js 모두 복구
+- 마지막 commit `54d2d06`
+
+---
+
 ## 2026-05-22 — PG 컷오버 위험 감사 운영 VM 검증 + orphan restart loop 발견·해소
 
 ### 운영 VM 검증 체크리스트 8개 실행 (pg-cutover-risk-audit.md §검증)

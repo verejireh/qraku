@@ -75,11 +75,75 @@ predeploy_smoke 가 ORM compile / 실제 SQL 실행을 검증하지 않아 본 8
 
 - Google Maps `gen_204?csp_test=true` `ERR_BLOCKED_BY_CLIENT` — 사용자의 광고 차단기/Brave shields 가 Maps telemetry 비콘 차단. Maps 자체 동작 무영향. 코드 fix 불요.
 
-### 운영 상태 (세션 종료)
+### 운영 상태 (자이라 smoke 사이클 종료)
 
 - PID 새로 갱신, active/running, healthz 200
 - admin login / stats 5 endpoint / manifest / favicon / sw.js 모두 복구
-- 마지막 commit `54d2d06`
+- 마지막 commit `54d2d06` (자이라 smoke 사이클 끝)
+
+---
+
+## 2026-05-24 — 후속 카드 B/C/D/E 순차 처리 + P0 시한폭탄 발견·해소
+
+자이라 smoke 사이클 후 정리 단계로 5 후속 카드 (`current-tasks.md` 🔥 섹션) 순차 처리. **D 단계에서 자매 회귀 점검 중 P0 시한폭탄 발견 → 즉시 hotfix**.
+
+### A. 문서 갱신 (d940622)
+
+work-log 2026-05-24 entry + current-tasks 🔥 섹션 + HANDOFF v2 추가. 8 commit + 5 후속 카드 기록.
+
+### B. PG-AUDIT-SIBLING-GREP — 자매 회귀 0건 확인
+
+다른 라우터 (`stats/super_admin/insights/register/discover/messaging` 6 파일) 의 `group_by` 사용처 + `func.timezone/date_trunc/to_char` 호출 모두 점검:
+- `func.timezone` 등 PG-specific 시간 함수 직접 사용 0건 (db_compat 외)
+- 모든 `group_by` 가 단순 컬럼 (literal 인자 패턴 없음)
+- `messaging.py` 의 `func.max(Message.created_at)` 는 인자가 컬럼만이라 안전
+
+**결론**: db_compat helper fix 로 모든 회귀 차단. 자매 위험 없음.
+
+### C. PREDEPLOY-SMOKE-EXT — predeploy_smoke 단계 #7 추가 (1460b9d)
+
+`tools/predeploy_smoke.py` 에 db_compat SQL compile 회귀 자동 차단 추가. 검출 패턴:
+- `tz_bind > 0`: timezone($N) — bindparam 변환 회귀
+- `dow_int_bind > 0`: `) + $N` — day_of_week +1 bindparam 회귀
+- `AS INTEGER` 누락: Decimal 반환 → ValueError 회귀
+
+검증 대상: date_only / hour / year+month / day_of_week 4 helper. 7/7 PASS. 회귀 시뮬레이션 (timezone literal 빼기 / +1 환원 / Integer cast 제거) 셋 다 즉시 FAIL 유도 가능.
+
+부수: `run()` 에 stdin 인자 추가 — multi-line Python 코드 전달 (`-c` 의 한 줄 제약 우회).
+
+### D. PG-AUDIT-OPTIONAL-NAMEERR — 단발 트레이스 확인 완료
+
+backend.log line 58 `NameError: Optional` 은 옛 nohup 부팅 (PID 362362) 1회 단발. 현재 worktree 의 `routers/stores.py:11` 에 `from typing import List, Optional` 존재. 새 PID 부팅 마다 `Application startup complete` 정상. 추가 fix 불요.
+
+### E. PG-AUDIT-TABLE-STATUS 🔴 P0 시한폭탄 발견·해소 (58e9d2f)
+
+자매 enum mismatch 분석 중 운영 PG ORM verify 로 발견:
+- `select(Table)` 즉시 `LookupError: 'occupied'` (TableStatus enum)
+- `select(Order)`, `select(OrderItem)` 은 OK (Python field type 이 plain `str` 라 SQLAlchemy ENUM 처리 안 함)
+
+원인: PaymentOptions 와 동일 회귀. 9cd70de + 0cf84ee 가 enum value 와 frontend 를 소문자로 통일했지만 SQLAlchemy Enum lookup 은 enum.name (대문자) 기준 → 영구 mismatch. 자이라가 「テーブル管理」/KDS/register 페이지 미진입이라 표면화 안 됐을 뿐, 운영자 실사용 시 1초 안에 발견될 P0.
+
+**즉시 hotfix**: 운영 DB `UPDATE "table" SET status = 'READY'/'OCCUPIED'/'CHECKOUT_REQUESTED'` (18 rows).
+
+**코드 fix** (PaymentOptions 와 동일 패턴):
+- backend 8 위치: models.py + database.py + data_consistency_audit + 4 routers (orders/pos/register/webhooks) + seed_data
+- frontend 2 위치: StaffTableView, KitchenView (StaffView 는 `toLowerCase()` 후 비교라 자동 호환)
+
+Deploy 후 운영 PG verify: Table hydrated 18 rows, status 분포 `{'READY': 11, 'OCCUPIED': 7}` 정상.
+
+### 잔존 분리 카드
+
+| ID | 항목 |
+|---|---|
+| **PG-AUDIT-KITCHEN-SQUARE** | KitchenMode.SQUARE("square") 도 동일 회귀 잠재 — 현재 운영 데이터 0건이지만 매장이 Square 모드 활성화 시 발생. 별도 카드. |
+| **PG-AUDIT-ENUM-CONSISTENCY** | PaymentMethodType / POSType / MenuGroupType / MessageSenderType 의 컬럼 type (str vs Enum) 일괄 점검 — Order.order_type 처럼 plain str 이면 안전, Enum 이면 회귀 잠재. |
+| **PWA-ICON-HIRES** | 192/512 PNG 생성 (PWA install icon 품질). 선택. |
+
+### 본 정리 단계 운영 상태
+
+- PID 645221+ (TableStatus fix deploy 후 갱신), active/running, healthz 200
+- Table / Order / OrderItem ORM hydration 모두 OK
+- 마지막 commit `58e9d2f`
 
 ---
 

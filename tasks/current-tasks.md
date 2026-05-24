@@ -28,15 +28,25 @@
 
 상세: [`work-log.md` 2026-05-24](./work-log.md).
 
-### 본 사이클에서 갈라진 후속 카드
+### 본 사이클에서 갈라진 후속 카드 — 정리 단계 처리 결과
+
+| ID | 항목 | 상태 |
+|---|---|---|
+| **PG-AUDIT-SIBLING-GREP** | 자매 회귀 grep | ✅ 0건 확인 (db_compat 외 위험 패턴 없음) |
+| **PREDEPLOY-SMOKE-EXT** | predeploy_smoke #7 단계 추가 | ✅ 1460b9d (7/7 PASS) |
+| **PG-AUDIT-OPTIONAL-NAMEERR** | NameError: Optional 단발 트레이스 | ✅ 옛 nohup 1회 단발, 현재 코드 정상 |
+| **PG-AUDIT-TABLE-STATUS** | TableStatus 자매 mismatch | 🔴 **P0 시한폭탄 발견 → 즉시 hotfix + 코드 fix 완료 (58e9d2f)** |
+| **PWA-ICON-HIRES** | 192/512 PNG 생성 | 🟢 선택 (미진행) |
+
+상세: [`work-log.md` 2026-05-24 후속 카드 B/C/D/E 섹션](./work-log.md).
+
+### 다음 세션 후속 (E 단계에서 갈라진 분리 카드)
 
 | ID | 항목 | 우선도 |
 |---|---|---|
-| **PG-AUDIT-SIBLING-GREP** | 다른 라우터의 `func.X(literal, col)` SELECT/GROUP BY 동시 사용 grep — 동일 회귀 패턴 잠재 | 🟢 |
-| **PREDEPLOY-SMOKE-EXT** | predeploy_smoke 에 GROUP BY compile 회귀 + Integer cast + enum name=value 회귀 검증 케이스 추가 | 🟢 |
-| **PG-AUDIT-OPTIONAL-NAMEERR** | backend.log line 58 `NameError: Optional` 단발 트레이스 분석 (옛 부팅 1회, 새 PID 재현 여부) | 🟡 |
-| **PG-AUDIT-TABLE-STATUS** | TableStatus 자매 enum mismatch — `table.status` 가 `ready`/`occupied` (enum.value) 저장인데도 LookupError 미발생. KDS/register path hit 분석 | 🟡 |
-| **PWA-ICON-HIRES** | manifest 의 192/512 PNG 생성 (PWA install icon 품질) | 🟢 선택 |
+| **PG-AUDIT-KITCHEN-SQUARE** | KitchenMode.SQUARE("square") 동일 회귀 잠재. 매장이 Square 모드 활성화 시 발생. 현재 운영 데이터 0건. | 🟡 |
+| **PG-AUDIT-ENUM-CONSISTENCY** | PaymentMethodType / POSType / MenuGroupType / MessageSenderType 컬럼 type (str vs Enum) 일괄 점검. Order.order_type 처럼 plain str 이면 안전, Enum 이면 회귀 잠재. | 🟡 |
+| **PWA-ICON-HIRES** | PWA install icon 품질 — 192/512 PNG 생성 | 🟢 선택 |
 
 ---
 

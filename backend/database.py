@@ -107,16 +107,19 @@ async def init_db():
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS square_location_id VARCHAR(255) NULL",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS square_connected BOOLEAN DEFAULT FALSE",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS supported_languages VARCHAR(255) DEFAULT 'ja,en,ko,zh'",
-        "ALTER TABLE store ADD COLUMN IF NOT EXISTS payment_options VARCHAR(255) DEFAULT 'cash_only'",
+        "ALTER TABLE store ADD COLUMN IF NOT EXISTS payment_options VARCHAR(255) DEFAULT 'CASH_ONLY'",
         # 데이터 복구용 UPDATE 구문 — enum 타입 컬럼은 ::text 캐스트로 비교
         # (옛 enum value 가 새 enum type 에 없으면 PG 가 WHERE 절 캐스트에서
         #  InvalidTextRepresentationError 던짐. 캐스트하면 text=text 비교로 안전.)
         # [2026-05-22] enum cast 패치 — P1 #8 Strategy 1 (p1-init-db-race-analysis.md)
         "ALTER TABLE store ALTER COLUMN kitchen_mode SET DEFAULT 'KDS'",
-        "ALTER TABLE store ALTER COLUMN payment_options SET DEFAULT 'cash_only'",
+        "ALTER TABLE store ALTER COLUMN payment_options SET DEFAULT 'CASH_ONLY'",
         "UPDATE store SET kitchen_mode = 'KDS' WHERE kitchen_mode::text = 'kds'",
-        "UPDATE store SET payment_options = 'cash_only' WHERE payment_options::text = 'CASH_ONLY'",
-        "UPDATE store SET payment_options = 'card_and_cash' WHERE payment_options::text = 'CARD_AND_CASH'",
+        # [2026-05-24] PG-AUDIT-PAYMENT-OPT: 역방향 — 9cd70de 가 소문자로
+        # 정규화했지만 SQLAlchemy Enum 컬럼은 멤버 name(대문자) 기반 lookup
+        # 이라 admin login 500 발생. 데이터를 다시 대문자로 통일.
+        "UPDATE store SET payment_options = 'CASH_ONLY' WHERE payment_options::text = 'cash_only'",
+        "UPDATE store SET payment_options = 'CARD_AND_CASH' WHERE payment_options::text = 'card_and_cash'",
         # POS Mode & View Toggles (new Square architecture)
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS pos_mode VARCHAR(50) DEFAULT 'basic'",
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS use_register_view BOOLEAN DEFAULT TRUE",

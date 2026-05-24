@@ -55,7 +55,7 @@ ENUM_CHECKS = [
     ("store", "category",            {"restaurant", "cafe", "bar", "other"}),
     ("store", "subscription_type",   {"FREE", "MONTHLY", "SIXMONTH", "YEARLY"}),
     ("store", "subscription_status", {"TRIAL", "ACTIVE", "EXPIRED"}),
-    ("store", "payment_options",     {"cash_only", "card_and_cash"}),
+    ("store", "payment_options",     {"CASH_ONLY", "CARD_AND_CASH"}),
     ("store", "point_accrual_type",  {"PERCENT", "FIXED"}),
     ("store", "kitchen_color_mode",  {"CATEGORY", "MENU", "TABLE"}),
     ('"table"', "status",            {"ready", "occupied", "checkout_requested"}),

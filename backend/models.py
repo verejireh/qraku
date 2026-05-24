@@ -40,8 +40,13 @@ class PointAccrualType(str, Enum):
     FIXED = "FIXED"   # Fixed points per order
 
 class PaymentOptions(str, Enum):
-    CASH_ONLY = "cash_only"
-    CARD_AND_CASH = "card_and_cash"
+    # [2026-05-24] PG-AUDIT-PAYMENT-OPT: value 를 멤버 name 과 일치시켜
+    # SQLAlchemy Enum 컬럼의 name-기반 lookup 과 DB 값을 정합화.
+    # 9cd70de 가 DB 데이터만 소문자로 정규화했지만 Python enum value 는 그대로
+    # 두어 admin login (oauth.py:128 Store SELECT) 에서 LookupError 발생.
+    # KitchenMode "kds"→"KDS" 와 동일 패턴.
+    CASH_ONLY = "CASH_ONLY"
+    CARD_AND_CASH = "CARD_AND_CASH"
 
 class Store(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

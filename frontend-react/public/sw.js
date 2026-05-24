@@ -1,7 +1,7 @@
 /* QRaku Service Worker — cache-first for static assets, network-first for API */
-// [2026-05-24] PG-AUDIT-SW: v2 — fetch handler 의 res.clone() 타이밍 버그 fix.
-// version bump 으로 install 된 사용자 브라우저의 옛 SW 즉시 교체.
-const CACHE = 'qraku-v2'
+// [2026-05-24] PG-AUDIT-SW2: v3 — e.waitUntil 제거 (cached hit 시 event 종료
+// 후 호출되면 InvalidStateError). cache write 는 fire-and-forget + catch.
+const CACHE = 'qraku-v3'
 const PRECACHE = ['/discover']
 
 self.addEventListener('install', e => {
@@ -36,13 +36,14 @@ self.addEventListener('fetch', e => {
         caches.match(request).then(cached => {
             const networkFetch = fetch(request).then(res => {
                 if (res.ok) {
-                    // res.clone() 은 fetch resolve 직후 즉시 실행 — caches.open
-                    // promise 가 resolve 될 때까지 기다리면 그 사이 브라우저가
-                    // `return res` 의 body 를 read 시작해 clone 이 fail
-                    // ("Response body is already used"). e.waitUntil 로 cache
-                    // 작업이 SW life cycle 내 완료되도록.
+                    // res.clone() 은 fetch resolve 직후 즉시 실행 — body 가
+                    // read 되기 전. cache write 는 fire-and-forget + catch:
+                    // e.waitUntil 을 쓰면 cached hit 으로 e.respondWith 가
+                    // 일찍 settle 된 후 호출 시 InvalidStateError 발생.
+                    // 일반적으로 fetch resolve 직후 cache write 는 마이크로
+                    // 태스크 단위라 SW 종료 전 완료. 실패해도 다음 시도에 갱신.
                     const copy = res.clone()
-                    e.waitUntil(caches.open(CACHE).then(c => c.put(request, copy)))
+                    caches.open(CACHE).then(c => c.put(request, copy)).catch(() => {})
                 }
                 return res
             })

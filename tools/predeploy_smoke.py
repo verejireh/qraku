@@ -217,6 +217,101 @@ print("db_compat compile OK — 4 helper / SELECT+GROUP BY+ORDER BY bindparam 0�
     return ok, msg.strip()
 
 
+def smoke_sqlmodel_enum_consistency() -> tuple[bool, str]:
+    """8. SQLModel Enum field name == value 회귀 차단 (PG-AUDIT-ENUM-CONSISTENCY).
+
+    2026-05-24 PG-AUDIT-PAYMENT-OPT + PG-AUDIT-TABLE-STATUS 회귀 패턴:
+      Python Enum 의 멤버 name 과 value 가 다르면 (예: ``CASH_ONLY="cash_only"``)
+      SQLAlchemy 가 INSERT 시 enum.name (대문자) 으로 저장하지만 lookup 도
+      enum.name 기준. database.py 에 raw UPDATE 로 enum.value (소문자) 정규화가
+      추가되면 DB↔lookup mismatch → ``LookupError`` hydration 폭발.
+
+    검출: 모든 SQLModel subclass 의 model_fields 중 type annotation 이
+    Python Enum subclass 인 field 의 멤버 중 name != value 인 것.
+
+    allowlist: 현재 6 enum 의 mismatch 는 운영 데이터가 enum.name (대문자) 으로
+    저장되어 hydration 안전 확인됨 (2026-05-24 운영 PG verify). database.py 에
+    해당 컬럼 raw UPDATE 가 추가되지 않는 한 잠재 위험만. allowlist 외 새
+    mismatch 가 추가되면 FAIL — 회귀 차단.
+
+    별도 정리 카드 (PG-AUDIT-ENUM-CONSISTENCY) 가 기존 mismatch 들을
+    name == value 로 일괄 통일 진행 예정.
+    """
+    code = '''
+import sys
+sys.path.insert(0, "backend")
+import typing
+from enum import Enum
+from sqlmodel import SQLModel
+import models
+
+# 2026-05-24 운영 PG verify 로 hydration 안전 확인된 mismatch.
+# 새 mismatch 가 추가되면 회귀 위험 — FAIL.
+ALLOWLIST = {
+    ("MenuGroupType", "TIME_WINDOW"),
+    ("MenuGroupType", "COURSE"),
+    ("MenuGroupType", "MANUAL"),
+    ("MessageSenderType", "ADMIN"),
+    ("MessageSenderType", "SUPER_ADMIN"),
+    ("PaymentMethodType", "PAY_AT_COUNTER"),
+    ("PaymentMethodType", "SQUARE_INTEGRATED"),
+    ("PaymentMethodType", "PAYPAY_DIRECT"),
+    ("POSType", "SQUARE"),
+    ("POSType", "SMAREGI"),
+    ("POSType", "AIRREGI"),
+    ("POSType", "NONE"),
+    ("StoreCategory", "RESTAURANT"),
+    ("StoreCategory", "CAFE"),
+    ("StoreCategory", "BAR"),
+    ("StoreCategory", "OTHER"),
+    ("KitchenMode", "SQUARE"),
+}
+
+def unwrap_optional(t):
+    if typing.get_origin(t) is typing.Union:
+        args = [a for a in typing.get_args(t) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return t
+
+new_risky = []
+known = 0
+for cls_name in dir(models):
+    cls = getattr(models, cls_name)
+    if not (isinstance(cls, type) and issubclass(cls, SQLModel) and cls is not SQLModel):
+        continue
+    if not hasattr(cls, "model_fields"):
+        continue
+    for fname, finfo in cls.model_fields.items():
+        ftype = unwrap_optional(finfo.annotation)
+        if isinstance(ftype, type) and issubclass(ftype, Enum):
+            for m in ftype:
+                if m.name != m.value:
+                    key = (ftype.__name__, m.name)
+                    if key in ALLOWLIST:
+                        known += 1
+                    else:
+                        new_risky.append(
+                            f"{cls.__name__}.{fname}: {ftype.__name__}.{m.name}={m.value!r}"
+                        )
+
+if new_risky:
+    print("FAIL — 새 Enum mismatch (allowlist 외):")
+    for r in new_risky:
+        print(" ", r)
+    print()
+    print("9cd70de 류 raw UPDATE 회귀 위험. enum value 를 name 과 일치시키거나")
+    print("운영 데이터 안전 확인 후 ALLOWLIST 에 추가.")
+    sys.exit(1)
+
+print(f"SQLModel Enum fields OK — allowlist 내 mismatch {known}건, 신규 0건")
+'''
+    rc, out, err = run([str(VENV_PY)], stdin=code)
+    ok = rc == 0 and "SQLModel Enum fields OK" in out
+    msg = out if ok else f"FAIL\nstdout:{out}\nstderr:{err[:500]}"
+    return ok, msg.strip()
+
+
 def smoke_helpers() -> tuple[bool, str]:
     """6. time_helpers — 신규 helper smoke."""
     code = (
@@ -282,6 +377,11 @@ def main() -> int:
     ok, msg = smoke_db_compat_compile()
     print(msg)
     results.append(("db_compat_compile", ok, msg))
+
+    section("8. SQLModel Enum field name == value (9cd70de 류 회귀 차단)")
+    ok, msg = smoke_sqlmodel_enum_consistency()
+    print(msg)
+    results.append(("enum_consistency", ok, msg))
 
     section("Summary")
     fail = [name for name, ok, _ in results if not ok]

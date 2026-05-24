@@ -25,6 +25,9 @@ STORE_TZ = "Asia/Tokyo"
 # literal_column 으로 inline 화하면 모든 위치에서 동일 AST → 매칭 OK.
 _STORE_TZ_LITERAL = literal_column(f"'{STORE_TZ}'")
 _UTC_LITERAL = literal_column("'UTC'")
+# day_of_week 의 +1 보정용 — Python int 를 그대로 쓰면 bindparam 으로 변환되어
+# GROUP BY 매칭 실패 (timezone 인자와 동일 회귀 패턴).
+_ONE_LITERAL = literal_column("1")
 
 
 def _to_store_tz(col):
@@ -64,7 +67,7 @@ def day_of_week(col):
     의미가 다르다. 본 헬퍼는 PG 측에 +1 보정하여 양 DB 가 모두 **MySQL 의미**
     를 반환하도록 통일 — 기존 클라이언트 (요일별 통계 표시) 호환 보존.
     """
-    return func.extract("dow", _to_store_tz(col)) + 1
+    return func.extract("dow", _to_store_tz(col)) + _ONE_LITERAL
 
 
 def date_only(col):

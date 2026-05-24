@@ -171,7 +171,7 @@ async def create_order(
             raise HTTPException(status_code=404, detail="Table not found")
 
         table_status_val = table.status.value if hasattr(table.status, "value") else table.status
-        if table_status_val != "occupied" or table.session_token != order_in.session_token:
+        if table_status_val != "OCCUPIED" or table.session_token != order_in.session_token:
             logger.warning("Session token mismatch or table not occupied: table_id=%s", table.id)
             raise HTTPException(status_code=403, detail="Invalid session token or table is not occupied.")
 
@@ -729,7 +729,7 @@ async def pay_order(
             )
             if not remaining.scalars().first():
                 # All paid → close table
-                table.status = "ready"
+                table.status = "READY"
                 table.session_token = None
                 table.guest_count = None
                 session.add(table)
@@ -742,7 +742,7 @@ async def pay_order(
         from utils.events import emit_payment_completed, emit_table_update
         await emit_payment_completed(session, store.id, order)
         if closed_table:
-            await emit_table_update(session, store.id, closed_table, extra={"status": "ready", "guest_count": None})
+            await emit_table_update(session, store.id, closed_table, extra={"status": "READY", "guest_count": None})
 
     return order
 

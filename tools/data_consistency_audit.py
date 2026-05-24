@@ -58,7 +58,7 @@ ENUM_CHECKS = [
     ("store", "payment_options",     {"CASH_ONLY", "CARD_AND_CASH"}),
     ("store", "point_accrual_type",  {"PERCENT", "FIXED"}),
     ("store", "kitchen_color_mode",  {"CATEGORY", "MENU", "TABLE"}),
-    ('"table"', "status",            {"ready", "occupied", "checkout_requested"}),
+    ('"table"', "status",            {"READY", "OCCUPIED", "CHECKOUT_REQUESTED"}),
     ('"order"', "order_type",        {"eat_in", "take_out"}),
     ('"order"', "payment_status",    {"unpaid", "paid", "partial", "refunded"}),
     ("orderitem", "status",          {"pending", "cooking_complete", "pickup_ready", "served", "cancelled"}),

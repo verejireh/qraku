@@ -173,11 +173,11 @@ async def get_register_tables(
         status = row["status"]
         if hasattr(status, "value"):
             status = status.value
-        if status == "checkout_requested":
+        if status == "CHECKOUT_REQUESTED":
             # None은 뒤로
             ts = row["checkout_requested_at"] or "9999"
             return (0, ts)
-        if status == "occupied":
+        if status == "OCCUPIED":
             return (1, "")
         return (2, "")
 

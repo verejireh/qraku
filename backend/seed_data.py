@@ -102,7 +102,7 @@ async def seed():
                         WHERE store_id = :store_id
                           AND table_number = :table_number
                     """),
-                    {"store_id": store_id, "table_number": str(i), "qr_token": token, "status": "ready"},
+                    {"store_id": store_id, "table_number": str(i), "qr_token": token, "status": "READY"},
                 )
             else:
                 await session.execute(
@@ -112,7 +112,7 @@ async def seed():
                         VALUES
                             (:store_id, :table_number, :qr_token, :status)
                     """),
-                    {"store_id": store_id, "table_number": str(i), "qr_token": token, "status": "ready"},
+                    {"store_id": store_id, "table_number": str(i), "qr_token": token, "status": "READY"},
                 )
 
         await session.commit()

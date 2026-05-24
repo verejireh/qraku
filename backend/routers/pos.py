@@ -152,6 +152,6 @@ async def complete_payment(
     order = orders[0] if orders else None
     if order:
         await emit_payment_completed(session, table.store_id, order)
-    await emit_table_update(session, table.store_id, table, extra={"status": "ready", "guest_count": None})
+    await emit_table_update(session, table.store_id, table, extra={"status": "READY", "guest_count": None})
 
     return {"message": "Payment completed and table closed", "new_token": table.qr_token}

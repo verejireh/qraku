@@ -188,9 +188,13 @@ class Store(SQLModel, table=True):
 
 
 class TableStatus(str, Enum):
-    READY = "ready"
-    OCCUPIED = "occupied"
-    CHECKOUT_REQUESTED = "checkout_requested"
+    # [2026-05-24] PG-AUDIT-TABLE-STATUS: PaymentOptions 와 동일 회귀 fix.
+    # SQLAlchemy Enum 컬럼 lookup 은 enum.name (대문자) 기준 → DB 값과 통일.
+    # 9cd70de + 0cf84ee 가 value 를 소문자로 통일했지만 SQLAlchemy 의 enum
+    # hydration 메커니즘과 충돌 → select(Table) 시 LookupError.
+    READY = "READY"
+    OCCUPIED = "OCCUPIED"
+    CHECKOUT_REQUESTED = "CHECKOUT_REQUESTED"
 
 class Table(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

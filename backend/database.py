@@ -134,12 +134,13 @@ async def init_db():
         # Table guest count
         'ALTER TABLE "table" ADD COLUMN IF NOT EXISTS guest_count INT NULL',
         # TableStatus migration: normalize existing values (safe UPDATE)
-        # [2026-05-22] enum cast 패치 — ::text 캐스트로 옛 enum value 비교 안전화
-        # NOOP self-update 라인 ('occupied'→'occupied', 'ready'→'ready') 제거 — 무의미
-        'ALTER TABLE "table" ALTER COLUMN status SET DEFAULT \'ready\'',
-        'UPDATE "table" SET status = \'ready\' WHERE status::text IN (\'EMPTY\', \'empty\', \'PAID\', \'paid\', \'READY\')',
-        'UPDATE "table" SET status = \'occupied\' WHERE status::text IN (\'ORDERING\', \'ordering\', \'OCCUPIED\')',
-        'UPDATE "table" SET status = \'checkout_requested\' WHERE status::text = \'CHECKOUT_REQUESTED\'',
+        # [2026-05-24] PG-AUDIT-TABLE-STATUS: 대문자로 통일 (PaymentOptions 패턴).
+        # SQLAlchemy Enum 컬럼 lookup 은 enum.name 기준 → DB 도 대문자로.
+        # 옛 9cd70de 의 소문자 정규화가 select(Table) hydration LookupError 야기.
+        'ALTER TABLE "table" ALTER COLUMN status SET DEFAULT \'READY\'',
+        'UPDATE "table" SET status = \'READY\' WHERE status::text IN (\'EMPTY\', \'empty\', \'PAID\', \'paid\', \'ready\')',
+        'UPDATE "table" SET status = \'OCCUPIED\' WHERE status::text IN (\'ORDERING\', \'ordering\', \'occupied\')',
+        'UPDATE "table" SET status = \'CHECKOUT_REQUESTED\' WHERE status::text = \'checkout_requested\'',
         # Staff call + serving tracking
         'ALTER TABLE "table" ADD COLUMN IF NOT EXISTS call_staff BOOLEAN DEFAULT FALSE',
         'ALTER TABLE "order" ADD COLUMN IF NOT EXISTS needs_serving BOOLEAN DEFAULT TRUE',

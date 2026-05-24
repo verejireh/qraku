@@ -22,6 +22,7 @@ GPT cross-review (gpt-pg-cap05-review.md) 반영:
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -98,6 +99,13 @@ def _translate_options(options_raw: str, api_key: str) -> str | None:
         return None
 
 
+# PG-CAP-05b: time_limit 모니터링 임계값. 옵션 풍부 메뉴 (5 groups × 5 choices ×
+# 3 langs = 75 calls + name/desc 6 calls = 81 calls × ~1.5s ≈ 120s) 가 60s 한계
+# 초과 위험. WARN 임계 30s, CRITICAL 임계 45s — 운영 grep 으로 빈도 추적.
+_TRANSLATE_WARN_SEC = 30.0
+_TRANSLATE_CRITICAL_SEC = 45.0
+
+
 @dramatiq.actor(
     max_retries=3,
     min_backoff=1000,
@@ -109,6 +117,8 @@ def translate_menu(menu_id: int) -> None:
 
     3-Phase 패턴 (gpt-pg-cap05-review.md §A 권고).
     """
+    # PG-CAP-05b: Phase 2 elapsed 모니터링 — time_limit=60s 임박 추적.
+    t_start = time.monotonic()
     # ── Phase 1: Load (DB session) ───────────────────────────────────────────
     # Menu + SystemConfig 조회, idempotency 체크, primitive snapshot 추출 후 session close.
     with SessionLocal() as s:
@@ -158,6 +168,18 @@ def translate_menu(menu_id: int) -> None:
                 )
 
     new_options_raw = _translate_options(snapshot["options_raw"], api_key)
+
+    # PG-CAP-05b: Phase 2 외부 API 완료 시점 elapsed. 60s time_limit 임박 경고.
+    elapsed = time.monotonic() - t_start
+    if elapsed >= _TRANSLATE_CRITICAL_SEC:
+        log.warning(
+            "translate_menu CRITICAL elapsed=%.1fs menu=%d (time_limit=60s 임박)",
+            elapsed, menu_id,
+        )
+    elif elapsed >= _TRANSLATE_WARN_SEC:
+        log.warning(
+            "translate_menu WARN elapsed=%.1fs menu=%d", elapsed, menu_id,
+        )
 
     # ── Phase 3: Write (DB session) — stale guard + missing-field-only ──────
     with SessionLocal() as s:

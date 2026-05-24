@@ -11,7 +11,7 @@ DB 컬럼은 naive UTC 저장 컨벤션. 일본 매장 기준 "오늘 매출", "
 주의: ``day_of_week`` 는 역사적 호환을 위해 1=Sun..7=Sat 의미 유지
 (PG DOW 0=Sun..6=Sat 에 +1 보정).
 """
-from sqlalchemy import func, cast, Date, literal_column
+from sqlalchemy import func, cast, Date, Integer, literal_column
 
 # 매장 운영 timezone. 다국가 운영 시점에 store 별로 분기 가능 (현재 일본 only).
 STORE_TZ = "Asia/Tokyo"
@@ -46,18 +46,22 @@ def hour(col):
     """시간 컴포넌트 추출 (0~23) — **매장 timezone (JST) 기준**.
 
     예: 점심 피크 JST 12:00 = UTC 03:00 → hour 값 = 12 (JST) 반환.
+
+    [2026-05-24] PG-AUDIT-DECIMAL: ``CAST(... AS INTEGER)`` 로 캐스트 — PG
+    EXTRACT 는 numeric (Decimal) 반환이라 호출자가 ``int()`` 캐스트 또는
+    포맷 specifier (``:02d``) 에 의존할 때 깨짐 (monthly 의 ValueError 회귀).
     """
-    return func.extract("hour", _to_store_tz(col))
+    return cast(func.extract("hour", _to_store_tz(col)), Integer)
 
 
 def year(col):
-    """연도 추출 — 매장 timezone 기준."""
-    return func.extract("year", _to_store_tz(col))
+    """연도 추출 — 매장 timezone 기준 (Integer 캐스트, 위 hour 주석 참조)."""
+    return cast(func.extract("year", _to_store_tz(col)), Integer)
 
 
 def month(col):
-    """월 추출 (1~12) — 매장 timezone 기준."""
-    return func.extract("month", _to_store_tz(col))
+    """월 추출 (1~12) — 매장 timezone 기준 (Integer 캐스트, 위 hour 주석 참조)."""
+    return cast(func.extract("month", _to_store_tz(col)), Integer)
 
 
 def day_of_week(col):
@@ -66,8 +70,10 @@ def day_of_week(col):
     MySQL DAYOFWEEK 는 1=Sun..7=Sat, PG EXTRACT(DOW) 는 0=Sun..6=Sat 으로
     의미가 다르다. 본 헬퍼는 PG 측에 +1 보정하여 양 DB 가 모두 **MySQL 의미**
     를 반환하도록 통일 — 기존 클라이언트 (요일별 통계 표시) 호환 보존.
+
+    Integer 캐스트 (위 hour 주석 참조).
     """
-    return func.extract("dow", _to_store_tz(col)) + _ONE_LITERAL
+    return cast(func.extract("dow", _to_store_tz(col)) + _ONE_LITERAL, Integer)
 
 
 def date_only(col):

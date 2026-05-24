@@ -33,7 +33,7 @@
 | ID | 항목 | 상태 |
 |---|---|---|
 | **PG-AUDIT-SIBLING-GREP** | 자매 회귀 grep | ✅ 0건 확인 (db_compat 외 위험 패턴 없음) |
-| **PREDEPLOY-SMOKE-EXT** | predeploy_smoke #7 단계 추가 | ✅ 1460b9d (7/7 PASS) |
+| **PREDEPLOY-SMOKE-EXT** | predeploy_smoke #7 db_compat compile + #8 SQLModel Enum name==value | ✅ 1460b9d + 6ea1888 (8/8 PASS) |
 | **PG-AUDIT-OPTIONAL-NAMEERR** | NameError: Optional 단발 트레이스 | ✅ 옛 nohup 1회 단발, 현재 코드 정상 |
 | **PG-AUDIT-TABLE-STATUS** | TableStatus 자매 mismatch | 🔴 **P0 시한폭탄 발견 → 즉시 hotfix + 코드 fix 완료 (58e9d2f)** |
 | **PWA-ICON-HIRES** | 192/512 PNG 생성 | 🟢 선택 (미진행) |
@@ -44,8 +44,8 @@
 
 | ID | 항목 | 우선도 |
 |---|---|---|
-| **PG-AUDIT-KITCHEN-SQUARE** | KitchenMode.SQUARE("square") 동일 회귀 잠재. 매장이 Square 모드 활성화 시 발생. 현재 운영 데이터 0건. | 🟡 |
-| **PG-AUDIT-ENUM-CONSISTENCY** | PaymentMethodType / POSType / MenuGroupType / MessageSenderType 컬럼 type (str vs Enum) 일괄 점검. Order.order_type 처럼 plain str 이면 안전, Enum 이면 회귀 잠재. | 🟡 |
+| **PG-AUDIT-KITCHEN-SQUARE** | KitchenMode.SQUARE("square") — predeploy_smoke #8 allowlist 에 있음. 매장이 Square 모드 활성화 + database.py 에 소문자 정규화 UPDATE 추가 시 회귀. 현재 운영 데이터 0건. | 🟡 |
+| **PG-AUDIT-ENUM-CONSISTENCY** | predeploy_smoke #8 allowlist 17 mismatch 일괄 정리 — name == value 통일 진행 (PaymentOptions / TableStatus 와 같은 패턴). 운영 데이터가 모두 enum.name 으로 저장되어 즉시 위험 0 이지만 잠재. 진행 시 매 enum 마다 frontend 비교 코드 sync 필요. 영향 enum: MenuGroupType (3), MessageSenderType (2), PaymentMethodType (3), POSType (4), StoreCategory (4), KitchenMode.SQUARE (1). | 🟡 |
 | **PWA-ICON-HIRES** | PWA install icon 품질 — 192/512 PNG 생성 | 🟢 선택 |
 
 ---

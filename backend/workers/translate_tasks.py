@@ -82,7 +82,7 @@ def _translate_options(options_raw: str, api_key: str) -> str | None:
             if g:
                 for lang in LANGS:
                     grp["translations"].setdefault(
-                        lang, translate_text(g, lang, api_key=api_key)
+                        lang, translate_text(g, lang, api_key=api_key, strict=True)
                     )
             for ch in grp.get("choices", []):
                 ch.setdefault("translations", {})
@@ -90,7 +90,7 @@ def _translate_options(options_raw: str, api_key: str) -> str | None:
                 if n:
                     for lang in LANGS:
                         ch["translations"].setdefault(
-                            lang, translate_text(n, lang, api_key=api_key)
+                            lang, translate_text(n, lang, api_key=api_key, strict=True)
                         )
         return json.dumps(data, ensure_ascii=False)
     except Exception:
@@ -140,11 +140,13 @@ def translate_menu(menu_id: int) -> None:
 
     # ── Phase 2: External API (no DB session) ────────────────────────────────
     # snapshot 기반으로 translate_text 호출. 결과를 local dict 에 누적.
+    # strict=True — Gemini API 실패 시 silent 원본 반환 대신 raise.
+    # Dramatiq actor 가 exception 받아 retry trigger (PG-CAP-05c).
     new_names: dict[str, str] = {}
     for lang in LANGS:
         if not snapshot["names_existing"][lang]:
             new_names[lang] = translate_text(
-                snapshot["name_jp"], lang, api_key=api_key
+                snapshot["name_jp"], lang, api_key=api_key, strict=True
             )
 
     new_descs: dict[str, str] = {}
@@ -152,7 +154,7 @@ def translate_menu(menu_id: int) -> None:
         for lang in LANGS:
             if not snapshot["descs_existing"][lang]:
                 new_descs[lang] = translate_text(
-                    snapshot["description_jp"], lang, api_key=api_key
+                    snapshot["description_jp"], lang, api_key=api_key, strict=True
                 )
 
     new_options_raw = _translate_options(snapshot["options_raw"], api_key)

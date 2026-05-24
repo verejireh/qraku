@@ -62,11 +62,15 @@ Output MUST be valid JSON only, without any markdown formatting like ```json.
         raise e
 
 
-def translate_text(text: str, dest: str = 'en', api_key: str = None) -> str:
+def translate_text(text: str, dest: str = 'en', api_key: str = None, strict: bool = False) -> str:
     """
     Backward-compatible single-text translation using Gemini.
     Used by menus.py for auto-translating menu names/descriptions/options.
-    Returns translated text, or original text on failure.
+
+    Args:
+        strict: True 시 Gemini API 실패 → exception raise. False (기본) 시
+                원본 text 반환 (옛 동작). Dramatiq worker 는 strict=True 사용
+                권장 — silent fail 차단 + retry trigger ([PG-CAP-05c]).
     """
     if not text:
         return ""
@@ -99,4 +103,6 @@ Text: {text}"""
         return response.text.strip()
     except Exception as e:
         print(f"Gemini translate_text Error ({dest}): {e}")
+        if strict:
+            raise
         return text

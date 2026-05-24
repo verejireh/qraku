@@ -1,8 +1,21 @@
-# 다음 세션 핸드오프 (2026-05-24 v2 — 자이라 수동 smoke 사이클 8 fix 완료)
+# 다음 세션 핸드오프 (2026-05-24 v3 — main 머지 완료, 정식 출시 상태)
 
 > **다음 Claude 세션 시작 시 이 파일을 먼저 읽어주세요.**
-> v1 (이전 갱신) = PG 컷오버 위험 감사 + 4 GPT cross-review + 첫 deploy 성공.
-> **v2 (본 갱신) = 자이라 수동 smoke 에서 발견된 8 회귀 즉시 fix + 4 deploy 완료.**
+> v1 = PG 컷오버 위험 감사 + 4 GPT cross-review + 첫 deploy 성공.
+> v2 = 자이라 수동 smoke 에서 발견된 8 회귀 즉시 fix + 4 deploy 완료.
+> **v3 (본 갱신) = 정리 단계 B/C/D/E + 출시 안정화 + stabilize → main 머지 완료.**
+
+## 🎉 v3 핵심 — 정식 출시 상태
+
+- ✅ stabilize/post-pg-cutover → main 머지 완료 (**25675d3**)
+- ✅ origin/main 푸시 완료
+- ✅ 운영 PID 648952 active/running, healthz 200
+- ✅ predeploy_smoke 8/8 PASS (회귀 자동 차단 #7 + #8)
+- ✅ 출시 차단 요소 0
+
+**main 머지 commit 의 코드 = stabilize 마지막 deploy 코드** — 별도 재배포 불요.
+
+다음 세션 작업 위치는 **메인 worktree `D:\myproject\orderservice` (main 브랜치)** 권장. stabilize worktree 는 별도 사이클 시작 시까지 유지.
 
 ## 🆕 v2 핵심 요약 (2026-05-24 본 사이클)
 

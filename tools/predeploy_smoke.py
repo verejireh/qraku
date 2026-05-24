@@ -41,10 +41,11 @@ def section(title: str):
     print("=" * 60)
 
 
-def run(cmd: list[str], env_extra: dict = None, check_only=False) -> tuple[int, str, str]:
+def run(cmd: list[str], env_extra: dict = None, check_only=False, stdin: str = None) -> tuple[int, str, str]:
     """subprocess 실행. (returncode, stdout, stderr) 반환.
 
     Windows cp932 환경 대응 — utf-8 강제 디코딩, 디코딩 실패 시 replace.
+    stdin 인자 — multi-line Python 코드 전달용 (``-c`` 의 한 줄 제약 우회).
     """
     env = os.environ.copy()
     env.setdefault("PYTHONIOENCODING", "utf-8")
@@ -54,6 +55,7 @@ def run(cmd: list[str], env_extra: dict = None, check_only=False) -> tuple[int, 
         result = subprocess.run(
             cmd, capture_output=True, env=env, cwd=str(ROOT),
             timeout=60,
+            input=stdin.encode("utf-8") if stdin else None,
         )
         out = result.stdout.decode("utf-8", errors="replace") if result.stdout else ""
         err = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
@@ -153,6 +155,68 @@ def smoke_event_ts() -> tuple[bool, str]:
     return ok, msg.strip()
 
 
+def smoke_db_compat_compile() -> tuple[bool, str]:
+    """7. db_compat SQL compile — GROUP BY 매칭 + Integer cast 회귀 차단.
+
+    2026-05-24 PG-AUDIT-GROUPBY/DECIMAL 사이클 회귀 패턴:
+      - func.timezone(STORE_TZ, col) 의 STORE_TZ 가 Python str 이면 SQLAlchemy
+        가 bindparam 으로 변환 → SELECT/GROUP BY/ORDER BY 마다 다른 $N → PG
+        GroupingError "must appear in GROUP BY".
+      - day_of_week 의 + 1 도 Python int → bindparam → 동일 회귀.
+      - PG EXTRACT 반환 numeric (Decimal) → 호출자가 ``:02d`` format 시
+        ValueError. Integer 캐스트로 호출자 자동 int.
+
+    검증: hour/year/month/day_of_week 의 SELECT+GROUP BY+ORDER BY compile 결과에
+      - timezone($N) 또는 ``) + $N`` 패턴 0건
+      - ``AS INTEGER`` 캐스트 포함 (date_only 는 Date 캐스트라 제외).
+    """
+    code = '''
+import sys
+sys.path.insert(0, "backend")
+import re
+from sqlalchemy import select, func
+from sqlalchemy.dialects import postgresql
+from utils.db_compat import date_only, hour, year, month, day_of_week
+from models import Order
+
+CASES = [
+    ("date_only",   (date_only(Order.created_at),),                                False),
+    ("hour",        (hour(Order.created_at),),                                     True),
+    ("year+month",  (year(Order.created_at), month(Order.created_at)),             True),
+    ("day_of_week", (day_of_week(Order.created_at),),                              True),
+]
+
+failed = []
+for name, exprs, want_int_cast in CASES:
+    q = (
+        select(*[e.label(f"c{i}") for i, e in enumerate(exprs)], func.count(Order.id))
+        .where(Order.shop_id == "X")
+        .group_by(*exprs)
+        .order_by(*exprs)
+    )
+    sql = str(q.compile(dialect=postgresql.dialect()))
+    tz_bind = len(re.findall(r"timezone\\(\\$", sql))
+    dow_int_bind = len(re.findall(r"\\) \\+ \\$", sql))
+    if tz_bind:
+        failed.append(f"{name}: tz_bind={tz_bind} (must be 0)")
+    if dow_int_bind:
+        failed.append(f"{name}: dow_int_bind={dow_int_bind} (must be 0)")
+    if want_int_cast and "AS INTEGER" not in sql:
+        failed.append(f"{name}: missing AS INTEGER cast")
+
+if failed:
+    print("FAIL:")
+    for f in failed:
+        print(" ", f)
+    sys.exit(1)
+print("db_compat compile OK — 4 helper / SELECT+GROUP BY+ORDER BY bindparam 0건, Integer cast 적용")
+'''
+    rc, out, err = run([str(VENV_PY)], stdin=code)
+    ok = rc == 0 and "db_compat compile OK" in out
+    msg = out if ok else f"FAIL\nstdout:{out}\nstderr:{err[:500]}"
+    return ok, msg.strip()
+
+
 def smoke_helpers() -> tuple[bool, str]:
     """6. time_helpers — 신규 helper smoke."""
     code = (
@@ -213,6 +277,11 @@ def main() -> int:
     ok, msg = smoke_helpers()
     print(msg)
     results.append(("time_helpers", ok, msg))
+
+    section("7. db_compat SQL compile (GROUP BY 매칭 + Integer cast 회귀 차단)")
+    ok, msg = smoke_db_compat_compile()
+    print(msg)
+    results.append(("db_compat_compile", ok, msg))
 
     section("Summary")
     fail = [name for name, ok, _ in results if not ok]

@@ -803,17 +803,17 @@ function AdminChatWidget({ storeData, shop_id }) {
                                             </div>
                                         )}
                                         {messages.map(m => (
-                                            <div key={m.id} className={`flex ${m.sender_type === 'admin' ? 'justify-end' : 'justify-start'}`}>
+                                            <div key={m.id} className={`flex ${m.sender_type === 'ADMIN' ? 'justify-end' : 'justify-start'}`}>
                                                 <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
-                                                    m.sender_type === 'admin'
+                                                    m.sender_type === 'ADMIN'
                                                         ? 'bg-adminprimary text-white rounded-br-md'
                                                         : 'bg-slate-100 text-slate-800 rounded-bl-md'
                                                 }`}>
-                                                    {m.sender_type === 'super_admin' && (
+                                                    {m.sender_type === 'SUPER_ADMIN' && (
                                                         <p className="text-[10px] font-bold text-adminprimary mb-1">QRaku サポート</p>
                                                     )}
                                                     <p className="text-sm whitespace-pre-wrap">{m.content}</p>
-                                                    <p className={`text-[10px] mt-1 ${m.sender_type === 'admin' ? 'text-white/60' : 'text-slate-400'}`}>
+                                                    <p className={`text-[10px] mt-1 ${m.sender_type === 'ADMIN' ? 'text-white/60' : 'text-slate-400'}`}>
                                                         {new Date(m.created_at).toLocaleString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                                                     </p>
                                                 </div>

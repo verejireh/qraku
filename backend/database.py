@@ -117,6 +117,10 @@ async def init_db():
         "UPDATE store SET kitchen_mode = 'KDS' WHERE kitchen_mode::text = 'kds'",
         # [2026-05-24] PG-AUDIT-KITCHEN-SQUARE: SQUARE 모드 매장 활성화 시 방어
         "UPDATE store SET kitchen_mode = 'SQUARE' WHERE kitchen_mode::text = 'square'",
+        # [2026-05-24] PG-AUDIT-ENUM-CONSISTENCY: MessageSenderType name == value 통일
+        # 9cd70de 류 raw UPDATE 회귀 차단 + JSON 응답 일관성 확보.
+        "UPDATE message SET sender_type = 'ADMIN' WHERE sender_type::text = 'admin'",
+        "UPDATE message SET sender_type = 'SUPER_ADMIN' WHERE sender_type::text = 'super_admin'",
         # [2026-05-24] PG-AUDIT-PAYMENT-OPT: 역방향 — 9cd70de 가 소문자로
         # 정규화했지만 SQLAlchemy Enum 컬럼은 멤버 name(대문자) 기반 lookup
         # 이라 admin login 500 발생. 데이터를 다시 대문자로 통일.

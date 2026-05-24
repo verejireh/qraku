@@ -603,8 +603,10 @@ class PaymentSettings(SQLModel, table=True):
 # ── Messaging System ─────────────────────────────────────────────
 
 class MessageSenderType(str, Enum):
-    ADMIN = "admin"
-    SUPER_ADMIN = "super_admin"
+    # [2026-05-24] PG-AUDIT-ENUM-CONSISTENCY: name == value 통일.
+    # 9cd70de 류 raw UPDATE 회귀 차단.
+    ADMIN = "ADMIN"
+    SUPER_ADMIN = "SUPER_ADMIN"
 
 class Message(SQLModel, table=True):
     """1:1 messages between store admin and super admin."""

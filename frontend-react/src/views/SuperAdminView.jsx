@@ -846,17 +846,17 @@ export default function SuperAdminView() {
                                                         </div>
                                                     )}
                                                     {convoMessages.map(m => (
-                                                        <div key={m.id} className={`flex ${m.sender_type === 'super_admin' ? 'justify-end' : 'justify-start'}`}>
+                                                        <div key={m.id} className={`flex ${m.sender_type === 'SUPER_ADMIN' ? 'justify-end' : 'justify-start'}`}>
                                                             <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${
-                                                                m.sender_type === 'super_admin'
+                                                                m.sender_type === 'SUPER_ADMIN'
                                                                     ? 'bg-indigo-600 text-white rounded-br-md'
                                                                     : 'bg-white/[0.06] text-slate-200 rounded-bl-md'
                                                             }`}>
-                                                                {m.sender_type === 'admin' && (
+                                                                {m.sender_type === 'ADMIN' && (
                                                                     <p className="text-[10px] font-bold text-indigo-400 mb-0.5">🏪 店舗オーナー</p>
                                                                 )}
                                                                 <p className="text-sm whitespace-pre-wrap break-words">{m.content}</p>
-                                                                <p className={`text-[10px] mt-1 ${m.sender_type === 'super_admin' ? 'text-white/50' : 'text-slate-500'}`}>
+                                                                <p className={`text-[10px] mt-1 ${m.sender_type === 'SUPER_ADMIN' ? 'text-white/50' : 'text-slate-500'}`}>
                                                                     {new Date(m.created_at).toLocaleString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                                                                 </p>
                                                             </div>

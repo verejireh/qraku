@@ -40,12 +40,35 @@
 
 상세: [`work-log.md` 2026-05-24 후속 카드 B/C/D/E 섹션](./work-log.md).
 
-### 다음 세션 후속 (E 단계에서 갈라진 분리 카드)
+### 출시 전 잔여 작업
 
-| ID | 항목 | 우선도 |
+| ID | 항목 | 상태 |
 |---|---|---|
-| **PG-AUDIT-KITCHEN-SQUARE** | KitchenMode.SQUARE("square") — predeploy_smoke #8 allowlist 에 있음. 매장이 Square 모드 활성화 + database.py 에 소문자 정규화 UPDATE 추가 시 회귀. 현재 운영 데이터 0건. | 🟡 |
-| **PG-AUDIT-ENUM-CONSISTENCY** | predeploy_smoke #8 allowlist 17 mismatch 일괄 정리 — name == value 통일 진행 (PaymentOptions / TableStatus 와 같은 패턴). 운영 데이터가 모두 enum.name 으로 저장되어 즉시 위험 0 이지만 잠재. 진행 시 매 enum 마다 frontend 비교 코드 sync 필요. 영향 enum: MenuGroupType (3), MessageSenderType (2), PaymentMethodType (3), POSType (4), StoreCategory (4), KitchenMode.SQUARE (1). | 🟡 |
+| **PG-AUDIT-KITCHEN-SQUARE** | KitchenMode.SQUARE = "SQUARE" 통일 + backend/frontend sync | ✅ **f643f0c** (deploy 완료, allowlist 17→16) |
+| **PG-CAP-05c** | translate_text strict mode + worker strict=True | ✅ **49b2f5f** (deploy 완료) |
+| **🟡 자이라 수동 smoke 확장 (P5)** | KDS/register/테이블관리/결제 사이클까지 검증 — TableStatus P0 같은 폭탄 추가 발견 가능 | 사장님 작업 대기 |
+| **🟢 main 머지 (P6)** | 모든 P0/P1 닫힌 후 GPT 최종 review → 머지 | smoke 확장 결과 보고 후 |
+
+### 출시 후 (사후 처리 OK)
+
+| ID | 항목 |
+|---|---|
+| **PG-AUDIT-ENUM-CONSISTENCY** | allowlist 16 mismatch 일괄 정리. predeploy_smoke #8 이 신규 회귀 차단 중이라 즉시 위험 0. frontend 변경 범위 큼 (MenuGroupsSection 20+). 출시 후 enum 별로 분리 처리. |
+| **PG-CAP-05b** | translate task time_limit=60_000 운영 모니터링 (옵션 풍부 메뉴) |
+| **PG-CAP-05d** | translate_batch_with_gemini 활용 — 6× 성능 향상 (큰 변경) |
+| **DBM-13c/d** | docs/deployment.md (499줄) + docs/architecture.md (263줄) PG 재작성 |
+| **PWA-ICON-HIRES** | 192/512 PNG 생성 (PWA install icon 품질) |
+
+### 운영자 직접 작업 (자이라 권한)
+
+| ID | 항목 |
+|---|---|
+| **OPR-07** | Alembic baseline stamp — 운영 VM 1회 `alembic stamp head` |
+| **OPR-13** | Cloud SQL `ilhae` 비번 로테이션 (채팅 노출 이력) |
+| **OPR-15** | pg_stat_statements 활성화 (Cloud SQL flag + CREATE EXTENSION) |
+| **OPS-04** | GCP Monitoring 디스크 80% 알람 |
+| **OPR-14** | 운영 VM 22 포트 방화벽 IP 재조정 (IAP 룰) |
+| **OPR-17** | VAPID 키 생성 (Web Push) |
 | **PWA-ICON-HIRES** | PWA install icon 품질 — 192/512 PNG 생성 | 🟢 선택 |
 
 ---

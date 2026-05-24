@@ -375,10 +375,10 @@ export const signupT = {
     submitting: '登録中...',
     submitBtn: '無料体験を開始する 🚀',
     categories: [
-      { value: 'restaurant', label: '🍽️ レストラン・食堂' },
-      { value: 'cafe', label: '☕ カフェ・喫茶店' },
-      { value: 'bar', label: '🍺 バー・居酒屋' },
-      { value: 'other', label: '🏪 その他' },
+      { value: 'RESTAURANT', label: '🍽️ レストラン・食堂' },
+      { value: 'CAFE', label: '☕ カフェ・喫茶店' },
+      { value: 'BAR', label: '🍺 バー・居酒屋' },
+      { value: 'OTHER', label: '🏪 その他' },
     ],
     done: {
       title: '登録完了！🎉',
@@ -427,10 +427,10 @@ export const signupT = {
     submitting: 'Signing up...',
     submitBtn: 'Start Free Trial 🚀',
     categories: [
-      { value: 'restaurant', label: '🍽️ Restaurant' },
-      { value: 'cafe', label: '☕ Café' },
-      { value: 'bar', label: '🍺 Bar / Izakaya' },
-      { value: 'other', label: '🏪 Other' },
+      { value: 'RESTAURANT', label: '🍽️ Restaurant' },
+      { value: 'CAFE', label: '☕ Café' },
+      { value: 'BAR', label: '🍺 Bar / Izakaya' },
+      { value: 'OTHER', label: '🏪 Other' },
     ],
     done: {
       title: 'Registration Complete! 🎉',

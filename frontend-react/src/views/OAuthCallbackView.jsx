@@ -5,10 +5,10 @@ import { setAdminToken } from '../hooks/useAdminApi'
 import { QrCode, Store, MapPin, Utensils, ArrowLeft, CheckCircle, AlertCircle, Link as LinkIcon, Check, X } from 'lucide-react'
 
 const STORE_CATEGORIES = [
-    { value: 'restaurant', label: '🍽️ レストラン・食堂' },
-    { value: 'cafe', label: '☕ カフェ・喫茶店' },
-    { value: 'bar', label: '🍺 バー・居酒屋' },
-    { value: 'other', label: '🏪 その他' },
+    { value: 'RESTAURANT', label: '🍽️ レストラン・食堂' },
+    { value: 'CAFE', label: '☕ カフェ・喫茶店' },
+    { value: 'BAR', label: '🍺 バー・居酒屋' },
+    { value: 'OTHER', label: '🏪 その他' },
 ]
 
 export default function OAuthCallbackView() {
@@ -35,7 +35,7 @@ export default function OAuthCallbackView() {
 
     const [form, setForm] = useState({
         store_name: '',
-        category: 'restaurant',
+        category: 'RESTAURANT',
         address: '',
         phone: '',
         owner_name: payload.name || '',

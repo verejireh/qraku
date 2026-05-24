@@ -41,7 +41,7 @@ export default function OwnerSignUpView() {
     password: '',
     store_name: '',
     store_name_en: '',
-    category: 'restaurant',
+    category: 'RESTAURANT',
     address: '',
     phone: '',
     shop_id: '',

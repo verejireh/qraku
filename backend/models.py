@@ -23,10 +23,11 @@ class KitchenMode(str, Enum):
     SQUARE = "SQUARE" # Square POS / 프린터 연동 모드
 
 class StoreCategory(str, Enum):
-    RESTAURANT = "restaurant"
-    CAFE = "cafe"
-    BAR = "bar"
-    OTHER = "other"
+    # [2026-05-24] PG-AUDIT-ENUM-CONSISTENCY: name == value 통일.
+    RESTAURANT = "RESTAURANT"
+    CAFE = "CAFE"
+    BAR = "BAR"
+    OTHER = "OTHER"
 
 class SubscriptionType(str, Enum):
     FREE = "FREE"

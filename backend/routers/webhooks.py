@@ -86,7 +86,7 @@ async def fulfill_checkout(session_obj, db_session: AsyncSession):
             
             if table:
                 # AUTO-CLEAR THE TABLE for the next guest
-                table.status = "ready"
+                table.status = "READY"
                 table.session_token = None
                 table.join_window_end = None
                 db_session.add(table)

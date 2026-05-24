@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 from database import get_session
 from models import Store, Table, Order, Menu, StaffMember, PaymentSettings, PaymentMethodType, StaffAttendance, RefundLog
 from datetime import datetime
+from utils.time_helpers import now_utc_naive
 import uuid
 from utils.jwt import require_admin
 
@@ -142,7 +143,7 @@ async def read_super_stats(admin_store: Store = Depends(require_admin), session:
     
     revenue = (active_monthly.scalar() * 3000) + (active_yearly.scalar() * 30000)
     
-    threshold = datetime.utcnow() + timedelta(days=7)
+    threshold = now_utc_naive() + timedelta(days=7)
     expiring_soon_query = select(Store).where(Store.subscription_expires_at <= threshold, Store.subscription_status != "EXPIRED")
     expiring_soon_res = await session.execute(expiring_soon_query)
     expiring_list = expiring_soon_res.scalars().all()
@@ -323,7 +324,7 @@ async def toggle_staff_duty(store_id: str, member_id: int, body: DutyToggle, adm
     if not member or member.store_id != store.id:
         raise HTTPException(status_code=404, detail="Staff member not found")
 
-    now_utc = datetime.utcnow()
+    now_utc = now_utc_naive()
     # JST = UTC+9 로 변환하여 work_date 산출
     from datetime import timezone, timedelta as td
     jst = timezone(td(hours=9))

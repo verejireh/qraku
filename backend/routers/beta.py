@@ -73,7 +73,7 @@ async def apply_for_beta(
 
     # 중복 신청 차단 (같은 이메일 7일 내)
     from datetime import datetime, timedelta
-    recent_cut = datetime.utcnow() - timedelta(days=7)
+    recent_cut = now_utc_naive() - timedelta(days=7)
     dup_res = await session.execute(
         select(BetaApplication).where(
             BetaApplication.email == body.email,

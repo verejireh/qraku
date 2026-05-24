@@ -2,6 +2,7 @@ from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
 from sqlalchemy import Column, Text
 from datetime import datetime, timedelta
+from utils.time_helpers import now_utc_naive
 import uuid
 
 # --- Models ---
@@ -14,8 +15,12 @@ class KitchenColorMode(str, Enum):
     TABLE = "TABLE"
 
 class KitchenMode(str, Enum):
+    # [2026-05-24] PG-AUDIT-KITCHEN-SQUARE: SQUARE value 대문자 통일.
+    # 이전: SQUARE="square" → SQLAlchemy Enum hydration name(SQUARE) 기준
+    # lookup 과 잠재 mismatch. 매장이 Square 모드 활성화 + database.py 에
+    # 소문자 정규화 UPDATE 추가 시 폭발. PaymentOptions/TableStatus 패턴.
     KDS = "KDS"       # 내부 KiosPad 태블릿 KDS 모드 (기본값)
-    SQUARE = "square" # Square POS / 프린터 연동 모드
+    SQUARE = "SQUARE" # Square POS / 프린터 연동 모드
 
 class StoreCategory(str, Enum):
     RESTAURANT = "restaurant"
@@ -39,8 +44,13 @@ class PointAccrualType(str, Enum):
     FIXED = "FIXED"   # Fixed points per order
 
 class PaymentOptions(str, Enum):
-    CASH_ONLY = "cash_only"
-    CARD_AND_CASH = "card_and_cash"
+    # [2026-05-24] PG-AUDIT-PAYMENT-OPT: value 를 멤버 name 과 일치시켜
+    # SQLAlchemy Enum 컬럼의 name-기반 lookup 과 DB 값을 정합화.
+    # 9cd70de 가 DB 데이터만 소문자로 정규화했지만 Python enum value 는 그대로
+    # 두어 admin login (oauth.py:128 Store SELECT) 에서 LookupError 발생.
+    # KitchenMode "kds"→"KDS" 와 동일 패턴.
+    CASH_ONLY = "CASH_ONLY"
+    CARD_AND_CASH = "CARD_AND_CASH"
 
 class Store(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -58,8 +68,8 @@ class Store(SQLModel, table=True):
     # Subscription Fields
     subscription_type: SubscriptionType = Field(default=SubscriptionType.FREE)
     subscription_status: SubscriptionStatus = Field(default=SubscriptionStatus.TRIAL)
-    subscription_expires_at: Optional[datetime] = Field(default_factory=lambda: datetime.utcnow() + timedelta(days=60))
-    trial_start_date: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    subscription_expires_at: Optional[datetime] = Field(default_factory=lambda: now_utc_naive() + timedelta(days=60))
+    trial_start_date: Optional[datetime] = Field(default_factory=now_utc_naive)
     # Data Open Consent: 메뉴/사진/주소 익명 집계 공개 동의 (월 ¥1,000 할인)
     data_open_consent: bool = Field(default=False)
     # Stripe Integration
@@ -175,16 +185,20 @@ class Store(SQLModel, table=True):
     photo_contest_active: bool = Field(default=False)
     photo_contest_reward_amount: int = Field(default=500)  # 이달의 사진 선정 시 지급할 쿠폰 금액
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
     tables: List["Table"] = Relationship(back_populates="store")
     menus: List["Menu"] = Relationship(back_populates="store")
     staff_members: List["StaffMember"] = Relationship(back_populates="store")
 
 
 class TableStatus(str, Enum):
-    READY = "ready"
-    OCCUPIED = "occupied"
-    CHECKOUT_REQUESTED = "checkout_requested"
+    # [2026-05-24] PG-AUDIT-TABLE-STATUS: PaymentOptions 와 동일 회귀 fix.
+    # SQLAlchemy Enum 컬럼 lookup 은 enum.name (대문자) 기준 → DB 값과 통일.
+    # 9cd70de + 0cf84ee 가 value 를 소문자로 통일했지만 SQLAlchemy 의 enum
+    # hydration 메커니즘과 충돌 → select(Table) 시 LookupError.
+    READY = "READY"
+    OCCUPIED = "OCCUPIED"
+    CHECKOUT_REQUESTED = "CHECKOUT_REQUESTED"
 
 class Table(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -241,7 +255,7 @@ class DeviceSession(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     table_id: int = Field(foreign_key="table.id", index=True)
     is_active: bool = Field(default=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
     
     table: Optional[Table] = Relationship()
 
@@ -251,12 +265,12 @@ class TranslationCache(SQLModel, table=True):
     source_text: str
     target_lang: str = Field(index=True)
     translated_text: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 class Customer(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    last_visit: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
+    last_visit: datetime = Field(default_factory=now_utc_naive)
     visit_count: int = Field(default=1)
 
 class GuestProfile(SQLModel, table=True):
@@ -265,7 +279,7 @@ class GuestProfile(SQLModel, table=True):
     last_visit: Optional[datetime] = None
     prev_last_visit: Optional[datetime] = None  # 직전 방문일 (몇 일만에 방문 계산용)
     preferred_language: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 class StampCard(SQLModel, table=True):
     """매장별 고객 스탬프 카드"""
@@ -274,7 +288,7 @@ class StampCard(SQLModel, table=True):
     guest_uuid: str = Field(index=True)
     stamp_count: int = Field(default=0)
     last_stamped_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 class RewardCoupon(SQLModel, table=True):
     """포토 리뷰 콘테스트 등에서 지급되는 테이크아웃 할인권"""
@@ -286,7 +300,7 @@ class RewardCoupon(SQLModel, table=True):
     used_at: Optional[datetime] = None
     expires_at: Optional[datetime] = Field(default=None, index=True)  # 만료일 (기본 90일)
     source: str = Field(default="photo_contest", max_length=50)       # photo_contest 등
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 class PhotoReview(SQLModel, table=True):
     """고객 참여형 포토 리뷰 콘테스트 (미니 홈페이지 노출)"""
@@ -296,7 +310,7 @@ class PhotoReview(SQLModel, table=True):
     image_url: str = Field(max_length=1000)
     comment: Optional[str] = Field(default=None, max_length=1000)
     status: str = Field(default="pending")  # pending, approved, best_of_month
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 
 class BetaApplication(SQLModel, table=True):
@@ -312,7 +326,7 @@ class BetaApplication(SQLModel, table=True):
     current_pos: Optional[str] = Field(default=None, max_length=200)  # 현재 사용중인 POS
     why_join: Optional[str] = Field(default=None, max_length=2000)    # 신청 이유
     status: str = Field(default="pending", max_length=20)              # pending / approved / rejected
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 
 class RefundLog(SQLModel, table=True):
@@ -328,7 +342,7 @@ class RefundLog(SQLModel, table=True):
     admin_user_id: Optional[str] = Field(default=None, max_length=255, index=True)  # 환불 실행한 관리자 (owner_id 등)
     status: str = Field(default="ok", max_length=20)                              # ok / failed
     error_message: Optional[str] = Field(default=None, max_length=1000)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 
 class CustomerPoint(SQLModel, table=True):
@@ -336,7 +350,7 @@ class CustomerPoint(SQLModel, table=True):
     customer_id: str = Field(foreign_key="customer.id", index=True)
     store_id: int = Field(foreign_key="store.id", index=True)
     balance: int = Field(default=0)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=now_utc_naive)
 
 
 class PointTransactionType(str, Enum):
@@ -352,7 +366,7 @@ class PointHistory(SQLModel, table=True):
     tx_type: PointTransactionType
     description: Optional[str] = None
     related_order_id: Optional[int] = Field(default=None, foreign_key="order.id") # For ROI tracking
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 
 class GlobalReview(SQLModel, table=True):
@@ -363,7 +377,7 @@ class GlobalReview(SQLModel, table=True):
     rating: float = Field(default=5.0)
     tags: str = Field(default="{}") # JSON string
     comment: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 
 class OrderType(str, Enum):
@@ -390,7 +404,7 @@ class Order(SQLModel, table=True):
     status: str = Field(default="pending_payment")
     needs_serving: bool = Field(default=True)  # 새 주문: True → 서빙 완료 시 False
     idempotency_key: Optional[str] = Field(default=None, max_length=64, unique=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
     items: List["OrderItem"] = Relationship(back_populates="order")
 
@@ -453,7 +467,7 @@ class TakeoutTimeQuery(SQLModel, table=True):
     status: str = Field(default="pending")              # pending | responded | agreed | declined | expired
     staff_response: Optional[str] = None                # 스태프 응답 메시지
     agreed_time: Optional[str] = None                   # 최종 합의 시간
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 
 class StaffMember(SQLModel, table=True):
@@ -465,7 +479,7 @@ class StaffMember(SQLModel, table=True):
     is_active: bool = Field(default=True)    # admin에서 등록/삭제 관리
     is_on_duty: bool = Field(default=False)  # setting에서 출근/퇴근
     clock_in_at: Optional[datetime] = None   # 최근 출근 시각
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
     store: Optional[Store] = Relationship(back_populates="staff_members")
 
@@ -480,13 +494,13 @@ class StaffAttendance(SQLModel, table=True):
     clock_out: Optional[datetime] = None
     duration_minutes: Optional[int] = None          # clock_out 시 계산 저장
     work_date: str = Field(max_length=10)           # "2026-05-01" (JST 날짜, 집계용)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 
 class SystemConfig(SQLModel, table=True):
     key: str = Field(primary_key=True)
     value: str
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=now_utc_naive)
 
 
 class PaymentMethodType(str, Enum):
@@ -541,7 +555,7 @@ class MenuGroup(SQLModel, table=True):
     is_active: bool = Field(default=True)
 
     sort_order: int = Field(default=0)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 
 class MenuGroupItem(SQLModel, table=True):
@@ -557,7 +571,7 @@ class TabehoudaiSession(SQLModel, table=True):
     table_id: int = Field(foreign_key="table.id", index=True)
     group_id: int = Field(foreign_key="menugroup.id")
     num_people: int = Field(default=1)
-    started_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=now_utc_naive)
     expires_at: datetime
     status: str = Field(default="active")  # active | expired | settled
     settled_at: Optional[datetime] = None
@@ -599,7 +613,7 @@ class Message(SQLModel, table=True):
     sender_type: MessageSenderType  # 'admin' or 'super_admin'
     content: str
     is_read: bool = Field(default=False)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 class Announcement(SQLModel, table=True):
     """Global announcements from super admin to all stores."""
@@ -607,7 +621,7 @@ class Announcement(SQLModel, table=True):
     title: str
     content: str
     is_important: bool = Field(default=False)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 
 # ── INF-02: 감사 로그 ────────────────────────────────────────────────────────
@@ -623,7 +637,7 @@ class EventLog(SQLModel, table=True):
     target_id: Optional[int] = Field(default=None, index=True)
     payload_json: Optional[str] = Field(default=None, sa_column=Column(Text))
     external_payload_raw: Optional[str] = Field(default=None, sa_column=Column(Text))
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=now_utc_naive, index=True)
 
 
 # ── INF-04: 외부 Webhook 수신 기록 ──────────────────────────────────────────
@@ -633,7 +647,7 @@ class WebhookEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     provider: str = Field(max_length=32, index=True)   # stripe | paypay | square
     event_id: str = Field(max_length=128, index=True, unique=True)
-    received_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    received_at: datetime = Field(default_factory=now_utc_naive, index=True)
     signature_valid: bool = Field(default=False)
     processed: bool = Field(default=False)
     payload_raw: Optional[str] = Field(default=None, sa_column=Column(Text))
@@ -651,7 +665,7 @@ class ReferralCode(SQLModel, table=True):
     uses: int = Field(default=0)
     expires_at: Optional[datetime] = Field(default=None)
     is_active: bool = Field(default=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)
 
 
 class ReferralClaim(SQLModel, table=True):
@@ -660,4 +674,4 @@ class ReferralClaim(SQLModel, table=True):
     code: str = Field(max_length=16, index=True)
     claimer_id: str = Field(max_length=128, index=True)   # guest_uuid or store slug
     reward_status: str = Field(default="pending", max_length=32)  # pending | applied | expired
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc_naive)

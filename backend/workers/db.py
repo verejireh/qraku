@@ -11,5 +11,14 @@ from sqlalchemy.orm import sessionmaker
 from backend.utils.db import to_sync_url
 
 _url = to_sync_url(os.environ["DATABASE_URL"])
-engine = create_engine(_url, pool_pre_ping=True, pool_size=5, max_overflow=10)
+# [2026-05-22] PG-CAP-01b: pool_recycle=300 — async engine 정책과 정합.
+# GPT capacity review (gpt-p1-capacity-review.md §B) 권고 — Dramatiq worker 가
+# idle 상태에서 stale connection 잡지 않도록 5분마다 갱신.
+engine = create_engine(
+    _url,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+    pool_recycle=300,
+)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)

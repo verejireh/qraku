@@ -6,6 +6,7 @@ from models import Store, Order, OrderItem, Menu
 from datetime import datetime, timedelta
 from utils.jwt import require_admin
 from utils.db_compat import date_only
+from utils.time_helpers import days_ago_jst_as_utc_naive
 
 router = APIRouter(prefix="/admin/insights", tags=["insights"])
 
@@ -29,7 +30,7 @@ async def get_visitors(
 ):
     """일별 주문 건수 (방문자 프록시)."""
     _assert_access(admin_store, shop_id)
-    since = datetime.utcnow() - timedelta(days=days)
+    since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b] JST calendar
 
     rows = (await session.execute(
         select(
@@ -60,7 +61,7 @@ async def get_popular_menus(
 ):
     """인기 메뉴 Top N (판매 수량 기준)."""
     _assert_access(admin_store, shop_id)
-    since = datetime.utcnow() - timedelta(days=days)
+    since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b] JST calendar
 
     rows = (await session.execute(
         select(
@@ -108,7 +109,7 @@ async def get_rescue_effect(
 ):
     """마감 할인(discount_amount > 0) 주문 vs 일반 주문 비교."""
     _assert_access(admin_store, shop_id)
-    since = datetime.utcnow() - timedelta(days=days)
+    since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b] JST calendar
 
     rows = (await session.execute(
         select(
@@ -153,7 +154,7 @@ async def get_neighborhood_avg(
 ):
     """동네(동일 prefecture) 매장 평균 vs 내 매장 비교."""
     _assert_access(admin_store, shop_id)
-    since = datetime.utcnow() - timedelta(days=days)
+    since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b] JST calendar
 
     # 내 매장 지표
     my_row = (await session.execute(

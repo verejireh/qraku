@@ -14,6 +14,7 @@ from typing import Optional
 from utils.auth import verify_password
 from utils.jwt import create_super_admin_token, require_super_admin
 from utils.db_compat import date_only
+from utils.time_helpers import days_ago_jst_as_utc_naive, now_utc_naive
 
 router = APIRouter(prefix="/super-admin", tags=["super-admin"])
 
@@ -61,7 +62,7 @@ async def get_system_stats(
     total_tables = (await session.execute(select(func.count(Table.id)))).scalar() or 0
 
     # Orders in last 7 days
-    week_ago = datetime.utcnow() - timedelta(days=7)
+    week_ago = days_ago_jst_as_utc_naive(7)  # [PG-DT-MIGRATE-02b]
     orders_7d = (await session.execute(
         select(func.count(Order.id)).where(Order.created_at >= week_ago)
     )).scalar() or 0
@@ -70,7 +71,7 @@ async def get_system_stats(
     )).scalar() or 0
 
     # Orders in last 30 days
-    month_ago = datetime.utcnow() - timedelta(days=30)
+    month_ago = days_ago_jst_as_utc_naive(30)  # [PG-DT-MIGRATE-02b]
     orders_30d = (await session.execute(
         select(func.count(Order.id)).where(Order.created_at >= month_ago)
     )).scalar() or 0
@@ -127,7 +128,7 @@ async def get_store_detail(
     )).scalar() or 0
 
     # Last 7 days
-    week_ago = datetime.utcnow() - timedelta(days=7)
+    week_ago = days_ago_jst_as_utc_naive(7)  # [PG-DT-MIGRATE-02b]
     orders_7d = (await session.execute(
         select(func.count(Order.id)).where(Order.shop_id == slug, Order.created_at >= week_ago)
     )).scalar() or 0
@@ -142,7 +143,7 @@ async def get_store_detail(
     last_order_at = last_order_res.scalar()
 
     # Daily revenue for last 14 days (for sparkline)
-    two_weeks_ago = datetime.utcnow() - timedelta(days=14)
+    two_weeks_ago = days_ago_jst_as_utc_naive(14)  # [PG-DT-MIGRATE-02b]
     daily_rev_q = await session.execute(
         select(
             date_only(Order.created_at).label("day"),
@@ -305,9 +306,9 @@ async def update_store_status(
     if expires_at is not None:
         store.subscription_expires_at = datetime.fromisoformat(expires_at)
     if extend_days is not None:
-        base = store.subscription_expires_at or datetime.utcnow()
-        if base < datetime.utcnow():
-            base = datetime.utcnow()
+        base = store.subscription_expires_at or now_utc_naive()
+        if base < now_utc_naive():
+            base = now_utc_naive()
         store.subscription_expires_at = base + timedelta(days=extend_days)
         if store.subscription_status == SubscriptionStatus.EXPIRED:
             store.subscription_status = SubscriptionStatus.ACTIVE
@@ -328,7 +329,7 @@ async def subscription_summary(
     stores_q = await session.execute(select(Store).order_by(Store.created_at.desc()))
     stores = stores_q.scalars().all()
 
-    now = datetime.utcnow()
+    now = now_utc_naive()
     summary = {
         "total": len(stores),
         "active": 0,
@@ -390,7 +391,7 @@ async def revenue_analytics(
     _: dict = Depends(require_super_admin),
 ):
     """Platform-wide daily revenue for charts."""
-    since = datetime.utcnow() - timedelta(days=days)
+    since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b]
     q = await session.execute(
         select(
             date_only(Order.created_at).label("day"),
@@ -411,7 +412,7 @@ async def store_ranking(
     _: dict = Depends(require_super_admin),
 ):
     """Top stores by revenue."""
-    since = datetime.utcnow() - timedelta(days=days)
+    since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b]
     q = await session.execute(
         select(
             Order.shop_id,
@@ -459,7 +460,7 @@ async def save_config(
     config = await session.get(SystemConfig, key)
     if config:
         config.value = value
-        config.updated_at = datetime.utcnow()
+        config.updated_at = now_utc_naive()
     else:
         config = SystemConfig(key=key, value=value)
     session.add(config)

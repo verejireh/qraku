@@ -15,6 +15,7 @@ Google / LINE OAuth 소셜 로그인 라우터
 import os
 import logging
 from datetime import datetime, timedelta
+from utils.time_helpers import now_utc_naive
 from urllib.parse import urlencode
 
 import httpx
@@ -65,7 +66,7 @@ def callback_url(provider: str) -> str:
 def create_oauth_token(data: dict) -> str:
     payload = {
         **data,
-        "exp": datetime.utcnow() + timedelta(minutes=OAUTH_TOKEN_EXPIRE_MINUTES),
+        "exp": now_utc_naive() + timedelta(minutes=OAUTH_TOKEN_EXPIRE_MINUTES),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -246,7 +247,7 @@ async def complete_oauth_signup(
     if not ok:
         raise HTTPException(status_code=400, detail=err)
 
-    now = datetime.utcnow()
+    now = now_utc_naive()
     store = Store(
         name=body.store_name,
         owner_id=email or provider_id,

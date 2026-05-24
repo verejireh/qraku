@@ -11,6 +11,7 @@ from typing import Optional, List, Dict, Any
 from database import get_session
 from models import Store, Menu, Order, OrderItem, Table
 from datetime import datetime, timedelta
+from utils.time_helpers import now_utc_naive
 
 router = APIRouter(prefix="/public/discover", tags=["discover"])
 
@@ -27,7 +28,7 @@ async def _get_store_order_stats(session: AsyncSession, store_ids: List[int], da
     if not store_ids:
         return {}
 
-    since = datetime.utcnow() - timedelta(days=days)
+    since = now_utc_naive() - timedelta(days=days)
 
     # 최근 N일 주문수
     order_result = await session.execute(
@@ -104,7 +105,7 @@ async def discover_menus(
     menus: List[Menu] = menu_result.scalars().all()
 
     # 4. 메뉴별 주문 수 집계 (최근 30일)
-    since = datetime.utcnow() - timedelta(days=30)
+    since = now_utc_naive() - timedelta(days=30)
     item_order_result = await session.execute(
         select(OrderItem.menu_id, func.sum(OrderItem.quantity).label("qty"))
         .join(Order, Order.id == OrderItem.order_id)

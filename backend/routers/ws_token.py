@@ -2,7 +2,8 @@ import os
 import secrets
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from utils.time_helpers import now_utc_naive
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -60,12 +61,16 @@ async def _issue_token(
     store_id: int, audience: str, table_number: Optional[str]
 ) -> dict:
     token = secrets.token_urlsafe(32)
-    exp = datetime.utcnow() + timedelta(seconds=WS_AUTH_TOKEN_TTL_SECONDS)
+    exp = now_utc_naive() + timedelta(seconds=WS_AUTH_TOKEN_TTL_SECONDS)
+    # [2026-05-24] PG-DT-MIGRATE-02 Cat-3 consistency — exp.isoformat() + "Z" 를
+    # aware UTC ISO (+00:00) 로 통일. events.py / translate_tasks.py 의 ts 형식과
+    # 일관. GPT 세션 H §C 권고.
+    exp_iso = exp.replace(tzinfo=timezone.utc).isoformat()
     info = {
         "store_id": store_id,
         "audience": audience,
         "table_number": table_number,
-        "exp": exp.isoformat() + "Z",
+        "exp": exp_iso,
     }
     try:
         redis = get_redis()
@@ -75,7 +80,7 @@ async def _issue_token(
     except Exception:
         logger.exception("Failed to store WS token in Redis")
         raise HTTPException(status_code=503, detail="토큰 발급에 실패했습니다")
-    return {"token": token, "expires_at": exp.isoformat() + "Z"}
+    return {"token": token, "expires_at": exp_iso}
 
 
 @router.post("/token/staff")

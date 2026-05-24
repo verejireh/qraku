@@ -282,7 +282,7 @@ export default function StaffTableView() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
                         {tables.map(table => {
-                            const isOccupied = table.status === 'occupied'
+                            const isOccupied = table.status === 'OCCUPIED'
                             const minsLeft = getRemainingMinutes(table.join_window_end)
                             const isExpired = isOccupied && minsLeft <= 0 && table.join_window_end
 

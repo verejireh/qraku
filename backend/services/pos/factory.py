@@ -24,7 +24,7 @@ def get_pos_adapter(store: Store, settings: PaymentSettings) -> Optional[BasePOS
     """설정에 따라 올바른 POS 어댑터 반환 (동적 다운스트림 푸셔)"""
     if not settings:
         # Fallback to old basic settings map
-        if getattr(store, "kitchen_mode", None) == "square":
+        if getattr(store, "kitchen_mode", None) == "SQUARE":
             return SquareAdapter(store, settings)
         return None
 

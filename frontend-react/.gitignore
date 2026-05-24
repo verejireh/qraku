@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Playwright E2E 산출물 (STB 사이클부터 생성됨)
+playwright-report/
+test-results/
+playwright/.cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

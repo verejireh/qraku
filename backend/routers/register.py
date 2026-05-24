@@ -24,6 +24,7 @@ from models import (
 )
 from utils.jwt import require_staff_or_admin
 from utils.db_compat import date_only
+from utils.time_helpers import today_jst, now_utc_naive, jst_day_range_as_utc_naive
 from datetime import datetime, date
 import uuid
 import json
@@ -172,11 +173,11 @@ async def get_register_tables(
         status = row["status"]
         if hasattr(status, "value"):
             status = status.value
-        if status == "checkout_requested":
+        if status == "CHECKOUT_REQUESTED":
             # None은 뒤로
             ts = row["checkout_requested_at"] or "9999"
             return (0, ts)
-        if status == "occupied":
+        if status == "OCCUPIED":
             return (1, "")
         return (2, "")
 
@@ -242,7 +243,7 @@ async def get_table_detail(
         guest_uuid = guest_uuids[0]
         guest = await session.get(GuestProfile, guest_uuid)
         if guest:
-            now = datetime.utcnow()
+            now = now_utc_naive()
             days = None
             if guest.prev_last_visit:
                 days = (now.replace(tzinfo=None) - guest.prev_last_visit.replace(tzinfo=None)).days
@@ -319,7 +320,7 @@ async def complete_payment(
         if group:
             tabehoudai_total += group.price_per_person * s.num_people
         s.status = "settled"
-        s.settled_at = datetime.utcnow()
+        s.settled_at = now_utc_naive()
         session.add(s)
 
     if not orders and not pending_sessions:
@@ -356,7 +357,7 @@ async def complete_payment(
                     customer_id=customer_id, store_id=store.id, balance=0
                 )
             pt_record.balance += points_to_award
-            pt_record.updated_at = datetime.utcnow()
+            pt_record.updated_at = now_utc_naive()
             session.add(pt_record)
 
             history = PointHistory(
@@ -414,12 +415,16 @@ async def get_today_sales(
     if store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
     shop_variants = _shop_id_variants(store)
-    today = date.today()
+    # [2026-05-22] PG-DT-DG-04 — date_only equality (함수형 변환, B-tree 인덱스 못 씀)
+    # → UTC range predicate 로 전환. Order.created_at 의 B-tree 인덱스 활용 가능.
+    # semantic 동일: JST today 00:00 ~ JST 내일 00:00 의 UTC range.
+    today_start, today_end = jst_day_range_as_utc_naive()
 
     stmt = select(Order).where(
         Order.shop_id.in_(shop_variants),
         Order.payment_status == "paid",
-        date_only(Order.created_at) == today,
+        Order.created_at >= today_start,
+        Order.created_at < today_end,
     )
     result = await session.execute(stmt)
     paid_orders = result.scalars().all()
@@ -473,7 +478,8 @@ async def get_takeout_orders(
     if store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
     shop_variants = _shop_id_variants(store)
-    today = date.today()
+    # [2026-05-22] PG-DT-DG-04 — date_only equality → UTC range (인덱스 활용)
+    today_start, today_end = jst_day_range_as_utc_naive()
 
     # 픽업 완료(served)된 주문은 픽업 큐에서 제외
     stmt = select(Order).where(
@@ -482,7 +488,7 @@ async def get_takeout_orders(
         Order.status != "served",
         (
             (Order.payment_status == "unpaid") |
-            (date_only(Order.created_at) == today)
+            ((Order.created_at >= today_start) & (Order.created_at < today_end))
         ),
     ).order_by(
         # 픽업시간 있는 것부터 시간 순, 그 다음 생성시간 순

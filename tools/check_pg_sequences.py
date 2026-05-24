@@ -10,6 +10,10 @@ DATABASE_URL 또는 DB_USER/DB_PASS/DB_HOST/DB_PORT/DB_NAME 환경변수를 사�
 import os
 import sys
 
+# 프로젝트 루트를 sys.path 에 추가 — `python tools/check_pg_sequences.py` 직접 실행 시
+# `from backend.utils.db ...` import 가 작동하도록.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import URL

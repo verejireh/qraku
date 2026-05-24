@@ -161,9 +161,21 @@ async def serve_spa(full_path: str, session: AsyncSession = Depends(get_session)
     if not os.path.exists(INDEX_HTML):
         return {"error": "Frontend build not found. Run: npm run build"}
 
-    # 정적 파일 요청이면 무시 (vite나 로컬 개발 시에는 안 탈 수도 있지만 방어 코드)
-    if full_path.startswith("assets/") or full_path.endswith((".js", ".css", ".png", ".jpg", ".ico")):
-        return FileResponse(INDEX_HTML)
+    # [2026-05-24] PG-AUDIT-MANIFEST: dist 루트 정적 파일 (manifest.json, sw.js,
+    # favicon.svg, vite.svg, option_group_guide.png 등) 을 SPA fallback 보다 우선
+    # 서빙. /assets/ 는 line 126 mount 가 잡지만 dist 루트 파일은 mount 안 됨 →
+    # 옛 코드가 SPA fallback 으로 떨어뜨려 index.html (HTML) 을 반환 → 브라우저
+    # console 에 "Manifest: Syntax error" / "unsupported MIME type 'text/html'".
+    # full_path 가 단일 segment 이고 traversal 문자 없을 때만 dist 루트 파일 매칭.
+    if (
+        full_path
+        and "/" not in full_path
+        and "\\" not in full_path
+        and ".." not in full_path
+    ):
+        static_path = os.path.join(DIST_DIR, full_path)
+        if os.path.isfile(static_path):
+            return FileResponse(static_path)
 
     path_parts = full_path.strip("/").split("/")
     shop_id = path_parts[0] if path_parts and path_parts[0] else None

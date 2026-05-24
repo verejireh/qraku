@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# --- GCP 서버용 배치 스크립트 (MySQL 전용, SPA 통합 서빙) ---
+# --- GCP 서버용 배치 스크립트 (PostgreSQL via Cloud SQL Proxy, SPA 통합 서빙) ---
 # Python 의존성 관리: uv (pyproject.toml + uv.lock)
+# DB: Cloud SQL PostgreSQL (127.0.0.1:5432 via cloud-sql-proxy)
 
 PROJECT_DIR=~/qr-order-system
 
@@ -21,16 +22,15 @@ if ! command -v uv &> /dev/null; then
 fi
 echo "✅ uv 버전: $(uv --version)"
 
-# 2. .env 파일 확인
+# 2. .env 파일 확인 — 운영 환경은 수동 설정 필요 (자동 생성 금지)
 if [ ! -f "backend/.env" ]; then
-    echo "⚠️  backend/.env 파일이 없습니다! MySQL 접속 정보를 설정해주세요."
-    cat > backend/.env << 'ENV'
-DATABASE_URL=mysql+aiomysql://kios_user:Kiospad1234!@localhost:3306/kiospad
-DEBUG=True
-SECRET_KEY=yoursecretkeyhere
-FRONTEND_BASE_URL=http://35.213.6.149:8003
-ENV
-    echo "✅ backend/.env 파일이 생성되었습니다."
+    echo "❌ backend/.env 파일이 없습니다!"
+    echo "   운영 환경의 .env 는 Cloud SQL 접속 정보 + 시크릿을 포함하므로"
+    echo "   자동 생성하지 않습니다. 다음 항목을 수동으로 설정하세요:"
+    echo "     DB_USER, DB_PASS, DB_HOST=127.0.0.1, DB_PORT=5432, DB_NAME=qraku"
+    echo "     DB_DRIVER=postgresql+asyncpg, SECRET_KEY, FRONTEND_BASE_URL, etc."
+    echo "   템플릿: backend/.env.example"
+    exit 1
 fi
 
 # 3. 의존성 동기화 (.venv 자동 생성, uv.lock 기반 재현)
@@ -78,21 +78,48 @@ if [ ! -z "$REMAINING" ]; then
     sleep 1
 fi
 
-# 7. systemd 서비스 파일 생성 (없으면 자동 생성)
+# 7. systemd 서비스 파일 생성/갱신 (매 deploy 마다 최신 정의로 덮어쓰기)
+#
+# 변경 이력:
+#   2026-05-22 — orphan uvicorn restart loop 사고 대응:
+#     - `if [ ! -f ]` 가드 제거 → 매 deploy 시 unit 정의 갱신
+#     - ExecStartPre 로 포트 8003 점유 stale 프로세스 정리 (orphan 재발 방지)
+#     - KillMode=mixed + TimeoutStopSec=10 으로 systemd-cgroup 정합성 강화
+#     - nohup fallback 제거 (systemd 외부 orphan 생성의 직접 원인)
+#     - After=cloud-sql-proxy.service (PG 컷오버 후 의존성 정정)
 SERVICE_FILE="/etc/systemd/system/qrorder.service"
-if [ ! -f "$SERVICE_FILE" ]; then
-    echo "📝 qrorder.service 파일이 없습니다. 자동 생성 중..."
-    sudo bash -c "cat > $SERVICE_FILE" << 'SERVICE'
+echo "📝 qrorder.service 정의 갱신 중..."
+sudo bash -c "cat > $SERVICE_FILE" << 'SERVICE'
 [Unit]
 Description=QRaku FastAPI Server
-After=network.target
+After=network.target cloud-sql-proxy.service
+Wants=cloud-sql-proxy.service
+# [2026-05-22] GPT cross-review 권고 — bind 실패 같은 deterministic failure 시
+# Restart=always + RestartSec=5 가 NRestarts 폭주 (이번 사고 413회) 를 만듦.
+# 5분 안에 5회 실패하면 systemd 가 더 이상 재시작 안 함 → 운영자 개입 신호.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
+Type=simple
 User=verejireh
-WorkingDirectory=/home/verejireh/qr-order-system/backend
-ExecStart=/home/verejireh/qr-order-system/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8003
-Restart=always
+WorkingDirectory=/home/verejireh/qr-order-system
+# ExecStartPre 의 포트 정리는 deploy preflight 가 메인 책임. unit 내부 정리는
+# 같은 유저 (verejireh) 프로세스에 한정 (sudo 없음) → GPT 권고대로 2단계 처리:
+#   1) TERM 으로 graceful 요청
+#   2) 0.5초 대기 후 KILL fallback
+# 실패는 무시 (`-` 접두사). 정상 운영 (포트 비어있음) 시 NOOP.
+ExecStartPre=-/bin/bash -c 'PID=$(/usr/bin/lsof -ti :8003 -u verejireh 2>/dev/null); if [ -n "$PID" ]; then kill -TERM $PID 2>/dev/null; sleep 0.5; kill -KILL $PID 2>/dev/null || true; fi'
+ExecStart=/home/verejireh/qr-order-system/.venv/bin/python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8003
+# [2026-05-22] Restart=always → on-failure 변경. deterministic bind 실패에서
+# 무한 재시작 폭주 차단. systemctl stop 같은 정상 종료에서는 재시작 안 함.
+Restart=on-failure
 RestartSec=5
+# graceful shutdown 타임아웃을 RestartSec 와 정합. 10초 내 종료 못 하면 SIGKILL.
+TimeoutStopSec=10
+# control-group 외부로 escape 한 child 도 함께 종료 (orphan 재발 방지).
+KillMode=mixed
+KillSignal=SIGTERM
 Environment=PATH=/home/verejireh/qr-order-system/.venv/bin:/usr/local/bin:/usr/bin:/bin
 StandardOutput=append:/home/verejireh/qr-order-system/backend.log
 StandardError=append:/home/verejireh/qr-order-system/backend.log
@@ -100,32 +127,33 @@ StandardError=append:/home/verejireh/qr-order-system/backend.log
 [Install]
 WantedBy=multi-user.target
 SERVICE
-    sudo systemctl daemon-reload
-    sudo systemctl enable qrorder.service
-    echo "✅ qrorder.service 생성 및 등록 완료"
-fi
+sudo systemctl daemon-reload
+sudo systemctl enable qrorder.service 2>/dev/null || true
+echo "✅ qrorder.service 정의 갱신 완료"
 
-# 8. FastAPI 서버 실행 (systemd 서비스)
+# 8. FastAPI 서버 실행 (systemd 서비스 only — nohup fallback 제거됨)
 echo "🚀 FastAPI 서버 실행 중 (Port: 8003)..."
-sudo systemctl daemon-reload 2>/dev/null || true
 sudo systemctl reset-failed qrorder.service 2>/dev/null || true
 sudo systemctl restart qrorder.service
-sleep 3
+# 부팅 + DB 마이그레이션 시간 고려해서 7초 대기
+sleep 7
 if systemctl is-active --quiet qrorder.service 2>/dev/null; then
-    echo "✅ 서버가 정상적으로 실행되었습니다! (systemd)"
-    echo "🌐 접속 주소: https://qraku.com"
-else
-    echo "⚠️  systemd 실패. nohup으로 폴백 실행..."
-    pkill -f uvicorn 2>/dev/null || true
-    sleep 1
-    cd $PROJECT_DIR/backend
-    nohup /home/verejireh/qr-order-system/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8003 > $PROJECT_DIR/backend.log 2>&1 &
-    sleep 3
-    if lsof -i:8003 > /dev/null 2>&1; then
-        echo "✅ 서버가 nohup으로 실행되었습니다!"
+    # 추가로 healthz 응답 확인 — is-active 만으로는 부팅 중 false positive 가능
+    if curl -s -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8003/api/healthz 2>/dev/null | grep -q 200; then
+        echo "✅ 서버가 정상적으로 실행되었습니다! (systemd + healthz 200)"
+        echo "🌐 접속 주소: https://qraku.com"
     else
-        echo "❌ 서버 실행 실패. 로그를 확인하세요: tail -f ~/qr-order-system/backend.log"
+        echo "⚠️  systemd 는 active 이지만 healthz 응답 없음. 부팅 진행 중일 수 있음."
+        echo "   확인: tail -f ~/qr-order-system/backend.log"
     fi
+else
+    # 실패 시 진단 정보 출력 후 종료 — nohup orphan 생성하지 않음.
+    echo "❌ systemd 서비스 시작 실패."
+    sudo systemctl status qrorder.service --no-pager | tail -20
+    echo ""
+    echo "   조치: sudo journalctl -u qrorder --since '5 minutes ago' --no-pager"
+    echo "         로그 확인 후 수동 디버깅 필요."
+    exit 1
 fi
 
 echo ""

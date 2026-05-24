@@ -9,6 +9,7 @@ from typing import List, Optional
 from database import get_session, async_session_maker
 from models import Order, OrderItem, Menu, Table, OrderCreate, Customer, DeviceSession, PaymentSettings, TabehoudaiSession, MenuGroupItem, Store
 from utils.jwt import require_staff_or_admin
+from utils.time_helpers import today_start_jst_as_utc_naive, now_utc_naive
 from datetime import datetime
 import os
 import time
@@ -143,7 +144,7 @@ async def create_order(
         raise HTTPException(status_code=400, detail=msg_map.get(reason, '営業時間外のため、ご注文を受け付けておりません。'))
 
     # ── 구독 만료 체크: 만료된 스토어는 신규 주문 불가 ──────────────────────────
-    if store.subscription_expires_at and datetime.utcnow() > store.subscription_expires_at:
+    if store.subscription_expires_at and now_utc_naive() > store.subscription_expires_at:
         from models import SubscriptionStatus
         status_val = store.subscription_status.value if hasattr(store.subscription_status, "value") else store.subscription_status
         if status_val != "EXPIRED":
@@ -170,7 +171,7 @@ async def create_order(
             raise HTTPException(status_code=404, detail="Table not found")
 
         table_status_val = table.status.value if hasattr(table.status, "value") else table.status
-        if table_status_val != "occupied" or table.session_token != order_in.session_token:
+        if table_status_val != "OCCUPIED" or table.session_token != order_in.session_token:
             logger.warning("Session token mismatch or table not occupied: table_id=%s", table.id)
             raise HTTPException(status_code=403, detail="Invalid session token or table is not occupied.")
 
@@ -185,7 +186,7 @@ async def create_order(
             )
         )
         active_session = sess_res.scalar_one_or_none()
-        if active_session and active_session.expires_at >= datetime.utcnow():
+        if active_session and active_session.expires_at >= now_utc_naive():
             tabehoudai_session_id = active_session.id
             items_res = await session.execute(
                 select(MenuGroupItem.menu_id).where(MenuGroupItem.group_id == active_session.group_id)
@@ -289,11 +290,11 @@ async def create_order(
                         store_id=store.id,
                         guest_uuid=order_in.guest_uuid,
                         stamp_count=1,
-                        last_stamped_at=datetime.utcnow()
+                        last_stamped_at=now_utc_naive()
                     )
                 else:
                     stamp_card.stamp_count += 1
-                    stamp_card.last_stamped_at = datetime.utcnow()
+                    stamp_card.last_stamped_at = now_utc_naive()
                 session.add(stamp_card)
         else:
             # 보상 미사용 시 1 스탬프 적립
@@ -302,11 +303,11 @@ async def create_order(
                     store_id=store.id, 
                     guest_uuid=order_in.guest_uuid, 
                     stamp_count=1,
-                    last_stamped_at=datetime.utcnow()
+                    last_stamped_at=now_utc_naive()
                 )
             else:
                 stamp_card.stamp_count += 1
-                stamp_card.last_stamped_at = datetime.utcnow()
+                stamp_card.last_stamped_at = now_utc_naive()
             session.add(stamp_card)
 
     # ── 3.7. Photo Review Contest Coupon ──────────────────────────────────────
@@ -321,14 +322,14 @@ async def create_order(
             and coupon.guest_uuid == order_in.guest_uuid
             and coupon.store_id == store.id
             and not coupon.is_used
-            and (coupon.expires_at is None or coupon.expires_at >= datetime.utcnow())
+            and (coupon.expires_at is None or coupon.expires_at >= now_utc_naive())
         )
         if valid:
             # 동시성 안전: WHERE is_used=FALSE 인 행만 업데이트
             res = await session.execute(
                 _sa_update(RewardCoupon)
                 .where(RewardCoupon.id == coupon.id, RewardCoupon.is_used == False)  # noqa: E712
-                .values(is_used=True, used_at=datetime.utcnow())
+                .values(is_used=True, used_at=now_utc_naive())
             )
             if res.rowcount == 1:
                 coupon_discount = min(total_amount, float(coupon.discount_amount))
@@ -341,7 +342,7 @@ async def create_order(
         else:
             logger.warning("Invalid coupon usage attempt: uuid=%s coupon=%s expired=%s",
                            order_in.guest_uuid, order_in.use_coupon_id,
-                           bool(coupon and coupon.expires_at and coupon.expires_at < datetime.utcnow()))
+                           bool(coupon and coupon.expires_at and coupon.expires_at < now_utc_naive()))
 
     # ── 4. Unified Payment Adapter: charge card BEFORE creating DB order ─────────────
     square_payment_id = None
@@ -437,7 +438,9 @@ async def create_order(
     # 테이크아웃 주문에는 101번부터 시작하는 당일 순차 접수번호 생성
     pickup_code = None
     if is_take_out:
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        # [2026-05-22] P1 #7 Bug 3 — UTC 자정 기준이라 JST 09:00 에 픽업 코드
+        # reset 되는 버그. JST 자정 = UTC 전날 15:00 으로 변환해 사용.
+        today_start = today_start_jst_as_utc_naive()
         codes_res = await session.execute(
             select(Order.pickup_code).where(
                 Order.shop_id == order_in.shop_id,
@@ -531,11 +534,11 @@ async def create_order(
         from models import GuestProfile
         guest = await session.get(GuestProfile, order_in.guest_uuid)
         if not guest:
-            guest = GuestProfile(guest_uuid=order_in.guest_uuid, visit_count=1, last_visit=datetime.utcnow())
+            guest = GuestProfile(guest_uuid=order_in.guest_uuid, visit_count=1, last_visit=now_utc_naive())
         else:
             guest.prev_last_visit = guest.last_visit  # 직전 방문일 보존
             guest.visit_count += 1
-            guest.last_visit = datetime.utcnow()
+            guest.last_visit = now_utc_naive()
         session.add(guest)
 
     await session.commit()
@@ -726,7 +729,7 @@ async def pay_order(
             )
             if not remaining.scalars().first():
                 # All paid → close table
-                table.status = "ready"
+                table.status = "READY"
                 table.session_token = None
                 table.guest_count = None
                 session.add(table)
@@ -739,7 +742,7 @@ async def pay_order(
         from utils.events import emit_payment_completed, emit_table_update
         await emit_payment_completed(session, store.id, order)
         if closed_table:
-            await emit_table_update(session, store.id, closed_table, extra={"status": "ready", "guest_count": None})
+            await emit_table_update(session, store.id, closed_table, extra={"status": "READY", "guest_count": None})
 
     return order
 

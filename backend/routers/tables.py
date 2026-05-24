@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
 from models import Table, TableStatus, Store
 from datetime import datetime, timedelta
+from utils.time_helpers import now_utc_naive
 import uuid
 import os
 import io
@@ -49,7 +50,7 @@ async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, ses
     table.status = TableStatus.OCCUPIED
     table.session_token = str(uuid.uuid4())
     table.guest_count = body.guest_count if body else 1
-    table.join_window_end = datetime.utcnow() + timedelta(minutes=5)
+    table.join_window_end = now_utc_naive() + timedelta(minutes=5)
     session.add(table)
     await session.commit()
     await session.refresh(table)
@@ -84,7 +85,7 @@ async def extend_table(table_id: int, session: AsyncSession = Depends(get_sessio
     if table.status != TableStatus.OCCUPIED:
         raise HTTPException(status_code=400, detail="Only occupied tables can be extended")
 
-    table.join_window_end = datetime.utcnow() + timedelta(minutes=5)
+    table.join_window_end = now_utc_naive() + timedelta(minutes=5)
 
     session.add(table)
     await session.commit()
@@ -104,7 +105,7 @@ async def renew_qr_timer(table_id: int, session: AsyncSession = Depends(get_sess
         table.status = TableStatus.OCCUPIED
         table.session_token = str(uuid.uuid4())
 
-    table.join_window_end = datetime.utcnow() + timedelta(minutes=5)
+    table.join_window_end = now_utc_naive() + timedelta(minutes=5)
     session.add(table)
     await session.commit()
     await session.refresh(table)
@@ -446,7 +447,7 @@ async def join_table(table_id: int, session: AsyncSession = Depends(get_session)
     if table.status != TableStatus.OCCUPIED:
         raise HTTPException(status_code=403, detail="Table is not open. Please ask staff to open the table.")
         
-    if not table.join_window_end or datetime.utcnow() > table.join_window_end:
+    if not table.join_window_end or now_utc_naive() > table.join_window_end:
         raise HTTPException(status_code=403, detail="Join window has expired. Please ask staff to extend the time.")
         
     return {"session_token": table.session_token}

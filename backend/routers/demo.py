@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
 from models import Table, TableStatus, Store, Menu, SubscriptionStatus, SubscriptionType, StoreCategory
 from datetime import datetime, timedelta
+from utils.time_helpers import now_utc_naive
 import uuid
 
 router = APIRouter(prefix="/demo", tags=["demo"])
@@ -39,7 +40,7 @@ async def start_demo(session: AsyncSession = Depends(get_session)):
         )
 
     # 2. 期限切れのデモテーブルをクリーンアップ (D で始まるテーブルのみ)
-    now = datetime.utcnow()
+    now = now_utc_naive()
     expired_result = await session.execute(
         select(Table).where(
             Table.store_id == DEMO_STORE_ID,
@@ -91,7 +92,7 @@ async def start_showcase(session: AsyncSession = Depends(get_session)):
         if not template_store:
             raise HTTPException(status_code=404, detail="Demo store not found.")
 
-        now = datetime.utcnow()
+        now = now_utc_naive()
 
         # 2. 古い一時ストアをクリーンアップ（2時間経過したもの）
         await _cleanup_expired_temp_stores(session, now)

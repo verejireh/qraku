@@ -64,21 +64,40 @@ class ConnectionManager:
         await self._publish(store_id, "customer", str(table_number), message)
 
     async def _local_broadcast_staff(self, message: str, store_id: int):
-        for connection in self.active_connections.get(store_id, []):
+        # [2026-05-22] GPT capacity review §C — send 실패 시 dead connection 누적
+        # 방지 위해 list 에서 제거. 원본 list 를 순회 중 제거하면 안 되므로 dead 추적.
+        conns = self.active_connections.get(store_id, [])
+        dead: List[WebSocket] = []
+        for connection in list(conns):
             try:
                 await connection.send_text(message)
             except Exception:
-                logger.exception("send_text failed (staff) store=%d", store_id)
+                logger.exception("send_text failed (staff) store=%d — removing dead connection", store_id)
+                dead.append(connection)
+        for c in dead:
+            try:
+                conns.remove(c)
+            except ValueError:
+                pass
 
     async def _local_broadcast_customer(self, message: str, store_id: int, table_number: str):
         key = (store_id, str(table_number))
-        for connection in self.active_customer_connections.get(key, []):
+        conns = self.active_customer_connections.get(key, [])
+        dead: List[WebSocket] = []
+        for connection in list(conns):
             try:
                 await connection.send_text(message)
             except Exception:
                 logger.exception(
-                    "send_text failed (customer) store=%d table=%s", store_id, table_number
+                    "send_text failed (customer) store=%d table=%s — removing dead connection",
+                    store_id, table_number
                 )
+                dead.append(connection)
+        for c in dead:
+            try:
+                conns.remove(c)
+            except ValueError:
+                pass
 
     async def _publish(
         self, store_id: int, target: str, table_number: Optional[str], payload: str

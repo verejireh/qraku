@@ -8,6 +8,293 @@
 
 ---
 
+## 2026-05-24 — 자이라 수동 smoke → 8건 회귀 발견·즉시 fix 사이클
+
+자이라가 브라우저에서 admin/메인/매장 페이지를 차례로 확인하며 console error 보고 → claude 가 트레이스 추출 → root cause 분석 → fix → deploy → 검증을 반복한 대화형 디버깅 세션. 8 commit + 4 deploy.
+
+### 발견 회귀 8건 (모두 PG 컷오버 사이클의 잠재 회귀)
+
+| # | Commit | 증상 | 근본 원인 |
+|---|---|---|---|
+| 1 | 5fc4305 | admin login 500 `LookupError: 'cash_only'` | 9cd70de 의 자매 회귀 — `PaymentOptions` 의 Python enum value 와 DB 값이 비대칭 (KitchenMode 는 통일했지만 PaymentOptions 는 데이터만 소문자로 raw UPDATE) |
+| 2 | 697adac | stats 8 endpoint 500 `GroupingError: column "order.created_at" must appear in GROUP BY` | `db_compat._to_store_tz` 의 `func.timezone(STORE_TZ, col)` 가 Python str 을 bindparam 으로 변환. 같은 expression 이 SELECT/GROUP BY/ORDER BY 에 등장 시 매번 다른 bind 인덱스 → PG AST 비교 실패 |
+| 3 | 08cf920 | weekly 만 GroupingError 잔존 | `day_of_week` 의 `+ 1` 도 Python int → bindparam → 동일 회귀 |
+| 4 | 92a4879 | `qraku.com/manifest.json` MIME `text/html` | `app.mount("/assets", ...)` 만 mount. dist 루트 정적 파일은 SPA catch-all 로 fallback → index.html 반환. line 165 의 `endswith → FileResponse(INDEX_HTML)` 도 잘못된 fallback |
+| 5 | 118db7a | monthly 만 500 `ValueError: invalid format string` | PG `EXTRACT(month)` 가 numeric (Decimal) 반환. `f"{row.mo:02d}"` 가 Decimal 에 int format spec 미지원 |
+| 6 | 5071572 | `Manifest icon size not correct` | manifest 가 favicon.png 을 192×192/512×512 거짓 선언. 실제 favicon.png 는 32×32 |
+| 7 | b5bd322 | `sw.js TypeError: Response body is already used` | stale-while-revalidate 의 `caches.open(CACHE).then(c => c.put(request, res.clone()))` 에서 clone 이 caches.open resolve 후 호출 → 그 사이 호출자가 body read 시작 |
+| 8 | 54d2d06 | `sw.js InvalidStateError: e.waitUntil ... already finished` | b5bd322 의 `e.waitUntil` 추가가 새 회귀. cached hit 으로 e.respondWith 가 일찍 settle 된 후 background networkFetch 의 e.waitUntil 호출 시 event finished |
+
+### 운영 즉시 hotfix (코드 deploy 전)
+
+- **payment_options 데이터 정규화**: `UPDATE store SET payment_options = 'CASH_ONLY' WHERE = 'cash_only'` + `CARD_AND_CASH` → 6 rows 정상화. admin login 즉시 복구. backend engine 통한 SSH oneliner (CRLF .env 우회 `tr -d '\r'`).
+
+### 핵심 fix 패턴 정리
+
+#### A. SQLAlchemy `func.X(literal, col)` GROUP BY 매칭 회귀
+- 옛 코드: `func.timezone(STORE_TZ, col)` — Python str → bindparam → 매번 다른 `$N`
+- 새 코드: `func.timezone(literal_column(f"'{STORE_TZ}'"), col)` — SQL literal 로 inline → 동일 AST
+- `_to_store_tz` + `day_of_week` 의 `_ONE_LITERAL` 까지 일괄 처리
+- **자매 회귀 위험**: 다른 라우터의 `func.X(literal, ...)` SELECT/GROUP BY 동시 사용 패턴 — 별도 grep 카드 (B)
+
+#### B. PG EXTRACT 반환 Decimal → Integer 캐스트
+- `cast(func.extract(...), Integer)` 로 helper 내 캐스트 → 모든 호출자가 자동 int
+- `hour`, `year`, `month`, `day_of_week` 일괄 적용
+- `date_only` 는 이미 `cast(Date)` 라 미변경
+- PG-DT-DG-06 카드 (hourly chart 정규화) 가 같은 사안 — 본 fix 로 해소
+
+#### C. SPA catch-all 의 정적 자산 처리
+- `serve_spa` 진입 즉시 dist 루트의 실제 파일이 있으면 `FileResponse` 반환
+- traversal 방어 (`/`, `\`, `..` 차단)
+- 옛 잘못된 `endswith → FileResponse(INDEX_HTML)` 제거
+
+#### D. Service Worker stale-while-revalidate 안전 패턴
+- `res.clone()` 은 fetch resolve 직후 즉시 (body read 전)
+- cache write 는 `caches.open(CACHE).then(c => c.put(request, copy)).catch(() => {})` fire-and-forget
+- `e.waitUntil` 은 cached-hit 시 InvalidStateError 위험 — 사용 금지
+- CACHE version bump 으로 옛 SW 즉시 교체
+
+#### E. PaymentOptions enum value 통일 (KitchenMode 패턴 재적용)
+- `models.py`: enum value 대문자로 (`CASH_ONLY = "CASH_ONLY"`)
+- `database.py`: DEFAULT + UPDATE 역방향 정규화
+- `data_consistency_audit.py`: 기대값 set 동기화
+- `frontend-react/OrderView.jsx`: fallback 'CASH_ONLY'
+- 다른 mismatch enum (TableStatus, StoreCategory 등) 은 운영 데이터가 enum.name 로 저장되어 즉시 위험 없음 — 별도 분석 카드 (E)
+
+### Deploy 사이클
+
+총 4 deploy. 각 deploy 후 ORM SELECT oneliner 로 즉시 검증 (LookupError / GroupingError / format error 재현 여부). 운영 PID: 539873 → 602010 → 607289 → 609183 → 612219.
+
+### predeploy_smoke 한계 노출
+
+predeploy_smoke 가 ORM compile / 실제 SQL 실행을 검증하지 않아 본 8건 모두 통과 후 운영 발견. 다음 카드 (C) 로 회귀 차단 케이스 자동화 권장:
+- SQL compile 패턴: `tz_bind == 0`, `dow_int_bind == 0`, `INTEGER_cast == True`
+- PaymentOptions / KitchenMode 등 enum name == value 검증
+
+### 환경 보고만
+
+- Google Maps `gen_204?csp_test=true` `ERR_BLOCKED_BY_CLIENT` — 사용자의 광고 차단기/Brave shields 가 Maps telemetry 비콘 차단. Maps 자체 동작 무영향. 코드 fix 불요.
+
+### 운영 상태 (자이라 smoke 사이클 종료)
+
+- PID 새로 갱신, active/running, healthz 200
+- admin login / stats 5 endpoint / manifest / favicon / sw.js 모두 복구
+- 마지막 commit `54d2d06` (자이라 smoke 사이클 끝)
+
+---
+
+## 2026-05-24 — 후속 카드 B/C/D/E 순차 처리 + P0 시한폭탄 발견·해소
+
+자이라 smoke 사이클 후 정리 단계로 5 후속 카드 (`current-tasks.md` 🔥 섹션) 순차 처리. **D 단계에서 자매 회귀 점검 중 P0 시한폭탄 발견 → 즉시 hotfix**.
+
+### A. 문서 갱신 (d940622)
+
+work-log 2026-05-24 entry + current-tasks 🔥 섹션 + HANDOFF v2 추가. 8 commit + 5 후속 카드 기록.
+
+### B. PG-AUDIT-SIBLING-GREP — 자매 회귀 0건 확인
+
+다른 라우터 (`stats/super_admin/insights/register/discover/messaging` 6 파일) 의 `group_by` 사용처 + `func.timezone/date_trunc/to_char` 호출 모두 점검:
+- `func.timezone` 등 PG-specific 시간 함수 직접 사용 0건 (db_compat 외)
+- 모든 `group_by` 가 단순 컬럼 (literal 인자 패턴 없음)
+- `messaging.py` 의 `func.max(Message.created_at)` 는 인자가 컬럼만이라 안전
+
+**결론**: db_compat helper fix 로 모든 회귀 차단. 자매 위험 없음.
+
+### C. PREDEPLOY-SMOKE-EXT — predeploy_smoke 단계 #7 추가 (1460b9d)
+
+`tools/predeploy_smoke.py` 에 db_compat SQL compile 회귀 자동 차단 추가. 검출 패턴:
+- `tz_bind > 0`: timezone($N) — bindparam 변환 회귀
+- `dow_int_bind > 0`: `) + $N` — day_of_week +1 bindparam 회귀
+- `AS INTEGER` 누락: Decimal 반환 → ValueError 회귀
+
+검증 대상: date_only / hour / year+month / day_of_week 4 helper. 7/7 PASS. 회귀 시뮬레이션 (timezone literal 빼기 / +1 환원 / Integer cast 제거) 셋 다 즉시 FAIL 유도 가능.
+
+부수: `run()` 에 stdin 인자 추가 — multi-line Python 코드 전달 (`-c` 의 한 줄 제약 우회).
+
+### D. PG-AUDIT-OPTIONAL-NAMEERR — 단발 트레이스 확인 완료
+
+backend.log line 58 `NameError: Optional` 은 옛 nohup 부팅 (PID 362362) 1회 단발. 현재 worktree 의 `routers/stores.py:11` 에 `from typing import List, Optional` 존재. 새 PID 부팅 마다 `Application startup complete` 정상. 추가 fix 불요.
+
+### E. PG-AUDIT-TABLE-STATUS 🔴 P0 시한폭탄 발견·해소 (58e9d2f)
+
+자매 enum mismatch 분석 중 운영 PG ORM verify 로 발견:
+- `select(Table)` 즉시 `LookupError: 'occupied'` (TableStatus enum)
+- `select(Order)`, `select(OrderItem)` 은 OK (Python field type 이 plain `str` 라 SQLAlchemy ENUM 처리 안 함)
+
+원인: PaymentOptions 와 동일 회귀. 9cd70de + 0cf84ee 가 enum value 와 frontend 를 소문자로 통일했지만 SQLAlchemy Enum lookup 은 enum.name (대문자) 기준 → 영구 mismatch. 자이라가 「テーブル管理」/KDS/register 페이지 미진입이라 표면화 안 됐을 뿐, 운영자 실사용 시 1초 안에 발견될 P0.
+
+**즉시 hotfix**: 운영 DB `UPDATE "table" SET status = 'READY'/'OCCUPIED'/'CHECKOUT_REQUESTED'` (18 rows).
+
+**코드 fix** (PaymentOptions 와 동일 패턴):
+- backend 8 위치: models.py + database.py + data_consistency_audit + 4 routers (orders/pos/register/webhooks) + seed_data
+- frontend 2 위치: StaffTableView, KitchenView (StaffView 는 `toLowerCase()` 후 비교라 자동 호환)
+
+Deploy 후 운영 PG verify: Table hydrated 18 rows, status 분포 `{'READY': 11, 'OCCUPIED': 7}` 정상.
+
+### 잔존 분리 카드
+
+| ID | 항목 |
+|---|---|
+| **PG-AUDIT-KITCHEN-SQUARE** | KitchenMode.SQUARE("square") 도 동일 회귀 잠재 — 현재 운영 데이터 0건이지만 매장이 Square 모드 활성화 시 발생. 별도 카드. |
+| **PG-AUDIT-ENUM-CONSISTENCY** | PaymentMethodType / POSType / MenuGroupType / MessageSenderType 의 컬럼 type (str vs Enum) 일괄 점검 — Order.order_type 처럼 plain str 이면 안전, Enum 이면 회귀 잠재. |
+| **PWA-ICON-HIRES** | 192/512 PNG 생성 (PWA install icon 품질). 선택. |
+
+### 본 정리 단계 운영 상태
+
+- PID 645221+ (TableStatus fix deploy 후 갱신), active/running, healthz 200
+- Table / Order / OrderItem ORM hydration 모두 OK
+- 마지막 commit `58e9d2f`
+
+---
+
+## 2026-05-22 — PG 컷오버 위험 감사 운영 VM 검증 + orphan restart loop 발견·해소
+
+### 운영 VM 검증 체크리스트 8개 실행 (pg-cutover-risk-audit.md §검증)
+
+SSH 접속 (key permission 정리: `~/.ssh/qraku` 로 복사) + CRLF .env 우회 (`tr -d '\r'`) + uv PATH 우회 (`.venv/bin/python` 직접 호출) 후 8개 검증.
+
+| 체크 | 결과 | 닫힘 |
+|---|---|---|
+| 1 KitchenMode 정규화 | `SELECT DISTINCT kitchen_mode FROM store` → `KDS` 단일 | P0 #1 ✅ |
+| 2 TIMESTAMP 컬럼 | `trial_start_date`/`subscription_expires_at` = `timestamp without time zone` | P0 #2 ✅ |
+| 3 시퀀스 정합 | 28개 테이블 `next_value >= MAX(id)+1` 전부 OK | P0 #6 ✅ |
+| 4 PostGIS GIST 매치 | `Index Scan using idx_store_geo` plan 확인 | P0 #5 ✅ |
+| 5 pg_stat_statements | 미설치 (plpgsql + postgis 만) | 🟡 OPR-15 |
+| 6 autovacuum | on / 2ms / 1min ✅, max_connections=100 ⚠️ | P2 |
+| 7 부팅 마이그레이션 stderr | 9cd70de 적용 후 enum 노이즈 해소 ✅ | 확인 |
+| 8 Alembic baseline | `script_location` 미설정 — OPR-07 미완 | 🟡 운영자 |
+
+**P0 6개 전부 닫힘 확인** ✅. 결과 보고서: [`pg-cutover-verification-results.md`](./pg-cutover-verification-results.md).
+
+### 부가 발견 — qrorder restart loop (P0 즉시 대응)
+
+검증 7번 (journalctl) 진행 중 systemd `NRestarts=413` 발견. 7~13초 주기 재시작 + `code=exited, status=1/FAILURE`.
+
+근본 원인:
+- PID 290514 — PPID=1, etimes=5213초 (~87분), 시점 ~14:01 UTC = 마지막 deploy 직후
+- `python -m uvicorn ... --host 0.0.0.0 --port 8003` 가 포트 8003 점유
+- systemd 가 띄우는 새 인스턴스는 매번 `[Errno 98] address already in use` → 종료 → 재시작 루프
+
+조치:
+```
+sudo kill 290514  # SIGTERM
+# T+30s: NRestarts=444 안정 (변동 0), MainPID=299126, cgroup=qrorder.service, healthz=200
+```
+
+restart loop 완전 종료 확인.
+
+### 데이터 일관성 감사 (별도 실행)
+
+`tools/data_consistency_audit.py`:
+```
+[1/5] ENUM 컬럼 유효성    ✅ PASS
+[2/5] JSON-as-TEXT 파싱   ✅ PASS
+[3/5] datetime NULL/이상  ✅ PASS
+[4/5] FK orphan 검출      ✅ PASS
+[5/5] NOT NULL 위반       ✅ PASS
+종합: ✅ PASS — 데이터 이상 없음
+```
+
+### 재발 방지 패치 (72e3e50)
+
+`setup_server.sh`:
+- `if [ ! -f $SERVICE_FILE ]` 가드 제거 → 매 deploy 마다 unit 갱신
+- nohup fallback 제거 (orphan 생성의 직접 원인)
+- 새 unit: `ExecStartPre=fuser -k 8003/tcp` + `KillMode=mixed` + `TimeoutStopSec=10` + `After=cloud-sql-proxy.service`
+- 실행 검증: `is-active` + `healthz 200` 이중 확인
+
+`tools/check_pg_sequences.py`: `sys.path.insert(0, repo root)` 추가 — PYTHONPATH 의존성 제거.
+
+`.gitattributes` (신규): `*.sh / *.py` LF 강제 — bash heredoc CRLF 깨짐 방지.
+
+### GPT-5.5 교차 검토 지시서 작성 (e73bbfa)
+
+이전 17항목 cross-review 응답이 디스크 미저장으로 유실된 교훈 → 이번에는 응답 즉시 `tasks/gpt-pg-verification-review.md` 로 저장 + 커밋 명시.
+
+지시서: [`gpt-pg-verification-review-instructions.md`](./gpt-pg-verification-review-instructions.md).
+핵심 검토 요청:
+1. CHECK 1~8 검증 충분성 + 결과 해석 정확성 (특히 lat/lng 0건 상태의 GIST plan 신뢰성)
+2. orphan 근본 원인 가설 검증 + systemd unit 개선안 안전성
+3. P1 #8/#9 (init_db race, uvicorn worker) restart loop 발견 근거로 P0 승격?
+
+### 잔여 액션
+
+- 🟡 라이브 VM 에 setup_server.sh + 새 unit 정의 적용 (다음 deploy 사이클)
+- 🟡 OPR-15 신규 (pg_stat_statements 활성화)
+- 🟡 OPR-07 alembic stamp 미완
+- 🟢 codex_survey.md 처리 결정 (untracked)
+- 🟢 P1 #7~#11 카드 분리
+
+### 2026-05-22 12:30 JST — Production Deploy 실행 + 모든 변경 라이브 발동
+
+자이라가 deploy 실시 지시. deploy.py 실행:
+- 로컬 npm build + zip (7.4 MB) 성공
+- **SSH 키 path 오류 발견** — `os.path.dirname(__file__) + "../qraku"` 가 worktree 환경에서 `D:\myproject\orderservice\.claude\worktrees\qraku` 가리킴 (존재 안 함). 자동 전송 실패.
+- 워크어라운드: 수동 scp + 원격 setup_server.sh 실행
+
+추가 발견 — **CRLF 문제**: `.gitattributes` 적용에도 working tree의 `setup_server.sh` 가 CRLF 유지 → zip 안에 CRLF로 들어가서 bash `$'\r': command not found` + heredoc syntax error.
+운영 VM에서 `tr -d '\r' < setup_server.sh > setup_server.lf && mv setup_server.lf setup_server.sh` 로 즉시 복구.
+
+setup_server.sh 재실행 결과:
+- ✅ `Restart=on-failure`, `KillMode=mixed`, `StartLimitBurst=5`, `ExecStartPre` 적용
+- ✅ ExecStartPre 부팅 시 잔류 PID 362358 → TERM 정리 (`status=15/TERM`)
+- ✅ MainPID 362362, NRestarts=0 (deploy 후 2분+ 안정)
+- ✅ healthz/readyz 200
+- ✅ backend.log 에 `✅ Migration: ... WHERE kitchen_mode::text = 'kds'` (enum cast 적용 확인) + 모든 100+ migration ✅ + `✅ DB 테이블 초기화 완료`
+- ✅ port 8003 단일 점유, orphan 없음
+
+VM 정리:
+- ~/qr-order-system/deploy_package.zip 제거 (7.4MB)
+- ~/restart_uvicorn.sh 를 deprecation warning + exit 1 버전으로 교체
+
+후속 패치 (이번 커밋):
+- deploy.py SSH 키 우선순위: DEPLOY_SSH_KEY env → ~/.ssh/qraku → legacy <project>/../qraku
+- 다음 deploy 부터 worktree 에서 직접 실행 가능
+
+모든 P0/P1 라이브 효과 발동:
+- restart loop 재발 방지 (KillMode=mixed + StartLimit + ExecStartPre)
+- enum 정규화 stderr 노이즈 0건 (`::text` 캐스트)
+- init_db advisory_xact_lock 단일 트랜잭션 race 차단
+- datetime 9시간 오프셋 3건 수정 (점심 메뉴, 픽업 코드)
+- date_only/hour JST 변환 (오늘 매출, 시간별 분포)
+- WS dead connection cleanup
+- pool_recycle=300 async + sync
+
+### GPT-5.5 cross-review 응답 처리 (faf87aa 이후)
+
+GPT 리뷰: 신뢰도 82/100. 방향은 맞지만 운영상 날카로운 부분 보강 필요.
+
+**보강 적용**:
+
+1. **`restart_uvicorn.sh` smoking gun 확정 + deprecate**
+   - GPT 가 "nohup 잔존 — orphan 재발 위험" 지적
+   - VM `~/.bash_history` 에 `nohup ... uvicorn ... &` 패턴 수십 회 실행 흔적 발견
+   - PID 290514 의 command line 시그니처와 정확히 일치 → **확정**
+   - 스크립트 본문을 deprecation warning + `exit 1` 로 치환
+
+2. **systemd unit 추가 보강** (`setup_server.sh`)
+   - `Restart=always` → `on-failure` (deterministic bind 실패에서 폭주 차단)
+   - `[Unit] StartLimitIntervalSec=300`, `StartLimitBurst=5` (5분 내 5회 실패 시 systemd 가 더 이상 재시작 안 함 — 이번 NRestarts=413 같은 사고 방지)
+   - `ExecStartPre` 2단계: `lsof -ti :8003 -u verejireh` → TERM → 0.5s → KILL (같은 유저 한정 + graceful 우선)
+
+3. **Dockerfile `--reload` 제거**
+   - production 환경에서 파일 변경 감지 reload 폭주 가능
+   - 개발 시 docker run 명령에서 명시적 추가 패턴으로 변경
+
+4. **CHECK 4 재검증** (운영 VM, lat/lng 1건 + ROLLBACK)
+   - rows=1 actual, Index Scan, Buffers shared hit=103, Execution 108ms (cold)
+   - 성능 P0 닫힘 가능 (단, 본격 트래픽 후 p95 재측정 권장)
+
+5. **워커 증설 차단 카드** (`current-tasks.md` 신규)
+   - GPT 가 `pool_size=10 × max_overflow=20 × workers=4 = 120 > max_connections=100` 충돌 지적
+   - advisory lock + pool 조정 + max_connections 상향 + p95 통과 4 조건 충족 전 보류
+
+**다음 cross-review 후보**:
+- Strategy 2 (advisory lock) 코드 작성 후 GPT 검증
+- P1 #7 datetime UTC 통일 전략 분석
+
+---
+
 ## 2026-05-21 — STB-00 머지 + smoke + 첫 핫픽스
 
 ### 머지

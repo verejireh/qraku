@@ -149,19 +149,19 @@ export default function AdminOperationView() {
                             handleStoreUpdate('kitchen_mode', 'KDS')
                             handleStoreUpdate('pos_mode', 'basic')
                         }}
-                            className={`p-5 rounded-2xl border-2 text-left transition-all ${storeData?.kitchen_mode !== 'square' ? 'border-adminprimary/50 bg-adminprimary/5' : 'border-slate-200 hover:border-adminprimary/30'}`}>
+                            className={`p-5 rounded-2xl border-2 text-left transition-all ${storeData?.kitchen_mode !== 'SQUARE' ? 'border-adminprimary/50 bg-adminprimary/5' : 'border-slate-200 hover:border-adminprimary/30'}`}>
                             <div className="flex items-center gap-2 mb-2">
                                 <span className="material-symbols-outlined text-adminprimary">tablet</span>
                                 <span className="font-black text-sm">QRaku タブレット</span>
-                                {storeData?.kitchen_mode !== 'square' && <span className="ml-auto text-[10px] font-black bg-adminprimary text-white px-2 py-0.5 rounded-full">選択中</span>}
+                                {storeData?.kitchen_mode !== 'SQUARE' && <span className="ml-auto text-[10px] font-black bg-adminprimary text-white px-2 py-0.5 rounded-full">選択中</span>}
                             </div>
                             <p className="text-xs text-slate-500">アプリ内キッチンディスプレイで注文を確認するスタンダードモード。</p>
                         </button>
                         <button onClick={() => {
-                            handleStoreUpdate('kitchen_mode', 'square')
+                            handleStoreUpdate('kitchen_mode', 'SQUARE')
                             handleStoreUpdate('pos_mode', 'square')
                         }}
-                            className={`p-5 rounded-2xl border-2 text-left transition-all ${storeData?.kitchen_mode === 'square' ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-blue-200'}`}>
+                            className={`p-5 rounded-2xl border-2 text-left transition-all ${storeData?.kitchen_mode === 'SQUARE' ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-blue-200'}`}>
                             <div className="flex items-center gap-2 mb-2">
                                 <span className="material-symbols-outlined text-blue-500">print</span>
                                 <span className="font-black text-sm">Square POS / プリンター</span>

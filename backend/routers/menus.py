@@ -5,6 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 from database import get_session
 from models import Menu, SystemConfig, Store, MenuGroup, MenuGroupItem, MenuGroupType
+from utils.time_helpers import now_jst
 import logging
 
 router = APIRouter(prefix="/menus", tags=["menus"])
@@ -248,7 +249,10 @@ async def read_menus(
     for gid, mid in items_res.all():
         menu_to_groups.setdefault(mid, set()).add(gid)
 
-    now = datetime.now()
+    # [2026-05-22] P1 #7 Bug 2 — datetime.now() (서버 로컬 = UTC on VM) →
+    # active_from/to (JST 시간 문자열) 와 비교 시 9시간 오프셋 버그.
+    # now_jst() 로 JST aware datetime 사용.
+    now = now_jst()
     active_group_ids = set()
     for g in groups:
         if g.group_type == MenuGroupType.MANUAL and g.is_active:
@@ -296,6 +300,11 @@ async def update_menu(menu_id: int, updates: dict, admin_store: Store = Depends(
     """
     메뉴 정보를 수정합니다.
     image_url이 전달되면 업데이트, 없으면 기존 값을 유지합니다.
+
+    [2026-05-22] PG-CAP-05 GPT review 권고 — translation-relevant 필드
+    (name_jp/description_jp/options) 변경 시 translate_menu actor 재enqueue.
+    create_menu 는 항상 enqueue 하지만 update_menu 는 안 했음 → in-flight 중
+    source 변경 시 stale drop 후 actor 재호출 안 되어 번역 영구 누락 가능.
     """
     menu = await session.get(Menu, menu_id)
     if not menu:
@@ -314,6 +323,10 @@ async def update_menu(menu_id: int, updates: dict, admin_store: Store = Depends(
         "stock_today_total", "stock_today_sold",
     }
 
+    # translation source 필드의 변경 전 값을 보존 (commit 후 변경 여부 비교)
+    TRANSLATION_SOURCE_FIELDS = ("name_jp", "description_jp", "options")
+    old_source = {f: getattr(menu, f, None) for f in TRANSLATION_SOURCE_FIELDS}
+
     for field, value in updates.items():
         if field in allowed_fields:
             setattr(menu, field, value)
@@ -321,6 +334,18 @@ async def update_menu(menu_id: int, updates: dict, admin_store: Store = Depends(
     session.add(menu)
     await session.commit()
     await session.refresh(menu)
+
+    # source 필드가 실제로 변경됐는지 commit 후 비교 — 변경됐으면 번역 actor 재enqueue
+    new_source = {f: getattr(menu, f, None) for f in TRANSLATION_SOURCE_FIELDS}
+    source_changed = any(old_source[f] != new_source[f] for f in TRANSLATION_SOURCE_FIELDS)
+    if source_changed and menu.name_jp:
+        # 지연 import — Dramatiq broker 미설정 환경에서 import 자체가 실패하지 않도록
+        try:
+            from backend.workers.translate_tasks import translate_menu as translate_menu_task
+            translate_menu_task.send(menu.id)
+        except Exception:
+            logger.exception("translate_menu enqueue failed (update) menu=%d", menu.id)
+
     return menu
 
 

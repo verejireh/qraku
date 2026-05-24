@@ -20,7 +20,21 @@ SERVER_USER = "verejireh"  # GCP 서버 사용자명으로 변경하세요
 SERVER_IP = "35.213.6.149"   # GCP 서버 외부 IP로 변경하세요~   
 REMOTE_DIR = f"~/{PROJECT_NAME}"
 ZIP_FILENAME = "deploy_package.zip"
-SSH_KEY_PATH = os.path.join(os.path.dirname(__file__), "..", "qraku")  # 프로젝트 상위 폴더의 qraku 키
+# [2026-05-22] SSH 키 경로 우선순위:
+#   1) DEPLOY_SSH_KEY 환경변수 (운영자가 명시적 지정 가능)
+#   2) ~/.ssh/qraku — 표준 SSH 위치 (자동 ACL 보호, worktree/CWD 무관)
+#   3) <project>/../qraku — 메인 worktree 에서 실행할 때 호환 (legacy)
+# worktree (`.claude/worktrees/<name>/`) 에서 실행하면 (3) 이 못 찾으므로
+# (2) 가 fallback. 운영자가 `cp D:\myproject\qraku ~/.ssh/qraku` 한 번 하면 OK.
+_SSH_KEY_CANDIDATES = [
+    os.environ.get("DEPLOY_SSH_KEY"),
+    os.path.expanduser("~/.ssh/qraku"),
+    os.path.join(os.path.dirname(__file__), "..", "qraku"),
+]
+SSH_KEY_PATH = next(
+    (p for p in _SSH_KEY_CANDIDATES if p and os.path.exists(p)),
+    _SSH_KEY_CANDIDATES[2],  # legacy fallback (오류 메시지에서 유효 경로 안내)
+)
 
 # 제외할 폴더 및 파일
 EXCLUDE_DIRS = {".venv", "node_modules", "__pycache__", ".git", ".agent", ".gemini", "stitch_designs", "temp"}

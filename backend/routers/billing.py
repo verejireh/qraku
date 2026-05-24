@@ -7,6 +7,7 @@ from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import datetime, timedelta
+from utils.time_helpers import now_utc_naive
 
 from database import get_session
 from models import Store, SubscriptionType, SubscriptionStatus
@@ -77,11 +78,11 @@ async def get_subscription_status(
     expires_at = store.subscription_expires_at
     days_remaining = None
     if expires_at:
-        delta = expires_at - datetime.utcnow()
+        delta = expires_at - now_utc_naive()
         days_remaining = max(0, delta.days)
 
     # 만료 여부 자동 체크 & 업데이트
-    if expires_at and datetime.utcnow() > expires_at:
+    if expires_at and now_utc_naive() > expires_at:
         if store.subscription_status != SubscriptionStatus.EXPIRED:
             store.subscription_status = SubscriptionStatus.EXPIRED
             session.add(store)
@@ -226,7 +227,7 @@ async def stripe_webhook(
             except Exception:
                 pass
 
-            now = datetime.utcnow()
+            now = now_utc_naive()
             days = _PLAN_DAYS.get(plan, 30)
             store.subscription_expires_at = now + timedelta(days=days)
             if plan == "yearly":
@@ -274,7 +275,7 @@ async def admin_extend_subscription(
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
 
-    now = datetime.utcnow()
+    now = now_utc_naive()
     base = max(store.subscription_expires_at or now, now)
     store.subscription_expires_at = base + timedelta(days=days)
     store.subscription_status = SubscriptionStatus.ACTIVE

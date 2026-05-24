@@ -26,8 +26,10 @@ async def migrate_subscriptions():
         print("subscription_expires_at column already exists")
 
     # Update existing stores to have a trial if they don't have one
-    from datetime import datetime, timedelta
-    trial_end = (datetime.utcnow() + timedelta(days=30)).isoformat()
+    # [2026-05-24] PG-DT-MIGRATE-02c — Py 3.12+ deprecated datetime.utcnow() 제거.
+    # legacy 스크립트라 inline 대체 (utils.time_helpers 의존성 피하기).
+    from datetime import datetime, timedelta, timezone
+    trial_end = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=30)).isoformat()
     cursor.execute(f"UPDATE store SET subscription_status = 'TRIAL', subscription_expires_at = '{trial_end}' WHERE subscription_expires_at IS NULL")
     
     conn.commit()

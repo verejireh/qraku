@@ -639,7 +639,7 @@ export default function OrderView({ orderType: propOrderType } = {}) {
         totalAmount,
         onPlaceOrder: handlePlaceOrder,
         loading: placingOrder,
-        storePaymentOptions: storeData?.payment_options || 'cash_only',
+        storePaymentOptions: storeData?.payment_options || 'CASH_ONLY',
         orderType: isTakeOut ? 'take_out' : 'eat_in',
         agreedPickupTime,
         squareAppId: storeData?.square_application_id || import.meta.env?.VITE_SQUARE_APP_ID || null,

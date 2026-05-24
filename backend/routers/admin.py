@@ -437,7 +437,7 @@ async def get_payment_settings(store_id: int, admin_store: Store = Depends(requi
     ps = result.scalar_one_or_none()
     if not ps:
         return {
-            "payment_method_type": "pay_at_counter",
+            "payment_method_type": "PAY_AT_COUNTER",
             "has_paypay_credentials": False,
             "paypay_merchant_id": None,
         }

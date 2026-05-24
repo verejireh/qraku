@@ -251,11 +251,8 @@ ALLOWLIST = {
     ("MenuGroupType", "TIME_WINDOW"),
     ("MenuGroupType", "COURSE"),
     ("MenuGroupType", "MANUAL"),
-    ("PaymentMethodType", "PAY_AT_COUNTER"),
-    ("PaymentMethodType", "SQUARE_INTEGRATED"),
-    ("PaymentMethodType", "PAYPAY_DIRECT"),
     # 2026-05-24 PG-AUDIT-KITCHEN-SQUARE: SQUARE = "SQUARE" 로 통일하여 allowlist 제거.
-    # 2026-05-24 PG-AUDIT-ENUM-CONSISTENCY: MessageSenderType / StoreCategory / POSType name == value 통일하여 allowlist 제거.
+    # 2026-05-24 PG-AUDIT-ENUM-CONSISTENCY: MessageSenderType / StoreCategory / POSType / PaymentMethodType name == value 통일하여 allowlist 제거.
 }
 
 def unwrap_optional(t):

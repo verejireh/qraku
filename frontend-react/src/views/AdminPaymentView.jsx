@@ -9,7 +9,7 @@ export default function AdminPaymentView() {
     const [storeData, setStoreData] = useState(null)
     const [loading, setLoading] = useState(true)
     const [paymentSettings, setPaymentSettings] = useState(null)
-    const [activeMethod, setActiveMethod] = useState('pay_at_counter')
+    const [activeMethod, setActiveMethod] = useState('PAY_AT_COUNTER')
 
     // PayPay credential form
     const [paypayForm, setPaypayForm] = useState({ api_key: '', api_secret: '', merchant_id: '' })
@@ -27,7 +27,7 @@ export default function AdminPaymentView() {
                 setStoreData(store)
                 if (payRes?.data) {
                     setPaymentSettings(payRes.data)
-                    setActiveMethod(payRes.data.payment_method_type || 'pay_at_counter')
+                    setActiveMethod(payRes.data.payment_method_type || 'PAY_AT_COUNTER')
                     setPaypayForm(prev => ({
                         ...prev,
                         merchant_id: payRes.data.paypay_merchant_id || '',
@@ -77,21 +77,21 @@ export default function AdminPaymentView() {
 
     const tracks = [
         {
-            key: 'pay_at_counter',
+            key: 'PAY_AT_COUNTER',
             label: '現場決済',
             desc: '現金・他社端末など、オフラインでの現場決済。QRakuの決済APIをバイパスします。',
             icon: 'payments',
             color: 'emerald',
         },
         {
-            key: 'square_integrated',
+            key: 'SQUARE_INTEGRATED',
             label: 'Square 決済',
             desc: 'Square POS連携で、クレジットカード・電子マネー等のオンライン決済を処理します。',
             icon: 'credit_card',
             color: 'blue',
         },
         {
-            key: 'paypay_direct',
+            key: 'PAYPAY_DIRECT',
             label: 'PayPay ダイレクト',
             desc: 'PayPay APIを直接統合し、低手数料でQRコード決済を受け付けます。',
             icon: 'qr_code_2',
@@ -161,7 +161,7 @@ export default function AdminPaymentView() {
                 </section>
 
                 {/* ── Square OAuth 連携 ── */}
-                {activeMethod === 'square_integrated' && (
+                {activeMethod === 'SQUARE_INTEGRATED' && (
                     <section className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
                         <h4 className="font-bold mb-1 flex items-center gap-2">
                             <span className="material-symbols-outlined text-blue-500">link</span>
@@ -197,7 +197,7 @@ export default function AdminPaymentView() {
                 )}
 
                 {/* ── PayPay Direct 認証情報 ── */}
-                {activeMethod === 'paypay_direct' && (
+                {activeMethod === 'PAYPAY_DIRECT' && (
                     <section className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
                         <h4 className="font-bold mb-1 flex items-center gap-2">
                             <span className="material-symbols-outlined text-red-500">qr_code_2</span>

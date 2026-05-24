@@ -75,7 +75,7 @@ export default function MagnoliaCartModal({
 
     const isTakeOut = orderType === 'take_out'
     const canUseSquare = isTakeOut && squareAppId && squareLocationId
-    const canUsePayPay = isTakeOut && paymentMethodType === 'paypay_direct'
+    const canUsePayPay = isTakeOut && paymentMethodType === 'PAYPAY_DIRECT'
 
     useEffect(() => {
         if (agreedPickupTime) setPickupTime(agreedPickupTime)

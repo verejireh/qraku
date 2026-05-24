@@ -505,9 +505,10 @@ class SystemConfig(SQLModel, table=True):
 
 
 class PaymentMethodType(str, Enum):
-    PAY_AT_COUNTER = "pay_at_counter"          # 현금/단말기 등 바이패스
-    SQUARE_INTEGRATED = "square_integrated"    # Square 선결제
-    PAYPAY_DIRECT = "paypay_direct"            # PayPay 다이렉트 연동
+    # [2026-05-24] PG-AUDIT-ENUM-CONSISTENCY: name == value 통일.
+    PAY_AT_COUNTER = "PAY_AT_COUNTER"          # 현금/단말기 등 바이패스
+    SQUARE_INTEGRATED = "SQUARE_INTEGRATED"    # Square 선결제
+    PAYPAY_DIRECT = "PAYPAY_DIRECT"            # PayPay 다이렉트 연동
 
 class StoreDisplaySettings(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

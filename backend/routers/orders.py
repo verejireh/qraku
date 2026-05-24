@@ -349,7 +349,7 @@ async def create_order(
     sq_payment_order_id = None
 
     # 설정 가져오기 (없으면 구형 Square 기본값)
-    payment_method_type = store.payment_settings.payment_method_type if store.payment_settings else "square_integrated"
+    payment_method_type = store.payment_settings.payment_method_type if store.payment_settings else "SQUARE_INTEGRATED"
 
     # ── 테이크아웃 활성화 여부 체크 ──
     # Admin에서 takeout_enabled=false로 꺼둔 매장은 테이크아웃 주문 자체를 거부
@@ -365,7 +365,7 @@ async def create_order(
     if is_take_out:
         has_square = bool(getattr(store, 'square_access_token', None) and getattr(store, 'square_location_id', None))
         ps = store.payment_settings
-        has_payment_ps = ps and ps.payment_method_type != "pay_at_counter" and (
+        has_payment_ps = ps and ps.payment_method_type != "PAY_AT_COUNTER" and (
             (ps.square_access_token and ps.square_location_id) or
             ps.paypay_api_key
         )
@@ -458,7 +458,7 @@ async def create_order(
     is_paid = bool(is_take_out and square_payment_id)
     payment_status = "paid" if is_paid else "unpaid"
     # payment_method: 서버 설정 기준으로 저장 (클라이언트 값 무시)
-    resolved_payment_method = str(payment_method_type) if is_take_out else (order_in.payment_method or "pay_at_counter")
+    resolved_payment_method = str(payment_method_type) if is_take_out else (order_in.payment_method or "PAY_AT_COUNTER")
     # order status: 결제 완료된 테이크아웃 → "pending" (바로 주방 가능), 이트인 → "pending_payment"
     order_status = "pending" if is_paid else "pending_payment"
 

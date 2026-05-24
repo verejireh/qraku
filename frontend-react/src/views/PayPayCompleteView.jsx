@@ -47,7 +47,7 @@ export default function PayPayCompleteView() {
                     session_token: 'takeout',
                     guest_uuid: lineUuid || localStorage.getItem('guest_uuid'),
                     order_type: 'take_out',
-                    payment_method: 'paypay_direct',
+                    payment_method: 'PAYPAY_DIRECT',
                     source_id: mid,
                     pickup_time: tempData.pickupTime || null,
                     use_stamp_reward: !!tempData.useStampReward,

@@ -232,7 +232,7 @@ async def read_store(store_id: str, session: AsyncSession = Depends(get_session)
     # 조건: (1) Admin이 takeout_enabled=true로 켜두었고, (2) 온라인 결제수단이 설정되어 있어야 함
     has_square = bool(store.square_access_token and store.square_location_id)
     ps_obj = store.payment_settings
-    has_payment_ps = ps_obj and str(ps_obj.payment_method_type) != "pay_at_counter" and (
+    has_payment_ps = ps_obj and str(ps_obj.payment_method_type) != "PAY_AT_COUNTER" and (
         (ps_obj.square_access_token and ps_obj.square_location_id) or
         ps_obj.paypay_api_key
     )

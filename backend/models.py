@@ -520,10 +520,11 @@ class StoreDisplaySettings(SQLModel, table=True):
     store: Optional[Store] = Relationship(back_populates="display_settings")
 
 class POSType(str, Enum):
-    SQUARE = "square"
-    SMAREGI = "smaregi"
-    AIRREGI = "airregi"
-    NONE = "none"
+    # [2026-05-24] PG-AUDIT-ENUM-CONSISTENCY: name == value 통일.
+    SQUARE = "SQUARE"
+    SMAREGI = "SMAREGI"
+    AIRREGI = "AIRREGI"
+    NONE = "NONE"
 
 
 # ──────────────────────────────────────────────────────────────────

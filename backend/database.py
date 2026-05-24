@@ -115,6 +115,8 @@ async def init_db():
         "ALTER TABLE store ALTER COLUMN kitchen_mode SET DEFAULT 'KDS'",
         "ALTER TABLE store ALTER COLUMN payment_options SET DEFAULT 'CASH_ONLY'",
         "UPDATE store SET kitchen_mode = 'KDS' WHERE kitchen_mode::text = 'kds'",
+        # [2026-05-24] PG-AUDIT-KITCHEN-SQUARE: SQUARE 모드 매장 활성화 시 방어
+        "UPDATE store SET kitchen_mode = 'SQUARE' WHERE kitchen_mode::text = 'square'",
         # [2026-05-24] PG-AUDIT-PAYMENT-OPT: 역방향 — 9cd70de 가 소문자로
         # 정규화했지만 SQLAlchemy Enum 컬럼은 멤버 name(대문자) 기반 lookup
         # 이라 admin login 500 발생. 데이터를 다시 대문자로 통일.

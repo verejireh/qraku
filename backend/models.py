@@ -15,8 +15,12 @@ class KitchenColorMode(str, Enum):
     TABLE = "TABLE"
 
 class KitchenMode(str, Enum):
+    # [2026-05-24] PG-AUDIT-KITCHEN-SQUARE: SQUARE value 대문자 통일.
+    # 이전: SQUARE="square" → SQLAlchemy Enum hydration name(SQUARE) 기준
+    # lookup 과 잠재 mismatch. 매장이 Square 모드 활성화 + database.py 에
+    # 소문자 정규화 UPDATE 추가 시 폭발. PaymentOptions/TableStatus 패턴.
     KDS = "KDS"       # 내부 KiosPad 태블릿 KDS 모드 (기본값)
-    SQUARE = "square" # Square POS / 프린터 연동 모드
+    SQUARE = "SQUARE" # Square POS / 프린터 연동 모드
 
 class StoreCategory(str, Enum):
     RESTAURANT = "restaurant"

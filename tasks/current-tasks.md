@@ -57,7 +57,7 @@
 | **PG-CAP-05b** | translate task time_limit=60_000 운영 모니터링 (옵션 풍부 메뉴) | ✅ **1164187** |
 | **DBM-13c/d** | docs/deployment.md (499줄) + docs/architecture.md (263줄) PG 재작성 | ✅ **0ec2a95** |
 | **PWA-ICON-HIRES** | 192/512 PNG 생성 + manifest.json 등록 (PWA install icon 품질) | ✅ **본 사이클** — tools/generate_pwa_icons.py + icon-192.png + icon-512.png |
-| **PG-CAP-05d** | translate_batch_with_gemini 활용 — 6× 성능 향상 (큰 변경) | 🟢 미진행 (후순위) |
+| **PG-CAP-05d** | translate_menu name+desc Gemini batch (6→1 calls) | ✅ **06efbe3** — translate_menu_fields_batch 신규 helper |
 
 ### 운영자 직접 작업 (자이라 권한)
 

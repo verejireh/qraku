@@ -15,10 +15,11 @@ main 머지 후 "출시 후 사후 처리 OK" 섹션의 카드를 소진. 남은
 | PG-AUDIT-ENUM-CONSISTENCY 5/5 | d468a13 / 4a90049 / ed027f1 / 97888c0 / 7b2a97b | MessageSender / StoreCategory / POSType / PaymentMethod / MenuGroup |
 | DBM-13c/d | 0ec2a95 | deployment.md + architecture.md PG 재작성 |
 | PG-CAP-05b | 1164187 | translate_menu time_limit 모니터링 |
-| PWA-ICON-HIRES | 본 사이클 | icon-192.png + icon-512.png + manifest 등록 + tools/generate_pwa_icons.py |
+| PWA-ICON-HIRES | c201a32 | icon-192.png + icon-512.png + manifest 등록 + tools/generate_pwa_icons.py |
+| PG-CAP-05d | 06efbe3 | translate_menu name+desc Gemini batch (6→1 calls) — translate_menu_fields_batch 신규 |
 
-남은 Claude 카드: **PG-CAP-05d** (translate_batch_with_gemini 6× 성능, 큰 변경 — 후순위).
-남은 운영자(자이라) 카드: OPR-07 / OPR-13 / OPR-14 / OPR-15 / OPR-17 / OPS-04.
+**Claude 카드 모두 소진 — 남은 stabilization 작업 0건.**
+운영자(자이라) 카드: OPR-07 / OPR-13 / OPR-14 / OPR-15 / OPR-17 / OPS-04.
 
 ---
 

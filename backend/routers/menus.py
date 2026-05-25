@@ -64,12 +64,18 @@ async def upload_menu_image(
     except ValueError as e:
         # 이미지 열기/처리 실패 (손상된 파일 등)
         logger.warning(f"이미지 처리 실패 (store_id={store_id}): {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(
+            status_code=400,
+            detail="画像ファイルを処理できませんでした。形式とサイズをご確認ください。",
+        )
 
     except RuntimeError as e:
         # GCS 업로드 실패
         logger.error(f"GCS 업로드 실패 (store_id={store_id}): {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="画像のアップロードに失敗しました。しばらくしてから再度お試しください。",
+        )
 
     except Exception as e:
         logger.error(f"이미지 업로드 중 예상치 못한 에러 (store_id={store_id}): {e}")

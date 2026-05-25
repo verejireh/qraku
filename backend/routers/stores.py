@@ -96,7 +96,10 @@ async def upload_store_photo(
         return {"image_url": public_url}
     except ValueError as e:
         logger.warning("Store photo 처리 실패 (store_id=%s): %s", store_id, e)
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(
+            status_code=400,
+            detail="画像ファイルを処理できませんでした。形式とサイズをご確認ください。",
+        )
     except Exception as e:
         logger.error("Store photo 업로드 실패 (store_id=%s): %s", store_id, e)
         raise HTTPException(status_code=500, detail="이미지 업로드 중 오류가 발생했습니다.")

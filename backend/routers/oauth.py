@@ -75,7 +75,9 @@ def decode_oauth_token(token: str) -> dict:
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError as e:
-        raise HTTPException(status_code=400, detail=f"無効なOAuthトークンです: {e}")
+        # JWT 내부 오류는 클라이언트에 노출하지 않음 — 서버 로그만 기록
+        logging.getLogger(__name__).warning("OAuth token decode failed: %s", e)
+        raise HTTPException(status_code=400, detail="無効なOAuthトークンです")
 
 
 # ── Google OAuth ──────────────────────────────────────────────────────────────

@@ -189,7 +189,11 @@ async def start_showcase(session: AsyncSession = Depends(get_session)):
             await session.rollback()
         except Exception:
             pass
-        raise HTTPException(status_code=500, detail=f"Demo setup failed: {str(e)}")
+        # 내부 예외 메시지는 클라이언트에 노출 안 함 (서버 로그/traceback 으로 추적)
+        raise HTTPException(
+            status_code=500,
+            detail="デモストアの作成に失敗しました。しばらくしてから再度お試しください。",
+        )
 
 
 async def _cleanup_expired_temp_stores(session: AsyncSession, now: datetime):

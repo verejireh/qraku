@@ -1,10 +1,135 @@
-# 다음 세션 핸드오프 (2026-05-25 v4 — 출시 후 사후 처리 사이클 완료)
+# 다음 세션 핸드오프 (2026-05-25 v5 — Claude 카드 100% 소진 + deploy 대기)
 
 > **다음 Claude 세션 시작 시 이 파일을 먼저 읽어주세요.**
 > v1 = PG 컷오버 위험 감사 + 4 GPT cross-review + 첫 deploy 성공.
 > v2 = 자이라 수동 smoke 에서 발견된 8 회귀 즉시 fix + 4 deploy 완료.
 > v3 = 정리 단계 B/C/D/E + 출시 안정화 + stabilize → main 머지 완료.
-> **v4 (본 갱신) = 출시 후 사후 처리 — ENUM 5/5 + DBM-13c/d + PG-CAP-05b/c + PWA 아이콘 완료.**
+> v4 = 출시 후 사후 처리 — ENUM 5/5 + DBM-13c/d + PG-CAP-05b/c + PWA 아이콘 완료.
+> **v5 (본 갱신) = PG-CAP-05d + PayPay 자동 Order + P2 에러 정제 + 옛 docs 정리. Claude 측 backlog 100% 소진. origin/main push 완료, deploy 대기.**
+
+## 🚨 v5 첫 우선 작업 — Deploy
+
+본 세션 11 commit 이 origin/main 에 push 됐으나 **운영 VM 에 deploy 안 됨**.
+다음 세션 시작 즉시 `python deploy.py` 실행 필요. 그 후 자이라 수동 smoke 권장.
+
+```bash
+cd D:\myproject\orderservice   # main worktree (git pull 먼저)
+git pull origin main
+uv run deploy.py
+```
+
+Deploy 후 검증:
+```bash
+ssh -i ~/.ssh/qraku verejireh@35.213.6.149 \
+  "systemctl show qrorder -p MainPID -p NRestarts -p ActiveState; \
+   curl -s -m 3 -o /dev/null -w 'healthz=%{http_code}\n' http://127.0.0.1:8003/api/healthz"
+```
+
+## 🎯 v5 핵심 — Claude 측 backlog 100% 소진 (11 commits)
+
+본 세션 main 위로 누적된 11 commit (역순):
+
+| Commit | 카드 | 내용 |
+|---|---|---|
+| 9e6cf84 | **PAYPAY-CLEANUP** | cleanup_pending_paypay_orders 액터 — PendingPayPayOrder TTL 정리 (cron 권장) |
+| 35b9948 | docs(frontend) | Display Toggle URL 가드 "이미 처리됨" 명시 |
+| 51c9d92 | docs(claude-md) | Display Toggle URL 가드는 이미 구현됨 — 옛 issue 정리 |
+| 84d0288 | **PAYPAY-AUTO-ORDER** | PayPay webhook 자동 Order 생성 — PendingPayPayOrder 모델 + snapshot + 자동 생성 |
+| 1acae42 | docs(claude-md) | outdated "미완료 작업" 정리 (PayPay Webhook + 환불 라우터는 이미 구현됨 표시) |
+| 66f63b7 | **P2-ERROR-SANITIZE** | str(e) 직접 반환 5건 일반화 (menus / stores / oauth / demo) |
+| bd45319 | docs(handoff) | PG-CAP-05d 완료 반영 |
+| 06efbe3 | **PG-CAP-05d** | translate_menu name+desc Gemini batch (6→1 calls) — translate_menu_fields_batch 신규 |
+| afed142 | docs(handoff) | v4 — 출시 후 사후 처리 사이클 완료 |
+| c201a32 | **PWA-ICON-HIRES** | 192/512 PNG 아이콘 + manifest 등록 + tools/generate_pwa_icons.py |
+| 1164187 | **PG-CAP-05b** | translate_menu time_limit 모니터링 |
+
+(0ec2a95 DBM-13c/d 도 본 사이클 산물이나 v4 작성 전 push 됨)
+
+## 🎯 v5 도중 발견된 핵심 — outdated docs 다수
+
+CLAUDE.md / frontend-react/CLAUDE.md 의 "미완료 작업" / "Known Issues" 섹션이
+실제 코드 상태와 불일치한 항목 다수 발견·정리:
+
+| 항목 | 실제 상태 |
+|---|---|
+| PayPay Webhook 엔드포인트 | 이미 구현됨 ([webhooks.py:106](../backend/routers/webhooks.py:106)) — 본 사이클에서 자동 Order 생성 폴백 추가 |
+| 환불 라우터 | 이미 구현됨 ([admin.py:499](../backend/routers/admin.py:499)) — 변경 불요 |
+| Display Toggle URL 가드 | 이미 구현됨 ([useDisplayGuard.jsx](../frontend-react/src/hooks/useDisplayGuard.jsx)) — 4 view 전부 적용 |
+| P2 에러 메시지 정제 | 본 사이클에서 5건 모두 정리 |
+
+→ 다음 세션은 CLAUDE.md 가 신뢰 가능한 상태에서 시작.
+
+## 🆕 v5 신규 모델 — PendingPayPayOrder
+
+[backend/models.py:686](../backend/models.py) — PayPay 콜백 미진입 폴백용 cart snapshot.
+
+- `merchant_payment_id` UNIQUE — 동일 결제 중복 저장 차단
+- `cart_snapshot` (JSON Text) — `[{menu_id, quantity, option_details}]`
+- `amount` (스탬프/쿠폰 차감 후 최종) + `guest_uuid` + `stamp_reward_used` + `coupon_id`
+- `expires_at` (default +30분) + `consumed_at` — TTL + 멱등성
+
+신규 테이블이라 `SQLModel.metadata.create_all` 자동 생성 (ALTER 불요).
+**Deploy 후 첫 부팅 시 운영 PG 에 `pendingpaypayorder` 테이블 자동 생성됨.**
+
+운영 cron 권장 (매시 정각):
+```
+0 * * * * cd ~/qr-order-system && .venv/bin/python -m dramatiq backend.workers \
+          --processes 1 --threads 1 --path . -- cleanup_pending_paypay_orders.send()
+```
+
+## 🟡 진짜 남은 작업 (Claude 처리 불가 — 외부 자원 필요)
+
+| ID | 항목 | 차단 사유 |
+|---|---|---|
+| **PAYPAY-E2E** | PayPay Direct E2E 테스트 | PayPay 개발자 계정 + sandbox API credentials 필요 |
+| **OPR-07** | Alembic baseline stamp | 운영 VM SSH + `alembic stamp head` 1회 |
+| **OPR-13** | Cloud SQL ilhae 비번 로테이션 | GCP Cloud SQL admin 권한 |
+| **OPR-14** | 22 포트 방화벽 IP 재조정 | GCP VPC 권한 |
+| **OPR-15** | pg_stat_statements 활성화 | Cloud SQL flag + 재시작 |
+| **OPR-17** | VAPID 키 생성 | `npx web-push generate-vapid-keys` 1회 (운영자 결정) |
+| **OPS-04** | GCP Monitoring 디스크 80% 알람 | GCP 콘솔 5분 |
+| **POS-SMAREGI** | Smaregi 어댑터 구현 | 외부 POS 계약 + API spec 필요 |
+| **POS-AIRREGI** | AirRegi 어댑터 구현 | 외부 POS 계약 + API spec 필요 |
+| **PAYPAY-CLEANUP-CRON** | cleanup_pending_paypay_orders cron 등록 | 운영 VM crontab 편집 |
+
+## ⚠️ Deploy 시 주의
+
+본 세션 변경 중 **schema 변경 1건 (신규 테이블)**:
+- `PendingPayPayOrder` 테이블 — `SQLModel.metadata.create_all` 가 첫 부팅 시 자동 생성
+- ALTER TABLE 마이그레이션 없음 — `database.py.migration_sqls` 변경 없음
+- Cloud SQL 의 advisory_xact_lock 단일 트랜잭션 패턴 (ad19215) 에 안전하게 통합됨
+
+Deploy 후 첫 검증:
+```bash
+ssh -i ~/.ssh/qraku verejireh@35.213.6.149 \
+  "psql 'host=127.0.0.1 port=5432 user=ilhae dbname=qraku' \
+   -c '\\dt pendingpaypayorder'"
+```
+→ table 표시되면 OK.
+
+## 📋 권장 자이라 smoke 시나리오 (deploy 후)
+
+본 세션 변경 코드의 검증 우선순위:
+
+1. **PayPay 결제 → 콜백 페이지 닫기 → webhook 자동 Order 생성**
+   - sandbox 환경 권장 (실제 결제 금액 0~수십엔 테스트)
+   - 결제 후 콜백 페이지를 의도적으로 닫음 → KDS 에 새 주문 나타나는지 확인
+   - DB `pendingpaypayorder.consumed_at` 설정 확인
+
+2. **PayPay 결제 → 콜백 페이지 정상 폴링 (기존 경로)**
+   - 회귀 없음 확인 (square_payment_id UNIQUE 로 race 방지)
+
+3. **메뉴 신규 생성 시 번역 시간 단축 확인**
+   - PG-CAP-05d 효과: 6 calls → 1 call (~6× 빨라짐)
+   - WS 알림 `TRANSLATION_COMPLETED` 도착 시간 측정
+
+4. **에러 메시지 일반화 확인**
+   - 잘못된 이미지 업로드 시 일반 메시지 ("画像ファイルを処理できませんでした...")
+   - 데모 생성 실패 시 일반 메시지 ("デモストアの作成に失敗しました...")
+
+5. **PWA 아이콘 — 모바일에서 홈 화면 추가 시 192/512 아이콘 표시**
+
+---
 
 ## 🎉 v4 핵심 — 출시 후 사후 처리 사이클 완료 (2026-05-25)
 

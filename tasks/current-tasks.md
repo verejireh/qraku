@@ -1,10 +1,52 @@
-# Current Tasks — stabilize/post-pg-cutover
+# Current Tasks — main (v5 상태)
 
-> **STB 사이클 완료** (2026-05-21). 전체 결과는 [`archive/2026-05-stb-cycle.md`](./archive/2026-05-stb-cycle.md) 참조.
+> **2026-05-25 v5 (본 갱신)**: Claude 측 stabilization backlog 100% 소진. 11 commit + origin/main push. **Deploy 대기.**
 >
-> **PG 컷오버 위험 감사** (2026-05-21~22): P0 6개 코드 수정 + 운영 VM 검증 완료. [`pg-cutover-verification-results.md`](./pg-cutover-verification-results.md) 참조.
+> **2026-05-25 v4**: 출시 후 사후 처리 — ENUM 5/5 + DBM-13c/d + PG-CAP-05b/c + PWA 아이콘 완료.
 >
-> **2026-05-24 자이라 수동 smoke 사이클**: 8 회귀 발견·즉시 fix·deploy 완료 (work-log 2026-05-24). 본 브랜치는 main 머지 대기 중.
+> **2026-05-24 v3**: stabilize → main 머지 + 자이라 smoke 8 fix.
+>
+> **2026-05-21~22**: STB 사이클 + PG 컷오버 위험 감사. 전체 결과는 [`archive/2026-05-stb-cycle.md`](./archive/2026-05-stb-cycle.md), [`pg-cutover-verification-results.md`](./pg-cutover-verification-results.md).
+
+---
+
+## 🚨 다음 작업 1순위 — Deploy
+
+본 세션 11 commit 이 origin/main 에 push 됐으나 **운영 VM 에 deploy 안 됨**.
+다음 세션 시작 즉시 `python deploy.py` (또는 `uv run deploy.py`) 실행.
+
+상세: [`HANDOFF-NEXT-SESSION.md` v5 §"v5 첫 우선 작업 — Deploy"](./HANDOFF-NEXT-SESSION.md)
+
+---
+
+## 🟢 v5 사이클 완료 (2026-05-25, 11 commits on origin/main)
+
+| Commit | 카드 | 비고 |
+|---|---|---|
+| 9e6cf84 | PAYPAY-CLEANUP | cleanup_pending_paypay_orders 액터 (cron 권장) |
+| 84d0288 | PAYPAY-AUTO-ORDER | webhook 자동 Order 생성 — PendingPayPayOrder 모델 + snapshot |
+| 66f63b7 | P2-ERROR-SANITIZE | str(e) 직접 반환 5건 일반화 |
+| 06efbe3 | PG-CAP-05d | translate_menu name+desc Gemini batch (6→1 calls) |
+| c201a32 | PWA-ICON-HIRES | 192/512 PNG + manifest + 생성 스크립트 |
+| 1164187 | PG-CAP-05b | translate_menu time_limit 모니터링 |
+| 0ec2a95 | DBM-13c/d | deployment.md + architecture.md PG 재작성 |
+| 7b2a97b 외 4건 | PG-AUDIT-ENUM-CONSISTENCY 5/5 | MessageSender / StoreCategory / POSType / PaymentMethod / MenuGroup |
+| + docs 4건 | docs(handoff/claude-md) | v4/v5 핸드오프 + outdated docs 정리 |
+
+---
+
+## 🟢 v5 에서 정리된 outdated docs
+
+CLAUDE.md / frontend-react/CLAUDE.md 의 "미완료" / "Known Issues" 가 실제 코드 상태와 일치하도록 정리:
+
+| 항목 | 실제 상태 |
+|---|---|
+| PayPay Webhook 엔드포인트 | 이미 구현됨 (webhooks.py:106) — v5 에서 자동 Order 폴백 추가 |
+| 환불 라우터 | 이미 구현됨 (admin.py:499) — 변경 불요 |
+| Display Toggle URL 가드 | 이미 구현됨 (useDisplayGuard.jsx, 4 view 전부 적용) |
+| P2 에러 메시지 정제 | v5 에서 5건 모두 정리 |
+
+---
 
 ---
 

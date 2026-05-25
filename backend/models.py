@@ -681,3 +681,32 @@ class ReferralClaim(SQLModel, table=True):
     claimer_id: str = Field(max_length=128, index=True)   # guest_uuid or store slug
     reward_status: str = Field(default="pending", max_length=32)  # pending | applied | expired
     created_at: datetime = Field(default_factory=now_utc_naive)
+
+
+# ── PayPay Webhook 자동 Order 생성용 cart snapshot ──────────────────────────
+class PendingPayPayOrder(SQLModel, table=True):
+    """PayPay create-payment 시점에 저장하는 cart snapshot.
+
+    손님이 콜백 페이지(/paypay-complete)를 닫거나 폴링 실패한 경우, webhook 이
+    state=COMPLETED 수신 시 이 행을 참조해 Order 를 자동 생성한다.
+
+    멱등성:
+      - merchant_payment_id UNIQUE — 동일 결제 두 번 저장 불가
+      - consumed_at 설정 후엔 재사용 안 함 (webhook + 폴링 양쪽 모두 안전)
+      - Order.square_payment_id 도 UNIQUE 라 양쪽 경로 충돌 시 한쪽만 성공
+
+    Cleanup:
+      - expires_at 지난 행은 외부 cron (예: food_rescue_scheduler) 으로 주기 삭제
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    merchant_payment_id: str = Field(max_length=128, unique=True, index=True)
+    store_id: int = Field(foreign_key="store.id", index=True)
+    amount: int                                  # 최종 청구 금액 (스탬프/쿠폰 차감 후)
+    cart_snapshot: str = Field(sa_column=Column(Text))  # JSON: [{menu_id, quantity, option_details}]
+    order_description: Optional[str] = Field(default=None, max_length=200)
+    guest_uuid: Optional[str] = Field(default=None, max_length=128)
+    stamp_reward_used: bool = Field(default=False)   # webhook 자동 생성 시 stamp 재차감 안 함
+    coupon_id: Optional[int] = Field(default=None)
+    created_at: datetime = Field(default_factory=now_utc_naive)
+    expires_at: datetime                          # 보통 created_at + 30 분
+    consumed_at: Optional[datetime] = Field(default=None, index=True)

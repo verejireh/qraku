@@ -14,7 +14,9 @@ import uuid
 import os
 
 from database import get_session
-from models import Store, PaymentSettings, Order, PaymentMethodType, Menu
+from models import Store, PaymentSettings, Order, PaymentMethodType, Menu, PendingPayPayOrder
+from utils.time_helpers import now_utc_naive
+from datetime import timedelta
 
 router = APIRouter(prefix="/paypay", tags=["paypay"])
 
@@ -188,6 +190,31 @@ async def create_paypay_payment(
 
     if result.get("status") != "ok":
         raise HTTPException(status_code=502, detail=result.get("message", "PayPay API エラー"))
+
+    # ── cart snapshot 저장 — webhook 자동 Order 생성용 (콜백 미진입 폴백) ──
+    # 손님이 PayPay 결제 후 콜백 페이지를 닫으면 frontend 가 Order 생성 못 함.
+    # webhook 이 state=COMPLETED 수신 시 이 행을 참조해 Order 를 자동 생성.
+    # 멱등성: merchant_payment_id UNIQUE + consumed_at + Order.square_payment_id UNIQUE.
+    pending = PendingPayPayOrder(
+        merchant_payment_id=merchant_payment_id,
+        store_id=store.id,
+        amount=server_amount,
+        cart_snapshot=json.dumps([
+            {
+                "menu_id": it.menu_id,
+                "quantity": it.quantity,
+                "option_details": it.option_details,
+            }
+            for it in req.items
+        ], ensure_ascii=False),
+        order_description=req.order_description,
+        guest_uuid=req.guest_uuid,
+        stamp_reward_used=bool(req.use_stamp_reward and req.guest_uuid),
+        coupon_id=req.use_coupon_id,
+        expires_at=now_utc_naive() + timedelta(minutes=30),
+    )
+    session.add(pending)
+    await session.commit()
 
     return PayPayCreateResponse(
         payment_url=result["payment_url"],

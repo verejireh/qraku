@@ -3,10 +3,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 import json
+import logging
 import os
 import stripe
 from database import get_session
-from models import Order, Table, Store, WebhookEvent
+from models import Menu, Order, OrderItem, PendingPayPayOrder, Store, Table, WebhookEvent
+from utils.time_helpers import now_utc_naive
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -103,6 +107,130 @@ async def fulfill_checkout(session_obj, db_session: AsyncSession):
         })
 
 
+async def _auto_create_order_from_pending(
+    session: AsyncSession,
+    merchant_payment_id: str,
+    paypay_payment_id: str | None,
+) -> Order | None:
+    """PendingPayPayOrder snapshot 기반으로 Order + OrderItem 자동 생성.
+
+    호출 조건: webhook 이 state=COMPLETED 를 수신했으나 폴링 경로(PayPayCompleteView)
+    가 Order 를 만들지 않은 케이스 (손님이 콜백 페이지를 닫음 등).
+
+    Returns 생성된 Order 또는 None (snapshot 없음/만료/이미 소비됨).
+
+    멱등성:
+      - PendingPayPayOrder.consumed_at 으로 동일 webhook 중복 처리 차단
+      - Order.square_payment_id UNIQUE INDEX 로 폴링 경로와의 race condition 차단
+        (IntegrityError → rollback 후 기존 Order 반환)
+    """
+    if not paypay_payment_id:
+        return None
+
+    res = await session.execute(
+        select(PendingPayPayOrder).where(
+            PendingPayPayOrder.merchant_payment_id == merchant_payment_id
+        ).limit(1)
+    )
+    pending = res.scalar_one_or_none()
+    if not pending:
+        return None
+    if pending.consumed_at is not None:
+        return None
+    if pending.expires_at < now_utc_naive():
+        logger.warning(
+            "PayPay webhook: pending snapshot expired for mid=%s (expired_at=%s)",
+            merchant_payment_id, pending.expires_at,
+        )
+        return None
+
+    try:
+        cart = json.loads(pending.cart_snapshot)
+    except json.JSONDecodeError:
+        logger.exception("PayPay webhook: cart_snapshot JSON parse failed mid=%s", merchant_payment_id)
+        return None
+    if not isinstance(cart, list) or not cart:
+        return None
+
+    order = Order(
+        shop_id=str(pending.store_id),
+        table_number="0",
+        session_token="takeout",
+        guest_uuid=pending.guest_uuid,
+        order_type="take_out",
+        payment_method="PAYPAY_DIRECT",
+        payment_status="paid",
+        square_payment_id=paypay_payment_id,
+        total_amount=float(pending.amount),
+        stamp_reward_used=pending.stamp_reward_used,
+        used_coupon_id=pending.coupon_id,
+        status="paid",
+        needs_serving=True,
+    )
+    session.add(order)
+    try:
+        await session.flush()
+    except IntegrityError:
+        # 동시 폴링 경로가 먼저 Order 생성 — rollback 후 기존 Order 반환
+        await session.rollback()
+        res = await session.execute(
+            select(Order).where(Order.square_payment_id == paypay_payment_id).limit(1)
+        )
+        return res.scalar_one_or_none()
+
+    # cart 의 각 item → OrderItem (unit_price 는 DB Menu 기준 재계산)
+    for raw in cart:
+        if not isinstance(raw, dict):
+            continue
+        menu_id = raw.get("menu_id")
+        if menu_id is None:
+            continue
+        try:
+            menu = await session.get(Menu, int(menu_id))
+        except (TypeError, ValueError):
+            continue
+        if not menu:
+            continue
+
+        opt_details = raw.get("option_details")
+        extra_price = 0.0
+        if opt_details and menu.options and menu.options != "[]":
+            try:
+                selected = json.loads(opt_details) if isinstance(opt_details, str) else opt_details
+                db_options = json.loads(menu.options)
+                if isinstance(selected, dict) and isinstance(db_options, list):
+                    for group_name, choice_name in selected.items():
+                        group = next(
+                            (g for g in db_options if g.get("group_name") == group_name), None
+                        )
+                        if group:
+                            choice = next(
+                                (c for c in group.get("choices", []) if c.get("name") == choice_name),
+                                None,
+                            )
+                            if choice:
+                                extra_price += float(choice.get("extra_price", 0))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+        unit_price = float(menu.price or 0) + extra_price
+        oi = OrderItem(
+            order_id=order.id,
+            menu_item_id=str(menu_id),
+            quantity=int(raw.get("quantity", 1)),
+            unit_price=unit_price,
+            option_details=(
+                opt_details if isinstance(opt_details, str)
+                else json.dumps(opt_details, ensure_ascii=False) if opt_details else None
+            ),
+        )
+        session.add(oi)
+
+    pending.consumed_at = now_utc_naive()
+    session.add(pending)
+    return order
+
+
 @router.post("/paypay")
 async def paypay_webhook(
     request: Request,
@@ -152,6 +280,7 @@ async def paypay_webhook(
         except (ValueError, IndexError):
             pass
 
+    order_auto_created = False
     if state == "COMPLETED":
         paypay_payment_id = payload.get("paymentId") or payload.get("payment_id")
         if paypay_payment_id:
@@ -159,6 +288,16 @@ async def paypay_webhook(
                 select(Order).where(Order.square_payment_id == paypay_payment_id).limit(1)
             )
             order = res.scalar_one_or_none()
+
+        # Order 미발견 — PendingPayPayOrder snapshot 으로 자동 생성 시도
+        if not order and merchant_payment_id:
+            order = await _auto_create_order_from_pending(
+                session, merchant_payment_id, paypay_payment_id
+            )
+            if order is not None and order.id is None:
+                order = None  # rollback 경로
+            elif order is not None:
+                order_auto_created = True
 
         from utils.event_log import log_event
         if order:
@@ -168,13 +307,14 @@ async def paypay_webhook(
                 session,
                 store_id=store_id_for_log or 0,
                 actor_type="webhook",
-                action="payment.completed",
+                action="payment.completed.auto_created" if order_auto_created else "payment.completed",
                 target_type="order",
                 target_id=order.id,
                 external_payload_raw=raw.decode("utf-8"),
             )
         elif store_id_for_log:
-            # 안전망: 결제는 완료됐으나 Order 미생성 — 수동 처리 필요
+            # 안전망: 결제는 완료됐으나 Order 미생성 + snapshot 도 없음/만료
+            # — 수동 처리 필요 (예: 만료 30분 초과한 결제)
             await log_event(
                 session,
                 store_id=store_id_for_log,
@@ -199,7 +339,10 @@ async def paypay_webhook(
     await session.commit()
 
     if state == "COMPLETED" and order and store_id_for_log:
-        from utils.events import emit_payment_completed
+        from utils.events import emit_order_created, emit_payment_completed
+        if order_auto_created:
+            # KDS / staff 가 자동 생성된 주문을 인지하도록 NEW_ORDER 도 emit
+            await emit_order_created(session, store_id_for_log, order)
         await emit_payment_completed(session, store_id_for_log, order)
 
     return {"status": "ok"}

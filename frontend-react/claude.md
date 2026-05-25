@@ -128,7 +128,9 @@ npm run lint       # ESLint
 
 | 항목 | 내용 |
 |---|---|
-| Display Toggle URL 가드 | `use_kitchen_page` 등 false 시 직접 URL 접속 차단 (현재 UI만 숨김) |
 | 보류: ラストオーダー 푸시 알림 | WebSocket 기반 실시간 알림 (현재 30초 폴링 + 1초 클라이언트 카운트다운으로 충분) |
 | 보류: 食べ放題 세션 인원 변경 / 시간 연장 | 현재 미구현 |
 | 보류: 飲み放題 + 食べ放題 동시 진행 | 현재는 단일 active 세션만 허용 |
+
+### 이미 처리된 옛 항목 (참고)
+- Display Toggle URL 가드 — `hooks/useDisplayGuard.jsx` 가 4 view (Kitchen/Register/Staff/StaffTable) 에 적용됨. admin bypass + demo_tmp_ ?demo=1 허용. 일반 손님은 /home 리다이렉트 또는 BlockedScreen 표시.

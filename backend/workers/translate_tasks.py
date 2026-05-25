@@ -18,6 +18,10 @@ GPT cross-review (gpt-pg-cap05-review.md) 반영:
   - Phase 2 primitive snapshot only (ORM lazy load 회피)
   - update_menu 가 source 변경 시 actor 재enqueue 필수 (menus.py 변경)
   - max_retries=3 유지, time_limit=60_000 은 옵션 풍부 메뉴에선 빠듯 — 후속 모니터링
+
+[2026-05-25] PG-CAP-05d — name+description Gemini batch call:
+  translate_menu_fields_batch 로 (3 langs × 2 fields = 6 calls) → 1 call 축소.
+  options 는 JSON 구조 복잡 + 빈도 낮아 기존 translate_text 유지.
 """
 import json
 import logging
@@ -32,7 +36,7 @@ import redis as sync_redis
 from backend.workers.broker import broker  # noqa: F401  - 브로커 등록
 from backend.workers.db import SessionLocal
 from models import Menu, SystemConfig
-from utils.translation import translate_text
+from utils.translation import translate_menu_fields_batch, translate_text
 
 log = logging.getLogger(__name__)
 
@@ -149,23 +153,36 @@ def translate_menu(menu_id: int) -> None:
     # ── DB session 닫힘 — connection 반환됨. Phase 2 외부 API 동안 점유 X ────
 
     # ── Phase 2: External API (no DB session) ────────────────────────────────
-    # snapshot 기반으로 translate_text 호출. 결과를 local dict 에 누적.
+    # [PG-CAP-05d] name + description 을 1번의 batch call 로 처리 (6 → 1 calls).
+    # 옵션은 JSON 구조가 복잡 + 빈도 낮아 기존 translate_text 유지.
     # strict=True — Gemini API 실패 시 silent 원본 반환 대신 raise.
     # Dramatiq actor 가 exception 받아 retry trigger (PG-CAP-05c).
     new_names: dict[str, str] = {}
-    for lang in LANGS:
-        if not snapshot["names_existing"][lang]:
-            new_names[lang] = translate_text(
-                snapshot["name_jp"], lang, api_key=api_key, strict=True
-            )
-
     new_descs: dict[str, str] = {}
-    if snapshot["description_jp"]:
+
+    needs_name = any(not snapshot["names_existing"][l] for l in LANGS)
+    needs_desc = bool(snapshot["description_jp"]) and any(
+        not snapshot["descs_existing"][l] for l in LANGS
+    )
+
+    if needs_name or needs_desc:
+        batch = translate_menu_fields_batch(
+            name_ja=snapshot["name_jp"],
+            description_ja=snapshot["description_jp"] or "",
+            target_langs=list(LANGS),
+            api_key=api_key,
+            strict=True,
+        )
         for lang in LANGS:
-            if not snapshot["descs_existing"][lang]:
-                new_descs[lang] = translate_text(
-                    snapshot["description_jp"], lang, api_key=api_key, strict=True
-                )
+            entry = batch.get(lang, {})
+            if not snapshot["names_existing"][lang]:
+                name_val = entry.get("name", "")
+                if name_val:
+                    new_names[lang] = name_val
+            if snapshot["description_jp"] and not snapshot["descs_existing"][lang]:
+                desc_val = entry.get("description", "")
+                if desc_val:
+                    new_descs[lang] = desc_val
 
     new_options_raw = _translate_options(snapshot["options_raw"], api_key)
 

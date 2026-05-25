@@ -198,14 +198,19 @@ run_frontend_react.bat  # frontend only
 - Smaregi/AirRegi adapters: placeholder only
 - No test suite exists.
 
-### 미완료 작업 (출시 전 처리)
+### 미완료 작업
 
 | 우선순위 | 항목 | 내용 |
 |---|---|---|
-| 🔴 P0 | PayPay Webhook 엔드포인트 | 손님이 콜백 페이지 닫으면 주문 미생성 → `POST /api/paypay/webhook` 신설. PayPay 서명 검증 후 자동 Order 생성 |
-| 🔴 P0 | 환불 라우터 구현 | `RefundLog` 모델/헬퍼만 준비됨 → `POST /api/admin/orders/{order_id}/refund` 신설 |
-| 🟡 P2 | 에러 메시지 정제 | 여러 라우터에서 `str(e)` 직접 반환 → 일반화된 메시지로 교체 |
+| 🟡 P1 | PayPay Webhook 자동 Order 생성 | 기본 webhook (`/api/webhooks/paypay`) 은 구현 완료 (서명 검증 + 멱등성 + Order update). 손님이 콜백 페이지 닫고 폴링 안 한 케이스에서 자동 Order 생성은 미구현 — 현재 `payment.completed.order_missing` 로그만 (수동 처리). PendingPayPayOrder 모델 + create-payment 시점 cart snapshot 저장 필요. |
 | 🟡 낮음 | PayPay Direct E2E 테스트 | PayPay sandbox 계정으로 실 결제 흐름 검증 |
+
+### 이미 완료된 작업 (참고)
+
+| 항목 | 위치 |
+|---|---|
+| PayPay Webhook (기본) | [backend/routers/webhooks.py:106](backend/routers/webhooks.py:106) — 서명 검증 + WebhookEvent 멱등성 + Order update |
+| 환불 라우터 | [backend/routers/admin.py:499](backend/routers/admin.py:499) — require_admin + Idempotency-Key + perform_refund + event log + WS emit |
 
 ### .env 설정 (운영자가 직접 해야 할 항목)
 

@@ -1,9 +1,26 @@
-# 다음 세션 핸드오프 (2026-05-24 v3 — main 머지 완료, 정식 출시 상태)
+# 다음 세션 핸드오프 (2026-05-25 v4 — 출시 후 사후 처리 사이클 완료)
 
 > **다음 Claude 세션 시작 시 이 파일을 먼저 읽어주세요.**
 > v1 = PG 컷오버 위험 감사 + 4 GPT cross-review + 첫 deploy 성공.
 > v2 = 자이라 수동 smoke 에서 발견된 8 회귀 즉시 fix + 4 deploy 완료.
-> **v3 (본 갱신) = 정리 단계 B/C/D/E + 출시 안정화 + stabilize → main 머지 완료.**
+> v3 = 정리 단계 B/C/D/E + 출시 안정화 + stabilize → main 머지 완료.
+> **v4 (본 갱신) = 출시 후 사후 처리 — ENUM 5/5 + DBM-13c/d + PG-CAP-05b/c + PWA 아이콘 완료.**
+
+## 🎉 v4 핵심 — 출시 후 사후 처리 사이클 완료 (2026-05-25)
+
+main 머지 후 "출시 후 사후 처리 OK" 섹션의 카드를 소진. 남은 Claude 작업은 PG-CAP-05d (6× 성능, 후순위) 1건만.
+
+| 카드 | Commit | 비고 |
+|---|---|---|
+| PG-AUDIT-ENUM-CONSISTENCY 5/5 | d468a13 / 4a90049 / ed027f1 / 97888c0 / 7b2a97b | MessageSender / StoreCategory / POSType / PaymentMethod / MenuGroup |
+| DBM-13c/d | 0ec2a95 | deployment.md + architecture.md PG 재작성 |
+| PG-CAP-05b | 1164187 | translate_menu time_limit 모니터링 |
+| PWA-ICON-HIRES | 본 사이클 | icon-192.png + icon-512.png + manifest 등록 + tools/generate_pwa_icons.py |
+
+남은 Claude 카드: **PG-CAP-05d** (translate_batch_with_gemini 6× 성능, 큰 변경 — 후순위).
+남은 운영자(자이라) 카드: OPR-07 / OPR-13 / OPR-14 / OPR-15 / OPR-17 / OPS-04.
+
+---
 
 ## 🎉 v3 핵심 — 정식 출시 상태
 

@@ -49,15 +49,15 @@
 | **🟡 자이라 수동 smoke 확장 (P5)** | KDS/register/테이블관리/결제 사이클까지 검증 — TableStatus P0 같은 폭탄 추가 발견 가능 | 사장님 작업 대기 |
 | **🟢 main 머지 (P6)** | 모든 P0/P1 닫힌 후 GPT 최종 review → 머지 | smoke 확장 결과 보고 후 |
 
-### 출시 후 (사후 처리 OK)
+### 출시 후 (사후 처리)
 
-| ID | 항목 |
-|---|---|
-| **PG-AUDIT-ENUM-CONSISTENCY** | allowlist 16 mismatch 일괄 정리. predeploy_smoke #8 이 신규 회귀 차단 중이라 즉시 위험 0. frontend 변경 범위 큼 (MenuGroupsSection 20+). 출시 후 enum 별로 분리 처리. |
-| **PG-CAP-05b** | translate task time_limit=60_000 운영 모니터링 (옵션 풍부 메뉴) |
-| **PG-CAP-05d** | translate_batch_with_gemini 활용 — 6× 성능 향상 (큰 변경) |
-| **DBM-13c/d** | docs/deployment.md (499줄) + docs/architecture.md (263줄) PG 재작성 |
-| **PWA-ICON-HIRES** | 192/512 PNG 생성 (PWA install icon 품질) |
+| ID | 항목 | 상태 |
+|---|---|---|
+| **PG-AUDIT-ENUM-CONSISTENCY** | allowlist 16 mismatch 일괄 정리 (MessageSenderType / StoreCategory / POSType / PaymentMethodType / MenuGroupType) | ✅ **5/5 완료** — d468a13, 4a90049, ed027f1, 97888c0, 7b2a97b |
+| **PG-CAP-05b** | translate task time_limit=60_000 운영 모니터링 (옵션 풍부 메뉴) | ✅ **1164187** |
+| **DBM-13c/d** | docs/deployment.md (499줄) + docs/architecture.md (263줄) PG 재작성 | ✅ **0ec2a95** |
+| **PWA-ICON-HIRES** | 192/512 PNG 생성 + manifest.json 등록 (PWA install icon 품질) | ✅ **본 사이클** — tools/generate_pwa_icons.py + icon-192.png + icon-512.png |
+| **PG-CAP-05d** | translate_batch_with_gemini 활용 — 6× 성능 향상 (큰 변경) | 🟢 미진행 (후순위) |
 
 ### 운영자 직접 작업 (자이라 권한)
 

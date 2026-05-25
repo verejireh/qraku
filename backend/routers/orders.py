@@ -5,9 +5,10 @@ from sqlmodel import select, SQLModel
 
 logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from database import get_session, async_session_maker
-from models import Order, OrderItem, Menu, Table, OrderCreate, Customer, DeviceSession, PaymentSettings, TabehoudaiSession, MenuGroupItem, Store
+from models import Order, OrderItem, Menu, Table, OrderCreate, Customer, DeviceSession, PaymentSettings, TabehoudaiSession, MenuGroupItem, Store, PendingPayPayOrder
 from utils.jwt import require_staff_or_admin
 from utils.time_helpers import today_start_jst_as_utc_naive, now_utc_naive
 from utils.pickup_code import next_pickup_code
@@ -348,9 +349,11 @@ async def create_order(
     # ── 4. Unified Payment Adapter: charge card BEFORE creating DB order ─────────────
     square_payment_id = None
     sq_payment_order_id = None
+    pending_paypay_order = None
 
     # 설정 가져오기 (없으면 구형 Square 기본값)
     payment_method_type = store.payment_settings.payment_method_type if store.payment_settings else "SQUARE_INTEGRATED"
+    payment_method_value = getattr(payment_method_type, "value", payment_method_type)
 
     # ── 테이크아웃 활성화 여부 체크 ──
     # Admin에서 takeout_enabled=false로 꺼둔 매장은 테이크아웃 주문 자체를 거부
@@ -432,6 +435,37 @@ async def create_order(
                     pickup_code=dup_order.pickup_code,
                 )
 
+        if (
+            square_payment_id
+            and order_in.source_id
+            and payment_method_value == "PAYPAY_DIRECT"
+        ):
+            pending_res = await session.execute(
+                select(PendingPayPayOrder)
+                .where(PendingPayPayOrder.merchant_payment_id == order_in.source_id)
+                .with_for_update()
+                .limit(1)
+            )
+            pending_paypay_order = pending_res.scalar_one_or_none()
+            if pending_paypay_order and pending_paypay_order.consumed_at is not None:
+                dup_res = await session.execute(
+                    select(Order).where(Order.square_payment_id == square_payment_id).limit(1)
+                )
+                dup_order = dup_res.scalar_one_or_none()
+                if dup_order:
+                    return OrderCreateResponse(
+                        order_id=dup_order.id,
+                        total_amount=dup_order.total_amount,
+                        payment_method=dup_order.payment_method,
+                        pickup_code=dup_order.pickup_code,
+                    )
+                logger.warning(
+                    "PayPay pending already consumed but order missing: mid=%s payment_id=%s",
+                    order_in.source_id,
+                    square_payment_id,
+                )
+                raise HTTPException(status_code=409, detail="PayPay payment is already being processed")
+
     # [이트인 일반 주문] pay_at_counter 경로 — 선결제 없이 바로 DB 생성
     # (eat_in 주문은 기존 로직 그대로)
 
@@ -444,7 +478,7 @@ async def create_order(
     is_paid = bool(is_take_out and square_payment_id)
     payment_status = "paid" if is_paid else "unpaid"
     # payment_method: 서버 설정 기준으로 저장 (클라이언트 값 무시)
-    resolved_payment_method = str(payment_method_type) if is_take_out else (order_in.payment_method or "PAY_AT_COUNTER")
+    resolved_payment_method = payment_method_value if is_take_out else (order_in.payment_method or "PAY_AT_COUNTER")
     # order status: 결제 완료된 테이크아웃 → "pending" (바로 주방 가능), 이트인 → "pending_payment"
     order_status = "pending" if is_paid else "pending_payment"
 
@@ -466,32 +500,31 @@ async def create_order(
         used_coupon_id=used_coupon_id,
         discount_amount=discount_amount,
     )
-    session.add(db_order)
-    # ── IntegrityError 안전 처리: UNIQUE(square_payment_id) 충돌 시 기존 주문 반환 ──
+    # Keep Order and OrderItems in one transaction. Committing the parent first can
+    # expose empty takeout orders if the second commit fails or the webhook races in.
     try:
-        await session.commit()
-        await session.refresh(db_order)
-    except Exception as commit_err:
-        from sqlalchemy.exc import IntegrityError
-        is_integrity = isinstance(commit_err, IntegrityError) or "Duplicate entry" in str(commit_err)
-        if is_integrity and square_payment_id:
-            await session.rollback()
-            # 동시 요청이 먼저 만든 주문 조회 후 그것을 반환
+        async with session.begin_nested():
+            session.add(db_order)
+            await session.flush()
+    except IntegrityError:
+        if square_payment_id:
             dup_res = await session.execute(
                 select(Order).where(Order.square_payment_id == square_payment_id).limit(1)
             )
             existing = dup_res.scalar_one_or_none()
             if existing:
-                logger.warning("IntegrityError 회복: payment_id=%s 기존 order_id=%s 반환",
-                               square_payment_id, existing.id)
+                logger.warning(
+                    "IntegrityError 회복: payment_id=%s 기존 order_id=%s 반환",
+                    square_payment_id,
+                    existing.id,
+                )
                 return OrderCreateResponse(
                     order_id=existing.id,
                     total_amount=existing.total_amount,
                     payment_method=existing.payment_method,
                     pickup_code=existing.pickup_code,
                 )
-        # 회복 불가 → 그대로 에러 전파
-        logger.exception("Order commit 실패")
+        logger.exception("Order flush 실패")
         raise HTTPException(status_code=500, detail="注文の保存に失敗しました")
 
     # ── 6. Add Order Items ────────────────────────────────────────────────────

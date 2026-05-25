@@ -507,6 +507,10 @@ async def create_order(
             session.add(db_order)
             await session.flush()
     except IntegrityError:
+        try:
+            session.expunge(db_order)
+        except Exception:
+            pass
         if square_payment_id:
             dup_res = await session.execute(
                 select(Order).where(Order.square_payment_id == square_payment_id).limit(1)
@@ -560,7 +564,17 @@ async def create_order(
             guest.last_visit = now_utc_naive()
         session.add(guest)
 
-    await session.commit()
+    if pending_paypay_order is not None:
+        pending_paypay_order.consumed_at = now_utc_naive()
+        session.add(pending_paypay_order)
+
+    try:
+        await session.commit()
+        await session.refresh(db_order)
+    except Exception:
+        await session.rollback()
+        logger.exception("Order commit 실패")
+        raise HTTPException(status_code=500, detail="注文の保存に失敗しました")
 
     # ── 8. WebSocket broadcast to Kitchen (디스플레이 조건 분리) ───────────────────
     # 기존에는 무조건 전송했으나, 이제 StoreDisplaySettings.use_kitchen_page 토글 상태를 확인합니다.

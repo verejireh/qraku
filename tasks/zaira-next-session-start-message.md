@@ -11,7 +11,8 @@
 이전 세션을 종료하고 새 세션으로 이어갑니다.
 
 작업 위치 (메인): D:\myproject\orderservice
-브랜치: main (HEAD 9e6cf84 = v5 마지막 commit, origin/main 동기화 완료)
+origin/main HEAD: 5fda79a (v5 최종 — GPT 점검 prompt 포함)
+⚠️ 로컬 main worktree 는 아직 1164187 — git pull 안 했음. dirty 파일 다수 존재.
 
 이전 세션 (2026-05-25, v5) 진전:
 - Claude 측 stabilization backlog 100% 소진
@@ -30,18 +31,27 @@
 
 다음 세션 시작 시 진행 순서:
 
-1. tasks/HANDOFF-NEXT-SESSION.md 읽기 (v5 = Claude 카드 100% 소진 + deploy 대기)
+0. **🚨 STEP 0 (필수, deploy 보다 먼저) — main worktree dirty 처리 + 동기화:**
+   cd D:\myproject\orderservice
+   git status --short
+   → 위험: backend/workers/translate_tasks.py 의 dirty diff 가 origin/main 의
+     translate_menu_fields_batch (PG-CAP-05d, 06efbe3) 를 옛 translate_batch_with_gemini
+     경로로 REVERT 하는 형태. 절대 그대로 commit 하지 말 것.
+   → ws_token.py, uv.lock, tools/predeploy_smoke.py 도 dirty 가능. 각각 git diff 로 검토.
+   → 보존 가치 없는 dirty 는 사장님 승인 후 git checkout -- <파일> 폐기
+   → git pull origin main 으로 HEAD = 5fda79a 동기화
+   → 동기화 후 tasks/zaira-gpt-send-prompt-{paypay-auto-order,pg-cap05d}.md 보여야 정상
+
+1. tasks/HANDOFF-NEXT-SESSION.md 읽기 (v5 = Claude 카드 100% 소진 + STEP 0 안내 + deploy 대기)
 2. tasks/current-tasks.md 읽기 (현재 출시 후 사후 처리 표 = 모두 완료)
 3. **GPT-5.5 점검 결과 확인 (있으면):**
    - tasks/gpt-paypay-auto-order-review.md (자이라가 zaira-gpt-send-prompt-paypay-auto-order.md 로 받은 응답)
    - tasks/gpt-pg-cap05d-review.md (자이라가 zaira-gpt-send-prompt-pg-cap05d.md 로 받은 응답)
    - must-fix 있으면 deploy 전 fix → 별도 commit + push
    - 점검 안 받았으면 자이라에게 진행 여부 확인 후 결정
-4. 로컬 git 상태 확인 + main worktree 동기화:
-   git log --oneline -12
-   cd D:\myproject\orderservice  # main worktree
-   git pull origin main
-5. **Deploy 실행 (GPT must-fix 처리 후):**
+4. 로컬 git 상태 재확인:
+   git log --oneline -13
+5. **Deploy 실행 (STEP 0 완료 + GPT must-fix 처리 후):**
    uv run deploy.py
 6. Deploy 검증:
    ssh -i ~/.ssh/qraku verejireh@35.213.6.149 "systemctl show qrorder -p MainPID -p NRestarts -p ActiveState; curl -s -m 3 -o /dev/null -w 'healthz=%{http_code}\n' http://127.0.0.1:8003/api/healthz"

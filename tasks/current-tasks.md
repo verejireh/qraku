@@ -10,12 +10,29 @@
 
 ---
 
-## 🚨 다음 작업 1순위 — Deploy
+## 🚨 다음 작업 STEP 0 (deploy 보다 먼저) — main worktree 동기화
 
-본 세션 11 commit 이 origin/main 에 push 됐으나 **운영 VM 에 deploy 안 됨**.
-다음 세션 시작 즉시 `python deploy.py` (또는 `uv run deploy.py`) 실행.
+origin/main HEAD = `5fda79a` (v5 최종). **로컬 main worktree `D:\myproject\orderservice` 는 아직 `1164187` + dirty 다수**.
 
-상세: [`HANDOFF-NEXT-SESSION.md` v5 §"v5 첫 우선 작업 — Deploy"](./HANDOFF-NEXT-SESSION.md)
+특히 위험: `backend/workers/translate_tasks.py` 의 dirty diff 가 origin/main 의 `translate_menu_fields_batch` (PG-CAP-05d, 06efbe3) 를 옛 `translate_batch_with_gemini` 경로로 **REVERT** 하는 형태. **절대 그대로 commit 하지 말 것.**
+
+순서:
+1. `git status --short` + 파일별 `git diff` 검토
+2. dirty 폐기 (사장님 승인) 또는 stash 보존
+3. `git pull origin main` 으로 HEAD = 5fda79a 동기화
+
+상세: [`HANDOFF-NEXT-SESSION.md` v5 §STEP 0](./HANDOFF-NEXT-SESSION.md)
+
+---
+
+## 🚨 다음 작업 STEP 1 — GPT 점검 → Deploy
+
+STEP 0 동기화 완료 후:
+- GPT-5.5 cross-review 받기 권장: `tasks/zaira-gpt-send-prompt-{paypay-auto-order,pg-cap05d}.md`
+- 응답 저장: `tasks/gpt-{paypay-auto-order,pg-cap05d}-review.md`
+- must-fix 처리 후 `uv run deploy.py`
+
+상세: [`HANDOFF-NEXT-SESSION.md` v5 §STEP 1](./HANDOFF-NEXT-SESSION.md)
 
 ---
 

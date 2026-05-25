@@ -7,7 +7,55 @@
 > v4 = 출시 후 사후 처리 — ENUM 5/5 + DBM-13c/d + PG-CAP-05b/c + PWA 아이콘 완료.
 > **v5 (본 갱신) = PG-CAP-05d + PayPay 자동 Order + P2 에러 정제 + 옛 docs 정리. Claude 측 backlog 100% 소진. origin/main push 완료, deploy 대기.**
 
-## 🚨 v5 첫 우선 작업 — GPT 점검 (권장) → Deploy
+## 🚨 STEP 0 (필수, deploy 보다 먼저) — main worktree 동기화
+
+**현 상태 (사장님 최종 점검):**
+- `origin/main` HEAD = `5fda79a` (본 사이클 최종)
+- **로컬 main worktree `D:\myproject\orderservice` 는 아직 `1164187`** (git pull 안 함)
+- **로컬 dirty 파일 다수 존재 — 특히 위험:**
+
+| 파일 | 위험도 | 내용 |
+|---|---|---|
+| `backend/workers/translate_tasks.py` | 🔴 **CRITICAL** | dirty diff 가 `translate_batch_with_gemini` 경로로 되돌리는 형태 — 이대로 commit 하면 origin/main 의 `translate_menu_fields_batch` 기반 PG-CAP-05d (06efbe3) 가 **REVERT 됨** |
+| `backend/routers/ws_token.py` | 🟡 확인 필요 | 이전 사이클 stale 변경 가능성 |
+| `uv.lock` | 🟡 확인 필요 | dependency 변경 잔재 |
+| `tools/predeploy_smoke.py` | 🟡 확인 필요 | smoke 스크립트 stale 변경 |
+
+**조치 순서 (다음 세션 첫 작업):**
+
+```bash
+# 1. main worktree 상태 확인
+cd D:\myproject\orderservice
+git status --short
+
+# 2. dirty 변경 검토 — 특히 translate_tasks.py 의 diff 가 origin/main 06efbe3 의
+#    translate_menu_fields_batch 사용 패턴을 유지하는지, 옛 translate_batch_with_gemini
+#    로 되돌리는지 확인. 후자면 보존할 가치 없음.
+git diff backend/workers/translate_tasks.py
+git diff backend/routers/ws_token.py
+git diff uv.lock
+git diff tools/predeploy_smoke.py
+
+# 3. 보존할 가치 없는 dirty 는 폐기 (사용자 승인 필수)
+#    git checkout -- backend/workers/translate_tasks.py
+#    git checkout -- backend/routers/ws_token.py
+#    git checkout -- uv.lock
+#    git checkout -- tools/predeploy_smoke.py
+
+# 4. 또는 보존 가치 있는 변경은 별도 임시 브랜치로 보관 후 폐기:
+#    git stash push -m "main-worktree-stale-2026-05-25" -- <파일>
+
+# 5. origin/main 으로 동기화
+git pull origin main
+# → HEAD 가 5fda79a 가 되어야 정상.
+# → tasks/zaira-gpt-send-prompt-{paypay-auto-order,pg-cap05d}.md 가 보여야 정상.
+```
+
+**핵심 경고:** `backend/workers/translate_tasks.py` 의 dirty diff 를 **절대 그대로 commit 하지 말 것**. origin/main 5fda79a 가 정답. 사장님 명시적 승인 없이는 변경 보존 결정 금지.
+
+---
+
+## 🚨 STEP 1 (STEP 0 완료 후) — GPT 점검 (권장) → Deploy
 
 **Deploy 전 GPT-5.5 cross-review 받기 권장** (이전 사이클 패턴과 일치 — 결제 critical + 신규 schema + race condition):
 - [`zaira-gpt-send-prompt-paypay-auto-order.md`](./zaira-gpt-send-prompt-paypay-auto-order.md) — PAYPAY-AUTO-ORDER 점검 (🔴 강력 권장)
@@ -15,7 +63,7 @@
 
 GPT must-fix 있으면 fix 후 deploy. 없으면 바로 deploy.
 
-본 세션 11 commit 이 origin/main 에 push 됐으나 **운영 VM 에 deploy 안 됨**.
+본 세션 13 commit 이 origin/main 에 push 됐으나 **운영 VM 에 deploy 안 됨**.
 GPT 점검 후 (또는 점검 생략 결정 시) `python deploy.py` 실행. 그 후 자이라 수동 smoke 권장.
 
 ```bash

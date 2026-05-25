@@ -32,13 +32,18 @@
 
 1. tasks/HANDOFF-NEXT-SESSION.md 읽기 (v5 = Claude 카드 100% 소진 + deploy 대기)
 2. tasks/current-tasks.md 읽기 (현재 출시 후 사후 처리 표 = 모두 완료)
-3. 로컬 git 상태 확인 + main worktree 동기화:
+3. **GPT-5.5 점검 결과 확인 (있으면):**
+   - tasks/gpt-paypay-auto-order-review.md (자이라가 zaira-gpt-send-prompt-paypay-auto-order.md 로 받은 응답)
+   - tasks/gpt-pg-cap05d-review.md (자이라가 zaira-gpt-send-prompt-pg-cap05d.md 로 받은 응답)
+   - must-fix 있으면 deploy 전 fix → 별도 commit + push
+   - 점검 안 받았으면 자이라에게 진행 여부 확인 후 결정
+4. 로컬 git 상태 확인 + main worktree 동기화:
    git log --oneline -12
    cd D:\myproject\orderservice  # main worktree
    git pull origin main
-4. **Deploy 실행 (필수, 본 세션 첫 작업):**
+5. **Deploy 실행 (GPT must-fix 처리 후):**
    uv run deploy.py
-5. Deploy 검증:
+6. Deploy 검증:
    ssh -i ~/.ssh/qraku verejireh@35.213.6.149 "systemctl show qrorder -p MainPID -p NRestarts -p ActiveState; curl -s -m 3 -o /dev/null -w 'healthz=%{http_code}\n' http://127.0.0.1:8003/api/healthz"
    ssh -i ~/.ssh/qraku verejireh@35.213.6.149 "psql 'host=127.0.0.1 port=5432 user=ilhae dbname=qraku' -c '\\dt pendingpaypayorder'"
    → pendingpaypayorder 테이블이 자동 생성됐는지 확인 (SQLModel.metadata.create_all)
@@ -73,6 +78,9 @@ C. 외부 자원 필요한 작업 (계약/spec 확보 시):
 - 운영 시 첫 부팅에서 advisory_xact_lock 단일 트랜잭션 안에서 안전하게 테이블 생성됨
 - backend/.env 의 비번/키 변경 없음
 - CLAUDE.md 가 신뢰 가능한 상태로 정리됨 — 다음 세션은 outdated docs 헷갈림 없음
+- GPT-5.5 점검 prompt 2건 작성됨:
+  · tasks/zaira-gpt-send-prompt-paypay-auto-order.md (🔴 강력 권장 — 결제 critical)
+  · tasks/zaira-gpt-send-prompt-pg-cap05d.md (🟡 권장 — Gemini batch 응답 신뢰성)
 ```
 
 ---

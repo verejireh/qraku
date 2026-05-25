@@ -7,10 +7,16 @@
 > v4 = 출시 후 사후 처리 — ENUM 5/5 + DBM-13c/d + PG-CAP-05b/c + PWA 아이콘 완료.
 > **v5 (본 갱신) = PG-CAP-05d + PayPay 자동 Order + P2 에러 정제 + 옛 docs 정리. Claude 측 backlog 100% 소진. origin/main push 완료, deploy 대기.**
 
-## 🚨 v5 첫 우선 작업 — Deploy
+## 🚨 v5 첫 우선 작업 — GPT 점검 (권장) → Deploy
+
+**Deploy 전 GPT-5.5 cross-review 받기 권장** (이전 사이클 패턴과 일치 — 결제 critical + 신규 schema + race condition):
+- [`zaira-gpt-send-prompt-paypay-auto-order.md`](./zaira-gpt-send-prompt-paypay-auto-order.md) — PAYPAY-AUTO-ORDER 점검 (🔴 강력 권장)
+- [`zaira-gpt-send-prompt-pg-cap05d.md`](./zaira-gpt-send-prompt-pg-cap05d.md) — PG-CAP-05d 점검 (🟡 권장)
+
+GPT must-fix 있으면 fix 후 deploy. 없으면 바로 deploy.
 
 본 세션 11 commit 이 origin/main 에 push 됐으나 **운영 VM 에 deploy 안 됨**.
-다음 세션 시작 즉시 `python deploy.py` 실행 필요. 그 후 자이라 수동 smoke 권장.
+GPT 점검 후 (또는 점검 생략 결정 시) `python deploy.py` 실행. 그 후 자이라 수동 smoke 권장.
 
 ```bash
 cd D:\myproject\orderservice   # main worktree (git pull 먼저)

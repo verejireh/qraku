@@ -194,9 +194,11 @@ run_frontend_react.bat  # frontend only
 ## Known Issues / 남은 작업
 
 ### Known Issues
-- Display toggles (`use_kitchen_page`, `use_register_page`, `use_staff_page`)는 AdminView UI에서만 숨김. 직접 URL 접속은 차단하지 않음.
 - Smaregi/AirRegi adapters: placeholder only
 - No test suite exists.
+
+### 이미 처리된 옛 issue (참고)
+- Display toggles (`use_kitchen_page`, `use_register_page`, `use_staff_page`) 직접 URL 차단 — [frontend-react/src/hooks/useDisplayGuard.jsx](frontend-react/src/hooks/useDisplayGuard.jsx) 가 KitchenView/RegisterView/StaffView/StaffTableView 4 곳에 적용됨. admin bypass + demo_tmp_ 임시 매장 ?demo=1 허용 + 일반 손님은 /home 으로 redirect 또는 BlockedScreen 표시.
 
 ### 미완료 작업
 

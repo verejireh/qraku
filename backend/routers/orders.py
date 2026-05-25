@@ -10,6 +10,7 @@ from database import get_session, async_session_maker
 from models import Order, OrderItem, Menu, Table, OrderCreate, Customer, DeviceSession, PaymentSettings, TabehoudaiSession, MenuGroupItem, Store
 from utils.jwt import require_staff_or_admin
 from utils.time_helpers import today_start_jst_as_utc_naive, now_utc_naive
+from utils.pickup_code import next_pickup_code
 from datetime import datetime
 import os
 import time
@@ -436,23 +437,8 @@ async def create_order(
 
     # ── 5. Create DB Order ────────────────────────────────────────────────────
     # 테이크아웃 주문에는 101번부터 시작하는 당일 순차 접수번호 생성
-    pickup_code = None
-    if is_take_out:
-        # [2026-05-22] P1 #7 Bug 3 — UTC 자정 기준이라 JST 09:00 에 픽업 코드
-        # reset 되는 버그. JST 자정 = UTC 전날 15:00 으로 변환해 사용.
-        today_start = today_start_jst_as_utc_naive()
-        codes_res = await session.execute(
-            select(Order.pickup_code).where(
-                Order.shop_id == order_in.shop_id,
-                Order.order_type == "take_out",
-                Order.created_at >= today_start
-            )
-        )
-        codes = [c for c in codes_res.scalars().all() if c and c.isdigit()]
-        if codes:
-            pickup_code = str(max(int(c) for c in codes) + 1)
-        else:
-            pickup_code = "101"
+    # (PG-PAYPAY-AUTO-ORDER-HOTFIX: webhook 자동 생성 경로와 helper 공유)
+    pickup_code = await next_pickup_code(session, order_in.shop_id) if is_take_out else None
 
     # 결제 상태 결정: 테이크아웃 선결제 완료 → "paid" / 이트인 → "unpaid"
     is_paid = bool(is_take_out and square_payment_id)

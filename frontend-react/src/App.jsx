@@ -34,6 +34,8 @@ import LandingView from './views/LandingView'
 import DemoView from './views/DemoView'
 import DemoShowcaseView from './views/DemoShowcaseView'
 import OwnerSignUpView from './views/OwnerSignUpView'
+import OwnerLandingView from './views/OwnerLandingView'
+import OwnerThanksView from './views/OwnerThanksView'
 import OAuthCallbackView from './views/OAuthCallbackView'
 import TermsOfServiceView from './views/TermsOfServiceView'
 import PrivacyPolicyView from './views/PrivacyPolicyView'
@@ -97,6 +99,9 @@ function App() {
               <Route path="/" element={<LandingView />} />
               <Route path="/demo" element={<DemoView />} />
               <Route path="/demo/showcase" element={<DemoShowcaseView />} />
+              <Route path="/owner" element={<OwnerLandingView />} />
+              <Route path="/owner/gotemba50" element={<OwnerLandingView campaign="gotemba50" />} />
+              <Route path="/owner/thanks" element={<OwnerThanksView />} />
               <Route path="/owner/signup" element={<OwnerSignUpView />} />
               <Route path="/owner/signup/oauth-callback" element={<OAuthCallbackView />} />
               <Route path="/terms" element={<TermsOfServiceView />} />

@@ -330,6 +330,25 @@ class BetaApplication(SQLModel, table=True):
     created_at: datetime = Field(default_factory=now_utc_naive)
 
 
+# [2026-06-02] /owner LP 무료 상담 신청 리드 수집 (MKT-23)
+class OwnerLead(SQLModel, table=True):
+    """사장님 전환 LP(/owner) 무료 상담 신청 리드"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    store_name: str = Field(max_length=200)
+    contact_name: str = Field(max_length=100)
+    contact: str = Field(max_length=255)                                   # 電話 または メール
+    business_type: Optional[str] = Field(default=None, max_length=50)      # カフェ/ベーカリー/飲食店/その他
+    message: Optional[str] = Field(default=None, max_length=2000)
+    preferred_contact: Optional[str] = Field(default=None, max_length=20)  # 電話/メール/訪問
+    utm_source: Optional[str] = Field(default=None, max_length=100)
+    utm_medium: Optional[str] = Field(default=None, max_length=100)
+    utm_campaign: Optional[str] = Field(default=None, max_length=100)
+    referrer: Optional[str] = Field(default=None, max_length=500)
+    landing_path: Optional[str] = Field(default=None, max_length=200)
+    status: str = Field(default="new", max_length=20)                      # new / contacted / closed
+    created_at: datetime = Field(default_factory=now_utc_naive)
+
+
 class RefundLog(SQLModel, table=True):
     """환불 감사 로그 — 누가 언제 어떤 결제를 환불했는지 추적"""
     id: Optional[int] = Field(default=None, primary_key=True)

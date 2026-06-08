@@ -6,7 +6,7 @@ import json
 import logging
 from fastapi import APIRouter, Request, Header, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from database import get_session
 from models import WebhookEvent
 from utils.line_client import (
@@ -14,6 +14,7 @@ from utils.line_client import (
 )
 from utils.nearby import find_nearby_stores
 from utils.nearby_cards import to_store_cards
+from utils.time_helpers import now_utc_naive
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["line"])
@@ -49,18 +50,20 @@ async def line_webhook(
 
 
 async def _dedupe(ev: dict, session: AsyncSession) -> bool:
-    """webhookEventId 멱등성. 중복이면 True 반환."""
+    """webhookEventId 멱등성. 중복이면 True. (PII 미저장: payload_raw 생략)"""
     event_id = ev.get("webhookEventId")
     if not event_id:
         return False
-    session.add(WebhookEvent(provider="line", event_id=event_id, signature_valid=True,
-                             payload_raw=json.dumps(ev)[:4000]))
-    try:
-        await session.flush()
-        return False
-    except IntegrityError:
-        await session.rollback()
-        return True
+    stmt = (
+        pg_insert(WebhookEvent.__table__)
+        .values(provider="line", event_id=f"line:{event_id}",
+                signature_valid=True, processed=False, received_at=now_utc_naive())
+        .on_conflict_do_nothing(index_elements=["event_id"])
+        .returning(WebhookEvent.__table__.c.id)
+    )
+    result = await session.execute(stmt)
+    await session.commit()
+    return result.scalar_one_or_none() is None
 
 
 async def _handle_event(ev: dict, session: AsyncSession):

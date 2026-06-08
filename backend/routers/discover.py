@@ -261,11 +261,8 @@ async def discover_nearby(
         limit=20,
         open_only=open_only,
         food_rescue_only=food_rescue_only,
+        takeout_only=takeout_only,
     )
-
-    if takeout_only:
-        # 참고: SQL LIMIT 이후의 파이썬 필터이므로 밀집 지역에선 20개 미만이 나올 수 있음(v1 허용).
-        items = [it for it in items if it["can_accept_takeout"]]
 
     return {
         "items": items,

@@ -16,6 +16,7 @@ async def find_nearby_stores(
     limit: int = 20,
     open_only: bool = False,
     food_rescue_only: bool = False,
+    takeout_only: bool = False,
 ) -> List[dict]:
     """위경도 기준 반경 내 공개 매장 목록을 반환한다.
 
@@ -24,9 +25,10 @@ async def find_nearby_stores(
     session : AsyncSession
     lat, lng : float — 중심 좌표
     radius : int — 반경(m)
-    limit : int — SQL LIMIT (기본 20)
+    limit : int — 최종 반환 건수 (기본 20)
     open_only : bool — True 시 is_open=TRUE 매장만
     food_rescue_only : bool — True 시 food_rescue_manual_active=TRUE & food_rescue_active=TRUE 매장만
+    takeout_only : bool — True 시 can_accept_takeout=True 매장만 (LIMIT 전에 필터)
 
     Returns
     -------
@@ -37,6 +39,8 @@ async def find_nearby_stores(
         about_description, specialty, business_hours, distance_m,
         google_maps_url, can_accept_takeout, takeout_default_wait_minutes
     """
+    # takeout_only 시 SQL 단에서 여유 후보를 확보해 파이썬 필터 후 limit 건을 채운다.
+    sql_limit = max(limit, 60) if takeout_only else limit
     food_rescue_clause = (
         "AND s.food_rescue_manual_active = TRUE AND s.food_rescue_active = TRUE"
         if food_rescue_only
@@ -91,7 +95,7 @@ async def find_nearby_stores(
         LIMIT :limit
     """)
 
-    result = await session.execute(sql, {"lat": lat, "lng": lng, "radius": radius, "limit": limit})
+    result = await session.execute(sql, {"lat": lat, "lng": lng, "radius": radius, "limit": sql_limit})
     rows = result.mappings().all()
 
     items = []
@@ -128,4 +132,7 @@ async def find_nearby_stores(
             "takeout_default_wait_minutes": r["takeout_default_wait_minutes"],
         })
 
-    return items
+    if takeout_only:
+        items = [it for it in items if it["can_accept_takeout"]]
+
+    return items[:limit]

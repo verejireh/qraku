@@ -164,6 +164,7 @@
 
 | 날짜 | 스테이지 | 결과 |
 |---|---|---|
+| 2026-06-09 | 외부 코드리뷰(GPT-5.5) 반영 | Imp1 LINE 멱등성 commit+ON CONFLICT(미커밋 버그 수정)·Imp2 온라인결제 판정 결제방식 매칭·Imp3 지도 searchCenter recenter+로딩유지·Imp4 takeout_only LIMIT 전 적용·Min1 PII 미저장·Min3 catch lint. 검증리뷰 통과, pytest 25/25·build OK·lint 0, /nearby 불변. 커밋 b30b4eb·3c043b2·55deb7d·53b913f·35eeeea |
 | 2026-06-07 | S0 셋업 | 브랜치 `discover_build` 분리 + 본 워크플랜·하네스 규정 작성 |
 | 2026-06-08 | S1 발견→선결제 | 완료. 공통 헬퍼(`utils/takeout.py`)+9테스트, discover 3엔드포인트에 `can_accept_takeout`·`slug`, 근처/랭킹 카드 테이크아웃 CTA·뱃지·필터. 7 Task 전부 스펙+품질 리뷰 통과, Opus 최종리뷰 Ready. pytest 9/9·빌드 OK. 커밋 6a78a53…04fe715. (main 미병합 — 누적) |
 | 2026-06-08 | S1.5 Square 온보딩 | 완료. AdminPaymentView Square 미연동 시 "단말기 불필요·3단계(가입/활성화/연동)·카드+PayPay" 인라인 안내 카드 + 기존 가이드 링크. 스펙+품질 리뷰 통과, 빌드 OK. 커밋 5138de1. (main 미병합) |

@@ -52,6 +52,9 @@ function StoreCard({ store }) {
                 🛍 事前決済OK
               </span>
             )}
+            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${store.is_open ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+              {store.is_open ? '営業中' : '準備中'}
+            </span>
             <span className="text-[11px] font-bold text-slate-500 flex items-center gap-0.5">
               <MSI name="near_me" className="text-sm text-[#c21e2f]" />
               {distLabel}
@@ -73,6 +76,13 @@ function StoreCard({ store }) {
             <span className="text-sm flex-shrink-0">🔥</span>
             <span>{store.food_rescue_msg}</span>
           </div>
+        )}
+
+        {store.can_accept_takeout && store.is_open && store.takeout_default_wait_minutes > 0 && (
+          <p className="text-xs text-[#c21e2f] font-bold flex items-center gap-1">
+            <MSI name="schedule" className="text-sm" />
+            約{store.takeout_default_wait_minutes}分で受取
+          </p>
         )}
 
         {/* アクション */}
@@ -121,6 +131,7 @@ function NearbyPanel() {
   const [radius, setRadius] = useState(800)
   const [foodRescueOnly, setFoodRescueOnly] = useState(false)
   const [takeoutOnly, setTakeoutOnly] = useState(false)
+  const [openOnly, setOpenOnly] = useState(false)
   const [viewMode, setViewMode] = useState('list')   // 'list' | 'map'
   const [searchCenter, setSearchCenter] = useState(null)
   const [searchError, setSearchError] = useState(null)
@@ -148,20 +159,20 @@ function NearbyPanel() {
     setSearchError(null)
     try {
       const res = await axios.get('/api/public/discover/nearby', {
-        params: { lat: searchCenter.lat, lng: searchCenter.lng, radius, food_rescue_only: foodRescueOnly, takeout_only: takeoutOnly },
+        params: { lat: searchCenter.lat, lng: searchCenter.lng, radius, food_rescue_only: foodRescueOnly, takeout_only: takeoutOnly, open_only: openOnly },
       })
       setStores(res.data.items || [])
     } catch (e) {
       setSearchError('検索に失敗しました。もう一度お試しください。')
     }
     setLoading(false)
-  }, [searchCenter, radius, foodRescueOnly, takeoutOnly])
+  }, [searchCenter, radius, foodRescueOnly, takeoutOnly, openOnly])
 
   // 座標 or フィルター変更時に自動再検索
   useEffect(() => {
     if (searchCenter) searchNearby()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchCenter, radius, foodRescueOnly, takeoutOnly])
+  }, [searchCenter, radius, foodRescueOnly, takeoutOnly, openOnly])
 
   // ── 位置未取得 ──
   if (geoState === 'idle') {
@@ -258,6 +269,17 @@ function NearbyPanel() {
         >
           <span>🛍</span>
           事前決済可のみ
+        </button>
+
+        {/* 営業中のみフィルター */}
+        <button
+          onClick={() => setOpenOnly(v => !v)}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold border transition-colors ${
+            openOnly ? 'bg-emerald-500 text-white border-emerald-500 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-400'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[14px]">storefront</span>
+          営業中のみ
         </button>
 
         {/* リスト/地図トグル + 再検索 */}

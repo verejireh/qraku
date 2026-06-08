@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import axios from 'axios'
 
 const SORT_OPTIONS = [
@@ -328,6 +328,10 @@ export default function DiscoverView() {
 
   const [filters, setFilters] = useState({ regions: [], categories: [], sort_options: {} })
   const [selectedStore, setSelectedStore] = useState(null)
+  const selectedStoreData = useMemo(
+    () => items.find(it => it.store_id === selectedStore) ?? null,
+    [selectedStore, items]
+  )
 
   const LIMIT = 20
 
@@ -520,29 +524,26 @@ export default function DiscoverView() {
               </div>
             )}
 
-            {selectedStore && (() => {
-              const sel = items.find(it => it.store_id === selectedStore)
-              return (
-                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2">
-                  <div className="flex items-center gap-2 bg-[#1b1b1d] text-white px-5 py-3 rounded-full shadow-xl text-sm font-bold">
-                    <MSI name="store" className="text-base" />
-                    このお店のメニューを表示中
-                    <button onClick={() => setSelectedStore(null)} className="ml-1 opacity-70 hover:opacity-100">
-                      <MSI name="close" className="text-base" />
-                    </button>
-                  </div>
-                  {sel?.can_accept_takeout && sel?.slug && (
-                    <a
-                      href={`/${sel.slug}/takeout`}
-                      className="flex items-center gap-1.5 bg-[#c21e2f] hover:bg-[#a01828] text-white px-5 py-3 rounded-full shadow-xl text-sm font-black"
-                    >
-                      <MSI name="shopping_bag" className="text-base" />
-                      テイクアウト注文
-                    </a>
-                  )}
+            {selectedStore && (
+              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2">
+                <div className="flex items-center gap-2 bg-[#1b1b1d] text-white px-5 py-3 rounded-full shadow-xl text-sm font-bold">
+                  <MSI name="store" className="text-base" />
+                  このお店のメニューを表示中
+                  <button onClick={() => setSelectedStore(null)} className="ml-1 opacity-70 hover:opacity-100">
+                    <MSI name="close" className="text-base" />
+                  </button>
                 </div>
-              )
-            })()}
+                {selectedStoreData?.can_accept_takeout && selectedStoreData.slug && (
+                  <a
+                    href={`/${selectedStoreData.slug}/takeout`}
+                    className="flex items-center gap-1.5 bg-[#c21e2f] hover:bg-[#a01828] text-white px-5 py-3 rounded-full shadow-xl text-sm font-black"
+                  >
+                    <MSI name="shopping_bag" className="text-base" />
+                    テイクアウト注文
+                  </a>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>

@@ -12,7 +12,8 @@ from database import get_session
 from models import Store, Menu, Order, OrderItem, Table
 from datetime import datetime, timedelta
 from utils.time_helpers import now_utc_naive
-from utils.takeout import can_accept_takeout, can_accept_takeout_from_store
+from utils.takeout import can_accept_takeout_from_store
+from utils.nearby import find_nearby_stores
 
 router = APIRouter(prefix="/public/discover", tags=["discover"])
 
@@ -256,96 +257,12 @@ async def discover_nearby(
     if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
         raise HTTPException(status_code=422, detail="위경도 범위 초과")
 
-    food_rescue_clause = (
-        "AND s.food_rescue_manual_active = TRUE AND s.food_rescue_active = TRUE"
-        if food_rescue_only
-        else ""
+    items = await find_nearby_stores(
+        session, lat, lng, radius,
+        limit=20,
+        open_only=open_only,
+        food_rescue_only=food_rescue_only,
     )
-    open_clause = "AND s.is_open = TRUE" if open_only else ""
-
-    sql = text(f"""
-        SELECT
-            s.id,
-            s.name,
-            s.slug,
-            s.category,
-            s.prefecture,
-            s.city,
-            s.address,
-            s.phone,
-            s.theme,
-            s.latitude,
-            s.longitude,
-            s.is_open,
-            s.food_rescue_active,
-            s.food_rescue_manual_active,
-            s.food_rescue_msg,
-            s.food_rescue_auto_minutes,
-            s.about_description,
-            s.specialty,
-            s.business_hours,
-            s.takeout_enabled,
-            s.takeout_default_wait_minutes,
-            (s.square_access_token IS NOT NULL AND s.square_location_id IS NOT NULL) AS has_store_square,
-            ps.payment_method_type AS ps_method_type,
-            (ps.square_access_token IS NOT NULL AND ps.square_location_id IS NOT NULL) AS has_ps_square,
-            (ps.paypay_api_key IS NOT NULL) AS has_ps_paypay,
-            ST_Distance(
-                ST_MakePoint(s.longitude, s.latitude)::geography,
-                ST_MakePoint(:lng, :lat)::geography
-            ) AS distance_m
-        FROM store s
-        LEFT JOIN paymentsettings ps ON ps.store_id = s.id
-        WHERE s.allow_public_listing = TRUE
-          AND s.latitude IS NOT NULL
-          AND s.longitude IS NOT NULL
-          AND ST_DWithin(
-              ST_MakePoint(s.longitude, s.latitude)::geography,
-              ST_MakePoint(:lng, :lat)::geography,
-              :radius
-          )
-          {food_rescue_clause}
-          {open_clause}
-        ORDER BY distance_m ASC
-        LIMIT 20
-    """)
-
-    result = await session.execute(sql, {"lat": lat, "lng": lng, "radius": radius})
-    rows = result.mappings().all()
-
-    items = []
-    for r in rows:
-        items.append({
-            "store_id": r["id"],
-            "store_name": r["name"],
-            "slug": r["slug"],
-            "category": r["category"],
-            "prefecture": r["prefecture"],
-            "city": r["city"],
-            "address": r["address"],
-            "phone": r["phone"],
-            "theme": r["theme"],
-            "latitude": r["latitude"],
-            "longitude": r["longitude"],
-            "is_open": r["is_open"],
-            "food_rescue_active": r["food_rescue_active"],
-            "food_rescue_manual_active": r["food_rescue_manual_active"],
-            "food_rescue_msg": r["food_rescue_msg"],
-            "food_rescue_auto_minutes": r["food_rescue_auto_minutes"],
-            "about_description": r["about_description"],
-            "specialty": r["specialty"],
-            "business_hours": r["business_hours"],
-            "distance_m": round(float(r["distance_m"]), 1),
-            "google_maps_url": f"https://www.google.com/maps/?q={r['latitude']},{r['longitude']}",
-            "can_accept_takeout": can_accept_takeout(
-                takeout_enabled=bool(r["takeout_enabled"]),
-                has_store_square=bool(r["has_store_square"]),
-                ps_method_type=r["ps_method_type"],
-                has_ps_square=bool(r["has_ps_square"]),
-                has_ps_paypay=bool(r["has_ps_paypay"]),
-            ),
-            "takeout_default_wait_minutes": r["takeout_default_wait_minutes"],
-        })
 
     if takeout_only:
         # 참고: SQL LIMIT 이후의 파이썬 필터이므로 밀집 지역에선 20개 미만이 나올 수 있음(v1 허용).

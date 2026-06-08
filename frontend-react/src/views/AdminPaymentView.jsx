@@ -172,6 +172,55 @@ export default function AdminPaymentView() {
                                 ? `連携済み（加盟店ID: ${storeData?.square_merchant_id || '—'}）`
                                 : '未連携です。Square決済を使用するにはアカウントを連携してください。'}
                         </p>
+                        {!storeData?.square_connected && (
+                            <div className="mb-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
+                                <div className="flex items-start gap-2">
+                                    <span className="material-symbols-outlined text-blue-500 text-[20px]">smartphone</span>
+                                    <div>
+                                        <p className="font-black text-sm text-slate-800">Square 端末がなくてもOK</p>
+                                        <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
+                                            テイクアウトの事前決済（オンライン決済）だけなら、物理端末は不要です。Squareの無料アカウントだけで始められます。
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <ol className="space-y-2">
+                                    <li className="flex items-start gap-2.5">
+                                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500 text-white text-[11px] font-black flex items-center justify-center">1</span>
+                                        <span className="text-xs text-slate-600 leading-relaxed">
+                                            Square 無料アカウントを作成
+                                            <a href="https://squareup.com/jp/ja" target="_blank" rel="noopener noreferrer"
+                                                className="text-blue-600 font-bold hover:underline inline-flex items-center gap-0.5 ml-1">
+                                                Squareに登録<span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                                            </a>
+                                        </span>
+                                    </li>
+                                    <li className="flex items-start gap-2.5">
+                                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500 text-white text-[11px] font-black flex items-center justify-center">2</span>
+                                        <span className="text-xs text-slate-600 leading-relaxed">
+                                            アカウントを有効化（<span className="font-bold text-slate-700">唯一の関門</span>）— 銀行口座の登録と本人確認。完了すると実際の入金が可能になります。
+                                        </span>
+                                    </li>
+                                    <li className="flex items-start gap-2.5">
+                                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500 text-white text-[11px] font-black flex items-center justify-center">3</span>
+                                        <span className="text-xs text-slate-600 leading-relaxed">
+                                            下の「Squareアカウントを連携する」ボタンで接続
+                                        </span>
+                                    </li>
+                                </ol>
+
+                                <div className="flex items-center gap-1.5 text-[11px] text-blue-700 bg-white/70 rounded-lg px-3 py-2 border border-blue-100">
+                                    <span className="material-symbols-outlined text-[16px]">credit_card</span>
+                                    Square 1つで クレジットカードも PayPay も受け取れます。
+                                </div>
+
+                                <a href="/docs/payment_setup_guide.html" target="_blank" rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:underline">
+                                    <span className="material-symbols-outlined text-[16px]">menu_book</span>
+                                    決済導入ガイドを見る
+                                </a>
+                            </div>
+                        )}
                         {storeData?.square_connected ? (
                             <button onClick={async () => {
                                 if (window.confirm('Square連携を解除しますか？')) {

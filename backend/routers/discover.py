@@ -6,12 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import case, literal_column, text
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from database import get_session
 from models import Store, Menu, Order, OrderItem, Table
-from datetime import datetime, timedelta
+from datetime import timedelta
 from utils.time_helpers import now_utc_naive
+from utils.takeout import can_accept_takeout_from_store
+from utils.nearby import find_nearby_stores
 
 router = APIRouter(prefix="/public/discover", tags=["discover"])
 
@@ -73,7 +74,11 @@ async def discover_menus(
     """공개 메뉴 디스커버리 — 업주가 노출 동의한 가게의 메뉴 랭킹"""
 
     # 1. 공개 동의한 가게 목록 조회
-    store_query = select(Store).where(Store.allow_public_listing == True)
+    store_query = (
+        select(Store)
+        .where(Store.allow_public_listing == True)
+        .options(selectinload(Store.payment_settings))
+    )
     if prefecture:
         store_query = store_query.where(Store.prefecture == prefecture)
     if city:
@@ -87,6 +92,7 @@ async def discover_menus(
         return {"items": [], "total": 0, "page": page, "sort": sort, "sort_options": SORT_OPTIONS}
 
     store_map = {s.id: s for s in stores}
+    store_takeout = {s.id: can_accept_takeout_from_store(s) for s in stores}
     store_ids = list(store_map.keys())
 
     # 2. 주문 통계
@@ -147,6 +153,8 @@ async def discover_menus(
             "orders_per_table": st["orders_per_table"],
             "store_menu_count": store_menu_counts.get(s.id, 0),
             "created_at": s.created_at.isoformat() if s.created_at else None,
+            "slug": s.slug,
+            "can_accept_takeout": store_takeout.get(s.id, False),
         })
 
     # 7. 정렬
@@ -185,7 +193,11 @@ async def discover_stores(
     session: AsyncSession = Depends(get_session),
 ):
     """공개 가게 목록 — 지역별/랭킹별"""
-    query = select(Store).where(Store.allow_public_listing == True)
+    query = (
+        select(Store)
+        .where(Store.allow_public_listing == True)
+        .options(selectinload(Store.payment_settings))
+    )
     if prefecture:
         query = query.where(Store.prefecture == prefecture)
     if city:
@@ -212,6 +224,8 @@ async def discover_stores(
             "order_count": st["order_count"],
             "table_count": st["table_count"],
             "orders_per_table": st["orders_per_table"],
+            "slug": s.slug,
+            "can_accept_takeout": can_accept_takeout_from_store(s),
         })
 
     if sort == "popular":
@@ -230,6 +244,8 @@ async def discover_nearby(
     lng: float = Query(..., description="현재 경도 (예: 138.9337)"),
     radius: int = Query(800, ge=100, le=5000, description="검색 반경(m). 기본 800m = 도보 10분"),
     food_rescue_only: bool = Query(False, description="마감 할인 진행 중 매장만"),
+    takeout_only: bool = Query(False, description="온라인 선결제 가능 매장만"),
+    open_only: bool = Query(False, description="영업중(is_open) 매장만"),
     session: AsyncSession = Depends(get_session),
 ):
     """위경도 기준 반경 내 공개 매장 목록 (PostGIS ST_DWithin, 거리 오름차순, max 20).
@@ -240,79 +256,13 @@ async def discover_nearby(
     if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
         raise HTTPException(status_code=422, detail="위경도 범위 초과")
 
-    food_rescue_clause = (
-        "AND s.food_rescue_manual_active = TRUE AND s.food_rescue_active = TRUE"
-        if food_rescue_only
-        else ""
+    items = await find_nearby_stores(
+        session, lat, lng, radius,
+        limit=20,
+        open_only=open_only,
+        food_rescue_only=food_rescue_only,
+        takeout_only=takeout_only,
     )
-
-    sql = text(f"""
-        SELECT
-            s.id,
-            s.name,
-            s.slug,
-            s.category,
-            s.prefecture,
-            s.city,
-            s.address,
-            s.phone,
-            s.theme,
-            s.latitude,
-            s.longitude,
-            s.is_open,
-            s.food_rescue_active,
-            s.food_rescue_manual_active,
-            s.food_rescue_msg,
-            s.food_rescue_auto_minutes,
-            s.about_description,
-            s.specialty,
-            s.business_hours,
-            ST_Distance(
-                ST_MakePoint(s.longitude, s.latitude)::geography,
-                ST_MakePoint(:lng, :lat)::geography
-            ) AS distance_m
-        FROM store s
-        WHERE s.allow_public_listing = TRUE
-          AND s.latitude IS NOT NULL
-          AND s.longitude IS NOT NULL
-          AND ST_DWithin(
-              ST_MakePoint(s.longitude, s.latitude)::geography,
-              ST_MakePoint(:lng, :lat)::geography,
-              :radius
-          )
-          {food_rescue_clause}
-        ORDER BY distance_m ASC
-        LIMIT 20
-    """)
-
-    result = await session.execute(sql, {"lat": lat, "lng": lng, "radius": radius})
-    rows = result.mappings().all()
-
-    items = []
-    for r in rows:
-        items.append({
-            "store_id": r["id"],
-            "store_name": r["name"],
-            "slug": r["slug"],
-            "category": r["category"],
-            "prefecture": r["prefecture"],
-            "city": r["city"],
-            "address": r["address"],
-            "phone": r["phone"],
-            "theme": r["theme"],
-            "latitude": r["latitude"],
-            "longitude": r["longitude"],
-            "is_open": r["is_open"],
-            "food_rescue_active": r["food_rescue_active"],
-            "food_rescue_manual_active": r["food_rescue_manual_active"],
-            "food_rescue_msg": r["food_rescue_msg"],
-            "food_rescue_auto_minutes": r["food_rescue_auto_minutes"],
-            "about_description": r["about_description"],
-            "specialty": r["specialty"],
-            "business_hours": r["business_hours"],
-            "distance_m": round(float(r["distance_m"]), 1),
-            "google_maps_url": f"https://www.google.com/maps/?q={r['latitude']},{r['longitude']}",
-        })
 
     return {
         "items": items,
@@ -320,6 +270,8 @@ async def discover_nearby(
         "center": {"lat": lat, "lng": lng},
         "radius_m": radius,
         "food_rescue_only": food_rescue_only,
+        "takeout_only": takeout_only,
+        "open_only": open_only,
     }
 
 

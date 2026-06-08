@@ -232,16 +232,10 @@ async def read_store(store_id: str, session: AsyncSession = Depends(get_session)
             ps.pop(secret_key, None)
 
     # ── can_accept_takeout: 프론트에서 테이크아웃 가능 여부 판단용 ──
-    # 조건: (1) Admin이 takeout_enabled=true로 켜두었고, (2) 온라인 결제수단이 설정되어 있어야 함
-    has_square = bool(store.square_access_token and store.square_location_id)
-    ps_obj = store.payment_settings
-    has_payment_ps = ps_obj and str(ps_obj.payment_method_type) != "PAY_AT_COUNTER" and (
-        (ps_obj.square_access_token and ps_obj.square_location_id) or
-        ps_obj.paypay_api_key
-    )
-    has_online_payment = bool(has_square or has_payment_ps)
-    data["has_online_payment"] = has_online_payment
-    data["can_accept_takeout"] = bool(store.takeout_enabled and has_online_payment)
+    # 단일 진실 공급원: utils.takeout (discover 라우터와 동일 로직 공유)
+    from utils.takeout import can_accept_takeout_from_store, has_online_payment_from_store
+    data["has_online_payment"] = has_online_payment_from_store(store)
+    data["can_accept_takeout"] = can_accept_takeout_from_store(store)
 
     return JSONResponse(content=data)
 

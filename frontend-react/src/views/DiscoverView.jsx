@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import axios from 'axios'
+import DiscoverNearbyMap from '../components/DiscoverNearbyMap'
 
 const SORT_OPTIONS = [
   { key: 'popular',     label: '人気順',     sublabel: 'テーブル当たり注文数',  icon: 'local_fire_department' },
@@ -46,6 +47,14 @@ function StoreCard({ store }) {
                 🔥 割引中
               </span>
             )}
+            {store.can_accept_takeout && (
+              <span className="text-[10px] font-black bg-[#c21e2f] text-white px-2 py-0.5 rounded-full flex items-center gap-0.5">
+                🛍 事前決済OK
+              </span>
+            )}
+            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${store.is_open ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+              {store.is_open ? '営業中' : '準備中'}
+            </span>
             <span className="text-[11px] font-bold text-slate-500 flex items-center gap-0.5">
               <MSI name="near_me" className="text-sm text-[#c21e2f]" />
               {distLabel}
@@ -69,26 +78,44 @@ function StoreCard({ store }) {
           </div>
         )}
 
+        {store.can_accept_takeout && store.is_open && store.takeout_default_wait_minutes > 0 && (
+          <p className="text-xs text-[#c21e2f] font-bold flex items-center gap-1">
+            <MSI name="schedule" className="text-sm" />
+            約{store.takeout_default_wait_minutes}分で受取
+          </p>
+        )}
+
         {/* アクション */}
-        <div className="flex gap-2 pt-1">
-          <a
-            href={store.google_maps_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors"
-          >
-            <MSI name="map" className="text-base" />
-            地図で見る
-          </a>
-          {miniUrl && (
+        <div className="space-y-2 pt-1">
+          {store.can_accept_takeout && store.slug && (
             <a
-              href={miniUrl}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#c21e2f] hover:bg-[#a01828] text-white font-bold text-xs transition-colors"
+              href={`/${store.slug}/takeout`}
+              className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#c21e2f] hover:bg-[#a01828] text-white font-black text-xs transition-colors"
             >
-              <MSI name="storefront" className="text-base" />
-              お店へ
+              <MSI name="shopping_bag" className="text-base" />
+              テイクアウト注文（事前決済）
             </a>
           )}
+          <div className="flex gap-2">
+            <a
+              href={store.google_maps_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors"
+            >
+              <MSI name="map" className="text-base" />
+              地図で見る
+            </a>
+            {miniUrl && (
+              <a
+                href={miniUrl}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors"
+              >
+                <MSI name="storefront" className="text-base" />
+                お店へ
+              </a>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -103,6 +130,10 @@ function NearbyPanel() {
   const [loading, setLoading] = useState(false)
   const [radius, setRadius] = useState(800)
   const [foodRescueOnly, setFoodRescueOnly] = useState(false)
+  const [takeoutOnly, setTakeoutOnly] = useState(false)
+  const [openOnly, setOpenOnly] = useState(false)
+  const [viewMode, setViewMode] = useState('list')   // 'list' | 'map'
+  const [searchCenter, setSearchCenter] = useState(null)
   const [searchError, setSearchError] = useState(null)
 
   const requestLocation = () => {
@@ -114,6 +145,7 @@ function NearbyPanel() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+        setSearchCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude })
         setGeoState('granted')
       },
       () => setGeoState('denied'),
@@ -122,25 +154,25 @@ function NearbyPanel() {
   }
 
   const searchNearby = useCallback(async () => {
-    if (!coords) return
+    if (!searchCenter) return
     setLoading(true)
     setSearchError(null)
     try {
       const res = await axios.get('/api/public/discover/nearby', {
-        params: { lat: coords.lat, lng: coords.lng, radius, food_rescue_only: foodRescueOnly },
+        params: { lat: searchCenter.lat, lng: searchCenter.lng, radius, food_rescue_only: foodRescueOnly, takeout_only: takeoutOnly, open_only: openOnly },
       })
       setStores(res.data.items || [])
-    } catch (e) {
+    } catch {
       setSearchError('検索に失敗しました。もう一度お試しください。')
     }
     setLoading(false)
-  }, [coords, radius, foodRescueOnly])
+  }, [searchCenter, radius, foodRescueOnly, takeoutOnly, openOnly])
 
   // 座標 or フィルター変更時に自動再検索
   useEffect(() => {
-    if (coords) searchNearby()
+    if (searchCenter) searchNearby()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coords, radius, foodRescueOnly])
+  }, [searchCenter, radius, foodRescueOnly, takeoutOnly, openOnly])
 
   // ── 位置未取得 ──
   if (geoState === 'idle') {
@@ -226,11 +258,41 @@ function NearbyPanel() {
           割引中のみ
         </button>
 
-        {/* 現在地アイコン + 再検索 */}
+        {/* テイクアウト可フィルター */}
+        <button
+          onClick={() => setTakeoutOnly(v => !v)}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold border transition-colors ${
+            takeoutOnly
+              ? 'bg-[#c21e2f] text-white border-[#c21e2f] shadow-md'
+              : 'bg-white text-slate-600 border-slate-200 hover:border-[#c21e2f]'
+          }`}
+        >
+          <span>🛍</span>
+          事前決済可のみ
+        </button>
+
+        {/* 営業中のみフィルター */}
+        <button
+          onClick={() => setOpenOnly(v => !v)}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold border transition-colors ${
+            openOnly ? 'bg-emerald-500 text-white border-emerald-500 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-400'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[14px]">storefront</span>
+          営業中のみ
+        </button>
+
+        {/* リスト/地図トグル + 再検索 */}
+        <div className="ml-auto flex items-center gap-1 bg-white border border-slate-200 rounded-full px-1 py-1">
+          <button onClick={() => setViewMode('list')}
+            className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${viewMode === 'list' ? 'bg-[#c21e2f] text-white' : 'text-slate-500 hover:text-[#c21e2f]'}`}>リスト</button>
+          <button onClick={() => setViewMode('map')}
+            className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${viewMode === 'map' ? 'bg-[#c21e2f] text-white' : 'text-slate-500 hover:text-[#c21e2f]'}`}>地図</button>
+        </div>
         <button
           onClick={searchNearby}
           disabled={loading}
-          className="ml-auto p-2 rounded-full bg-white border border-slate-200 text-slate-500 hover:text-[#c21e2f] hover:border-[#c21e2f] transition-colors disabled:opacity-40"
+          className="p-2 rounded-full bg-white border border-slate-200 text-slate-500 hover:text-[#c21e2f] hover:border-[#c21e2f] transition-colors disabled:opacity-40"
           title="再検索"
         >
           <MSI name="refresh" className="text-base" />
@@ -261,8 +323,20 @@ function NearbyPanel() {
         </div>
       )}
 
+      {/* 結果マップ */}
+      {viewMode === 'map' && coords && (
+        <DiscoverNearbyMap
+          stores={stores}
+          userCoords={coords}
+          searchCenter={searchCenter || coords}
+          radius={radius}
+          loading={loading}
+          onResearch={(c) => setSearchCenter(c)}
+        />
+      )}
+
       {/* 結果リスト */}
-      {!loading && stores.length > 0 && (
+      {!loading && viewMode === 'list' && stores.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {stores.map(store => (
             <StoreCard key={store.store_id} store={store} />
@@ -298,6 +372,10 @@ export default function DiscoverView() {
 
   const [filters, setFilters] = useState({ regions: [], categories: [], sort_options: {} })
   const [selectedStore, setSelectedStore] = useState(null)
+  const selectedStoreData = useMemo(
+    () => items.find(it => it.store_id === selectedStore) ?? null,
+    [selectedStore, items]
+  )
 
   const LIMIT = 20
 
@@ -491,7 +569,7 @@ export default function DiscoverView() {
             )}
 
             {selectedStore && (
-              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
+              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2">
                 <div className="flex items-center gap-2 bg-[#1b1b1d] text-white px-5 py-3 rounded-full shadow-xl text-sm font-bold">
                   <MSI name="store" className="text-base" />
                   このお店のメニューを表示中
@@ -499,6 +577,15 @@ export default function DiscoverView() {
                     <MSI name="close" className="text-base" />
                   </button>
                 </div>
+                {selectedStoreData?.can_accept_takeout && selectedStoreData.slug && (
+                  <a
+                    href={`/${selectedStoreData.slug}/takeout`}
+                    className="flex items-center gap-1.5 bg-[#c21e2f] hover:bg-[#a01828] text-white px-5 py-3 rounded-full shadow-xl text-sm font-black"
+                  >
+                    <MSI name="shopping_bag" className="text-base" />
+                    テイクアウト注文
+                  </a>
+                )}
               </div>
             )}
           </>

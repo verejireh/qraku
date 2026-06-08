@@ -162,7 +162,7 @@ function NearbyPanel() {
         params: { lat: searchCenter.lat, lng: searchCenter.lng, radius, food_rescue_only: foodRescueOnly, takeout_only: takeoutOnly, open_only: openOnly },
       })
       setStores(res.data.items || [])
-    } catch (e) {
+    } catch {
       setSearchError('検索に失敗しました。もう一度お試しください。')
     }
     setLoading(false)
@@ -324,11 +324,13 @@ function NearbyPanel() {
       )}
 
       {/* 結果マップ */}
-      {!loading && viewMode === 'map' && stores.length > 0 && coords && (
+      {viewMode === 'map' && coords && (
         <DiscoverNearbyMap
           stores={stores}
           userCoords={coords}
+          searchCenter={searchCenter || coords}
           radius={radius}
+          loading={loading}
           onResearch={(c) => setSearchCenter(c)}
         />
       )}

@@ -6,11 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import case, literal_column, text
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from database import get_session
 from models import Store, Menu, Order, OrderItem, Table
-from datetime import datetime, timedelta
+from datetime import timedelta
 from utils.time_helpers import now_utc_naive
 from utils.takeout import can_accept_takeout_from_store
 from utils.nearby import find_nearby_stores

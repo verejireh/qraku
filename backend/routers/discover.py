@@ -352,6 +352,7 @@ async def discover_nearby(
         "center": {"lat": lat, "lng": lng},
         "radius_m": radius,
         "food_rescue_only": food_rescue_only,
+        "takeout_only": takeout_only,
     }
 
 

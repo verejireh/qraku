@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import axios from 'axios'
+import DiscoverNearbyMap from '../components/DiscoverNearbyMap'
 
 const SORT_OPTIONS = [
   { key: 'popular',     label: '人気順',     sublabel: 'テーブル当たり注文数',  icon: 'local_fire_department' },
@@ -120,6 +121,8 @@ function NearbyPanel() {
   const [radius, setRadius] = useState(800)
   const [foodRescueOnly, setFoodRescueOnly] = useState(false)
   const [takeoutOnly, setTakeoutOnly] = useState(false)
+  const [viewMode, setViewMode] = useState('list')   // 'list' | 'map'
+  const [searchCenter, setSearchCenter] = useState(null)
   const [searchError, setSearchError] = useState(null)
 
   const requestLocation = () => {
@@ -131,6 +134,7 @@ function NearbyPanel() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+        setSearchCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude })
         setGeoState('granted')
       },
       () => setGeoState('denied'),
@@ -139,25 +143,25 @@ function NearbyPanel() {
   }
 
   const searchNearby = useCallback(async () => {
-    if (!coords) return
+    if (!searchCenter) return
     setLoading(true)
     setSearchError(null)
     try {
       const res = await axios.get('/api/public/discover/nearby', {
-        params: { lat: coords.lat, lng: coords.lng, radius, food_rescue_only: foodRescueOnly, takeout_only: takeoutOnly },
+        params: { lat: searchCenter.lat, lng: searchCenter.lng, radius, food_rescue_only: foodRescueOnly, takeout_only: takeoutOnly },
       })
       setStores(res.data.items || [])
     } catch (e) {
       setSearchError('検索に失敗しました。もう一度お試しください。')
     }
     setLoading(false)
-  }, [coords, radius, foodRescueOnly, takeoutOnly])
+  }, [searchCenter, radius, foodRescueOnly, takeoutOnly])
 
   // 座標 or フィルター変更時に自動再検索
   useEffect(() => {
-    if (coords) searchNearby()
+    if (searchCenter) searchNearby()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coords, radius, foodRescueOnly, takeoutOnly])
+  }, [searchCenter, radius, foodRescueOnly, takeoutOnly])
 
   // ── 位置未取得 ──
   if (geoState === 'idle') {
@@ -256,11 +260,17 @@ function NearbyPanel() {
           事前決済可のみ
         </button>
 
-        {/* 現在地アイコン + 再検索 */}
+        {/* リスト/地図トグル + 再検索 */}
+        <div className="ml-auto flex items-center gap-1 bg-white border border-slate-200 rounded-full px-1 py-1">
+          <button onClick={() => setViewMode('list')}
+            className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${viewMode === 'list' ? 'bg-[#c21e2f] text-white' : 'text-slate-500 hover:text-[#c21e2f]'}`}>リスト</button>
+          <button onClick={() => setViewMode('map')}
+            className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${viewMode === 'map' ? 'bg-[#c21e2f] text-white' : 'text-slate-500 hover:text-[#c21e2f]'}`}>地図</button>
+        </div>
         <button
           onClick={searchNearby}
           disabled={loading}
-          className="ml-auto p-2 rounded-full bg-white border border-slate-200 text-slate-500 hover:text-[#c21e2f] hover:border-[#c21e2f] transition-colors disabled:opacity-40"
+          className="p-2 rounded-full bg-white border border-slate-200 text-slate-500 hover:text-[#c21e2f] hover:border-[#c21e2f] transition-colors disabled:opacity-40"
           title="再検索"
         >
           <MSI name="refresh" className="text-base" />
@@ -291,8 +301,18 @@ function NearbyPanel() {
         </div>
       )}
 
+      {/* 結果マップ */}
+      {!loading && viewMode === 'map' && stores.length > 0 && coords && (
+        <DiscoverNearbyMap
+          stores={stores}
+          userCoords={coords}
+          radius={radius}
+          onResearch={(c) => setSearchCenter(c)}
+        />
+      )}
+
       {/* 結果リスト */}
-      {!loading && stores.length > 0 && (
+      {!loading && viewMode === 'list' && stores.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {stores.map(store => (
             <StoreCard key={store.store_id} store={store} />

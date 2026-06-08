@@ -12,7 +12,7 @@ from database import get_session
 from models import Store, Menu, Order, OrderItem, Table
 from datetime import datetime, timedelta
 from utils.time_helpers import now_utc_naive
-from utils.takeout import can_accept_takeout
+from utils.takeout import can_accept_takeout, can_accept_takeout_from_store
 
 router = APIRouter(prefix="/public/discover", tags=["discover"])
 
@@ -74,7 +74,11 @@ async def discover_menus(
     """공개 메뉴 디스커버리 — 업주가 노출 동의한 가게의 메뉴 랭킹"""
 
     # 1. 공개 동의한 가게 목록 조회
-    store_query = select(Store).where(Store.allow_public_listing == True)
+    store_query = (
+        select(Store)
+        .where(Store.allow_public_listing == True)
+        .options(selectinload(Store.payment_settings))
+    )
     if prefecture:
         store_query = store_query.where(Store.prefecture == prefecture)
     if city:
@@ -88,6 +92,7 @@ async def discover_menus(
         return {"items": [], "total": 0, "page": page, "sort": sort, "sort_options": SORT_OPTIONS}
 
     store_map = {s.id: s for s in stores}
+    store_takeout = {s.id: can_accept_takeout_from_store(s) for s in stores}
     store_ids = list(store_map.keys())
 
     # 2. 주문 통계
@@ -148,6 +153,8 @@ async def discover_menus(
             "orders_per_table": st["orders_per_table"],
             "store_menu_count": store_menu_counts.get(s.id, 0),
             "created_at": s.created_at.isoformat() if s.created_at else None,
+            "slug": s.slug,
+            "can_accept_takeout": store_takeout.get(s.id, False),
         })
 
     # 7. 정렬
@@ -186,7 +193,11 @@ async def discover_stores(
     session: AsyncSession = Depends(get_session),
 ):
     """공개 가게 목록 — 지역별/랭킹별"""
-    query = select(Store).where(Store.allow_public_listing == True)
+    query = (
+        select(Store)
+        .where(Store.allow_public_listing == True)
+        .options(selectinload(Store.payment_settings))
+    )
     if prefecture:
         query = query.where(Store.prefecture == prefecture)
     if city:
@@ -213,6 +224,8 @@ async def discover_stores(
             "order_count": st["order_count"],
             "table_count": st["table_count"],
             "orders_per_table": st["orders_per_table"],
+            "slug": s.slug,
+            "can_accept_takeout": can_accept_takeout_from_store(s),
         })
 
     if sort == "popular":

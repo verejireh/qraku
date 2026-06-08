@@ -81,3 +81,18 @@ def test_has_online_payment_independent_of_takeout_flag():
     )
     assert has_online_payment_from_store(store) is True
     assert can_accept_takeout_from_store(store) is False
+
+
+def test_paypay_method_with_only_square_is_false():
+    assert can_accept_takeout(takeout_enabled=True, has_store_square=False,
+        ps_method_type="PAYPAY_DIRECT", has_ps_square=True, has_ps_paypay=False) is False
+
+
+def test_square_method_with_only_paypay_is_false():
+    assert can_accept_takeout(takeout_enabled=True, has_store_square=False,
+        ps_method_type="SQUARE_INTEGRATED", has_ps_square=False, has_ps_paypay=True) is False
+
+
+def test_counter_pay_with_legacy_store_square_is_false():
+    assert can_accept_takeout(takeout_enabled=True, has_store_square=True,
+        ps_method_type="PAY_AT_COUNTER", has_ps_square=False, has_ps_paypay=False) is False

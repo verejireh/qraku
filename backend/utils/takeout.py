@@ -17,21 +17,20 @@ def _method_value(v: Any) -> Optional[str]:
 def has_online_payment(
     *,
     has_store_square: bool,
-    ps_method_type: Optional[str],
+    ps_method_type,
     has_ps_square: bool,
     has_ps_paypay: bool,
 ) -> bool:
-    """온라인 결제수단이 연동되어 있는가.
-
-    = Store 레벨 Square  OR  PaymentSettings(非 PAY_AT_COUNTER, Square 또는 PayPay).
-    """
+    """온라인 결제수단이 연동되어 있는가 — 선택된 결제방식에 정확히 매칭."""
     method = _method_value(ps_method_type)
-    has_ps = (
-        method is not None
-        and method != "PAY_AT_COUNTER"
-        and (has_ps_square or has_ps_paypay)
-    )
-    return bool(has_store_square or has_ps)
+    if method == "PAY_AT_COUNTER":
+        return False
+    if method == "PAYPAY_DIRECT":
+        return bool(has_ps_paypay)
+    if method == "SQUARE_INTEGRATED":
+        return bool(has_ps_square or has_store_square)
+    # PaymentSettings 행이 없는 레거시 매장 → Store-level Square
+    return bool(has_store_square)
 
 
 def can_accept_takeout(

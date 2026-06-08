@@ -166,3 +166,4 @@
 | 2026-06-07 | S0 셋업 | 브랜치 `discover_build` 분리 + 본 워크플랜·하네스 규정 작성 |
 | 2026-06-08 | S1 발견→선결제 | 완료. 공통 헬퍼(`utils/takeout.py`)+9테스트, discover 3엔드포인트에 `can_accept_takeout`·`slug`, 근처/랭킹 카드 테이크아웃 CTA·뱃지·필터. 7 Task 전부 스펙+품질 리뷰 통과, Opus 최종리뷰 Ready. pytest 9/9·빌드 OK. 커밋 6a78a53…04fe715. (main 미병합 — 누적) |
 | 2026-06-08 | S1.5 Square 온보딩 | 완료. AdminPaymentView Square 미연동 시 "단말기 불필요·3단계(가입/활성화/연동)·카드+PayPay" 인라인 안내 카드 + 기존 가이드 링크. 스펙+품질 리뷰 통과, 빌드 OK. 커밋 5138de1. (main 미병합) |
+| 2026-06-08 | S2 지도 UI | 완료. Leaflet+react-leaflet v5(무료 OSM 타일), 신규 `DiscoverNearbyMap.jsx`(CircleMarker 핀·반경·내위치), NearbyPanel 리스트/지도 토글(기본 리스트)+온디맨드 「このエリアを再検索」(자동검색 없음=비용안전), 핀 팝업 테이크아웃 CTA·お店へ·구글맵 핸드오프. 백엔드 무수정. 스펙+품질 리뷰 통과, 빌드 OK·신규 lint 0. 커밋 (deps)…a20f89a·c3fc103. (main 미병합) |

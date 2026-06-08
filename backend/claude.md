@@ -183,6 +183,10 @@ STRIPE_SIXMONTH_OPEN_PRICE_ID=...  # Data-open ¥11,880/6mo
 STRIPE_YEARLY_OPEN_PRICE_ID=...    # Data-open ¥17,800/yr
 FRONTEND_BASE_URL=https://qraku.com  # PayPay 콜백용
 VISION_API_KEY=...              # GCP Vision API (사진 NSFW 자동 차단, 선택)
+# LINE 위치봇 (S4) — 플랫폼 LINE 공식계정/Messaging API
+LINE_CHANNEL_ACCESS_TOKEN=...   # LINE 봇 reply 호출 (없으면 봇 비활성)
+LINE_CHANNEL_SECRET=...         # LINE 웹훅 서명검증 (/api/webhooks/line)
+LINE_LIFF_ID=...                # 봇 카드 주문버튼 LIFF 자동로그인 URL용 (없으면 일반 https 폴백)
 ```
 
 ---

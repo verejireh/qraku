@@ -12,6 +12,7 @@ from database import get_session
 from models import Store, Menu, Order, OrderItem, Table
 from datetime import datetime, timedelta
 from utils.time_helpers import now_utc_naive
+from utils.takeout import can_accept_takeout
 
 router = APIRouter(prefix="/public/discover", tags=["discover"])
 
@@ -230,6 +231,7 @@ async def discover_nearby(
     lng: float = Query(..., description="현재 경도 (예: 138.9337)"),
     radius: int = Query(800, ge=100, le=5000, description="검색 반경(m). 기본 800m = 도보 10분"),
     food_rescue_only: bool = Query(False, description="마감 할인 진행 중 매장만"),
+    takeout_only: bool = Query(False, description="온라인 선결제 가능 매장만"),
     session: AsyncSession = Depends(get_session),
 ):
     """위경도 기준 반경 내 공개 매장 목록 (PostGIS ST_DWithin, 거리 오름차순, max 20).
@@ -267,11 +269,17 @@ async def discover_nearby(
             s.about_description,
             s.specialty,
             s.business_hours,
+            s.takeout_enabled,
+            (s.square_access_token IS NOT NULL AND s.square_location_id IS NOT NULL) AS has_store_square,
+            ps.payment_method_type AS ps_method_type,
+            (ps.square_access_token IS NOT NULL AND ps.square_location_id IS NOT NULL) AS has_ps_square,
+            (ps.paypay_api_key IS NOT NULL) AS has_ps_paypay,
             ST_Distance(
                 ST_MakePoint(s.longitude, s.latitude)::geography,
                 ST_MakePoint(:lng, :lat)::geography
             ) AS distance_m
         FROM store s
+        LEFT JOIN paymentsettings ps ON ps.store_id = s.id
         WHERE s.allow_public_listing = TRUE
           AND s.latitude IS NOT NULL
           AND s.longitude IS NOT NULL
@@ -312,7 +320,18 @@ async def discover_nearby(
             "business_hours": r["business_hours"],
             "distance_m": round(float(r["distance_m"]), 1),
             "google_maps_url": f"https://www.google.com/maps/?q={r['latitude']},{r['longitude']}",
+            "can_accept_takeout": can_accept_takeout(
+                takeout_enabled=bool(r["takeout_enabled"]),
+                has_store_square=bool(r["has_store_square"]),
+                ps_method_type=r["ps_method_type"],
+                has_ps_square=bool(r["has_ps_square"]),
+                has_ps_paypay=bool(r["has_ps_paypay"]),
+            ),
         })
+
+    if takeout_only:
+        # 참고: SQL LIMIT 이후의 파이썬 필터이므로 밀집 지역에선 20개 미만이 나올 수 있음(v1 허용).
+        items = [it for it in items if it["can_accept_takeout"]]
 
     return {
         "items": items,

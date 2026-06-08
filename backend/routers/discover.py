@@ -245,6 +245,7 @@ async def discover_nearby(
     radius: int = Query(800, ge=100, le=5000, description="검색 반경(m). 기본 800m = 도보 10분"),
     food_rescue_only: bool = Query(False, description="마감 할인 진행 중 매장만"),
     takeout_only: bool = Query(False, description="온라인 선결제 가능 매장만"),
+    open_only: bool = Query(False, description="영업중(is_open) 매장만"),
     session: AsyncSession = Depends(get_session),
 ):
     """위경도 기준 반경 내 공개 매장 목록 (PostGIS ST_DWithin, 거리 오름차순, max 20).
@@ -260,6 +261,7 @@ async def discover_nearby(
         if food_rescue_only
         else ""
     )
+    open_clause = "AND s.is_open = TRUE" if open_only else ""
 
     sql = text(f"""
         SELECT
@@ -283,6 +285,7 @@ async def discover_nearby(
             s.specialty,
             s.business_hours,
             s.takeout_enabled,
+            s.takeout_default_wait_minutes,
             (s.square_access_token IS NOT NULL AND s.square_location_id IS NOT NULL) AS has_store_square,
             ps.payment_method_type AS ps_method_type,
             (ps.square_access_token IS NOT NULL AND ps.square_location_id IS NOT NULL) AS has_ps_square,
@@ -302,6 +305,7 @@ async def discover_nearby(
               :radius
           )
           {food_rescue_clause}
+          {open_clause}
         ORDER BY distance_m ASC
         LIMIT 20
     """)
@@ -340,6 +344,7 @@ async def discover_nearby(
                 has_ps_square=bool(r["has_ps_square"]),
                 has_ps_paypay=bool(r["has_ps_paypay"]),
             ),
+            "takeout_default_wait_minutes": r["takeout_default_wait_minutes"],
         })
 
     if takeout_only:
@@ -353,6 +358,7 @@ async def discover_nearby(
         "radius_m": radius,
         "food_rescue_only": food_rescue_only,
         "takeout_only": takeout_only,
+        "open_only": open_only,
     }
 
 

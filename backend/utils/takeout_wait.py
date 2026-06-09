@@ -4,6 +4,7 @@ dynamic = min(base + backlog × MINUTES_PER_ORDER, WAIT_CAP_MINUTES)
 Redis 60초 TTL 로 매장별 backlog 캐싱. Redis 불가 시 직접 계산 폴백 — /nearby 절대 안 깨짐.
 """
 import logging
+import random
 from typing import Iterable, Optional, Tuple
 
 from sqlmodel import select, func
@@ -15,7 +16,8 @@ from utils.order_store import all_shop_id_candidates, shop_id_to_store_id
 logger = logging.getLogger(__name__)
 
 MINUTES_PER_ORDER = 3
-WAIT_CAP_MINUTES = 60
+# 상한은 **혼잡 가산분에만** 적용한다(업주가 설정한 base 는 줄이지 않는다 — admin 은 최대 120분 허용).
+SURCHARGE_CAP_MINUTES = 60
 CACHE_TTL_SECONDS = 60
 _CACHE_PREFIX = "discover:wait:backlog:"  # +{store_id} -> backlog count (str)
 
@@ -24,9 +26,14 @@ StoreWaitKey = Tuple[int, Optional[str], Optional[int]]
 
 
 def dynamic_wait_minutes(base: Optional[int], backlog: int) -> int:
-    """순수 산식. base 가 없으면 15 로 간주."""
+    """순수 산식. base 가 없으면 15 로 간주. 음수 backlog 는 0 으로 정규화.
+
+    dynamic = base + min(backlog × MINUTES_PER_ORDER, SURCHARGE_CAP_MINUTES)
+    → base(업주 설정, 최대 120)는 그대로 두고 혼잡 가산분만 상한.
+    """
     b = base if base and base > 0 else 15
-    return min(b + backlog * MINUTES_PER_ORDER, WAIT_CAP_MINUTES)
+    backlog = max(int(backlog), 0)
+    return b + min(backlog * MINUTES_PER_ORDER, SURCHARGE_CAP_MINUTES)
 
 
 async def _query_backlog(session: AsyncSession, candidates: list[str], rev: dict[str, int]) -> dict[int, int]:
@@ -92,7 +99,9 @@ async def compute_dynamic_waits(session: AsyncSession, stores: Iterable[StoreWai
             try:
                 pipe = redis.pipeline()
                 for sid in miss_ids:
-                    pipe.set(f"{_CACHE_PREFIX}{sid}", str(backlog[sid]), ex=CACHE_TTL_SECONDS)
+                    # TTL jitter — 동시 만료에 따른 캐시 스탬피드 완화
+                    ttl = CACHE_TTL_SECONDS + random.randint(0, 15)
+                    pipe.set(f"{_CACHE_PREFIX}{sid}", str(backlog[sid]), ex=ttl)
                 await pipe.execute()
             except Exception:
                 logger.debug("takeout_wait: Redis 캐시 기록 실패 (무시)", exc_info=True)

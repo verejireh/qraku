@@ -133,37 +133,16 @@ async def transfer_table(table_id: int, body: TableTransferRequest, session: Asy
         target.session_token = source.session_token or str(uuid.uuid4())
         target.guest_count = source.guest_count
 
-    # Move unpaid orders
+    # Move unpaid orders — 정규 store_id 로 단일 조회
     orders_result = await session.execute(
         select(Order).where(
             Order.table_number == source.table_number,
-            Order.shop_id == str(source.store_id),
+            Order.store_id == source.store_id,
             Order.session_token == source.session_token,
             Order.payment_status == "unpaid"
         )
     )
-    # Also try with slug
-    store = await session.get(Store, source.store_id)
-    if store:
-        orders_result2 = await session.execute(
-            select(Order).where(
-                Order.table_number == source.table_number,
-                Order.shop_id == store.slug,
-                Order.session_token == source.session_token,
-                Order.payment_status == "unpaid"
-            )
-        )
-        orders = list(orders_result.scalars().all()) + list(orders_result2.scalars().all())
-        # Deduplicate
-        seen = set()
-        unique_orders = []
-        for o in orders:
-            if o.id not in seen:
-                seen.add(o.id)
-                unique_orders.append(o)
-        orders = unique_orders
-    else:
-        orders = list(orders_result.scalars().all())
+    orders = list(orders_result.scalars().all())
 
     moved_count = 0
     for order in orders:
@@ -368,7 +347,7 @@ async def get_register_tables(shop_id: str, session: AsyncSession = Depends(get_
     
     orders_result = await session.execute(
         select(Order).where(
-            Order.shop_id == store.slug,
+            Order.store_id == store.id,
             Order.payment_status != "paid",
             Order.status != "cancelled"
         )

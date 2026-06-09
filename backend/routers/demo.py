@@ -225,16 +225,11 @@ async def _cleanup_expired_temp_stores(session: AsyncSession, now: datetime):
 
         for store in expired_stores:
             sid = store.id
-            # shop_id として使われうる値（slug + str(id)）
-            shop_variants = [str(sid)]
-            if store.slug:
-                shop_variants.append(store.slug)
 
             try:
-                # 1. OrderItem → Order（shop_id は文字列なので IN で検索）
-                placeholders = ",".join(f"'{v}'" for v in shop_variants)
+                # 1. OrderItem → Order (정규 store_id 로 조회)
                 order_rows = await session.execute(
-                    _text(f"SELECT id FROM {_order_tbl} WHERE shop_id IN ({placeholders})")
+                    _text(f"SELECT id FROM {_order_tbl} WHERE store_id = {sid}")
                 )
                 order_ids = [row[0] for row in order_rows.all()]
                 if order_ids:
@@ -300,7 +295,7 @@ async def get_demo_orders(store_slug: str, session: AsyncSession = Depends(get_s
     # 해당 스토어의 최근 주문 (최대 200개)
     orders_result = await session.execute(
         _select(Order)
-        .where(Order.shop_id == store_slug)
+        .where(Order.store_id == store.id)
         .options(_selectinload(Order.items))
         .order_by(Order.created_at.desc())
         .limit(200)

@@ -26,10 +26,6 @@ def _assert_store_access(admin_store: Store, shop_id: str) -> None:
         raise HTTPException(status_code=403, detail="Access denied: store mismatch")
 
 
-async def _resolve_shop_id(shop_id: str, session: AsyncSession) -> Optional[str]:
-    """slug 혹은 숫자 ID 문자열 그대로 Order.shop_id 형식으로 반환"""
-    return shop_id
-
 
 @router.get("/summary")
 async def get_summary(
@@ -46,7 +42,7 @@ async def get_summary(
         func.coalesce(func.sum(Order.total_amount), 0).label("total_sales"),
         func.count(Order.id).label("total_orders")
     ).where(
-        Order.shop_id == shop_id,
+        Order.store_id == admin_store.id,
         Order.created_at >= since
     )
     result = await session.execute(q_sales)
@@ -79,7 +75,7 @@ async def get_daily_sales(
         func.coalesce(func.sum(Order.total_amount), 0).label("sales"),
         func.count(Order.id).label("orders")
     ).where(
-        Order.shop_id == shop_id,
+        Order.store_id == admin_store.id,
         Order.created_at >= since
     ).group_by(
         date_only(Order.created_at)
@@ -112,7 +108,7 @@ async def get_hourly_orders(
         hour(Order.created_at).label("hour"),
         func.count(Order.id).label("count")
     ).where(
-        Order.shop_id == shop_id,
+        Order.store_id == admin_store.id,
         Order.created_at >= today_start,
         Order.created_at < today_end,
     ).group_by(
@@ -151,7 +147,7 @@ async def get_top_menus(
     ).join(
         Order, Order.id == OrderItem.order_id
     ).where(
-        Order.shop_id == shop_id,
+        Order.store_id == admin_store.id,
         Order.created_at >= since
     ).group_by(
         OrderItem.menu_item_id
@@ -202,7 +198,7 @@ async def get_sales_by_category(
     ).join(
         Menu, Menu.id == func.cast(OrderItem.menu_item_id, Menu.id.type)
     ).where(
-        Order.shop_id == shop_id,
+        Order.store_id == admin_store.id,
         Order.created_at >= since
     ).group_by(Menu.category).order_by(desc(func.sum(OrderItem.quantity * OrderItem.unit_price)))
 
@@ -233,7 +229,7 @@ async def get_sales_by_menu(
     ).join(
         Order, Order.id == OrderItem.order_id
     ).where(
-        Order.shop_id == shop_id,
+        Order.store_id == admin_store.id,
         Order.created_at >= since
     ).group_by(OrderItem.menu_item_id).order_by(
         desc(func.sum(OrderItem.quantity * OrderItem.unit_price))
@@ -275,7 +271,7 @@ async def get_hourly_guests(
         hour(Order.created_at).label("hour"),
         func.count(func.distinct(Order.table_number)).label("guests")
     ).where(
-        Order.shop_id == shop_id,
+        Order.store_id == admin_store.id,
         Order.created_at >= day_start,
         Order.created_at < day_end,
     ).group_by(hour(Order.created_at)).order_by(hour(Order.created_at))
@@ -308,7 +304,7 @@ async def get_monthly_sales(
         func.coalesce(func.sum(Order.total_amount), 0).label("sales"),
         func.count(Order.id).label("orders")
     ).where(
-        Order.shop_id == shop_id,
+        Order.store_id == admin_store.id,
         Order.created_at >= since
     ).group_by(
         year(Order.created_at), month(Order.created_at)
@@ -340,7 +336,7 @@ async def get_weekly_sales(
         func.coalesce(func.sum(Order.total_amount), 0).label("sales"),
         func.count(Order.id).label("orders")
     ).where(
-        Order.shop_id == shop_id,
+        Order.store_id == admin_store.id,
         Order.created_at >= since
     ).group_by(
         day_of_week(Order.created_at)

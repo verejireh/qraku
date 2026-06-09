@@ -112,10 +112,10 @@ async def get_store_detail(
 
     # Counts
     order_count = (await session.execute(
-        select(func.count(Order.id)).where(Order.shop_id == slug)
+        select(func.count(Order.id)).where(Order.store_id == store_id)
     )).scalar() or 0
     revenue = (await session.execute(
-        select(func.sum(Order.total_amount)).where(Order.shop_id == slug)
+        select(func.sum(Order.total_amount)).where(Order.store_id == store_id)
     )).scalar() or 0
     menu_count = (await session.execute(
         select(func.count(Menu.id)).where(Menu.store_id == store_id)
@@ -130,15 +130,15 @@ async def get_store_detail(
     # Last 7 days
     week_ago = days_ago_jst_as_utc_naive(7)  # [PG-DT-MIGRATE-02b]
     orders_7d = (await session.execute(
-        select(func.count(Order.id)).where(Order.shop_id == slug, Order.created_at >= week_ago)
+        select(func.count(Order.id)).where(Order.store_id == store_id, Order.created_at >= week_ago)
     )).scalar() or 0
     revenue_7d = (await session.execute(
-        select(func.sum(Order.total_amount)).where(Order.shop_id == slug, Order.created_at >= week_ago)
+        select(func.sum(Order.total_amount)).where(Order.store_id == store_id, Order.created_at >= week_ago)
     )).scalar() or 0
 
     # Last order
     last_order_res = await session.execute(
-        select(Order.created_at).where(Order.shop_id == slug).order_by(Order.created_at.desc()).limit(1)
+        select(Order.created_at).where(Order.store_id == store_id).order_by(Order.created_at.desc()).limit(1)
     )
     last_order_at = last_order_res.scalar()
 
@@ -150,7 +150,7 @@ async def get_store_detail(
             func.sum(Order.total_amount).label("rev"),
             func.count(Order.id).label("cnt")
         ).where(
-            Order.shop_id == slug,
+            Order.store_id == store_id,
             Order.created_at >= two_weeks_ago
         ).group_by(date_only(Order.created_at)).order_by(date_only(Order.created_at))
     )

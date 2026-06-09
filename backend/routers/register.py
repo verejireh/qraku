@@ -48,21 +48,12 @@ async def _resolve_store(shop_id: str, session: AsyncSession) -> Store:
     return store
 
 
-def _shop_id_variants(store: Store) -> list[str]:
-    """Order.shop_id 에 저장될 수 있는 값들 (slug 또는 str(id)) 반환"""
-    variants = [str(store.id)]
-    if store.slug:
-        variants.append(store.slug)
-    return variants
-
-
 async def _get_unpaid_orders_for_table(
     store: Store, table: Table, session: AsyncSession
 ) -> list[Order]:
     """해당 테이블의 현재 세션(unpaid) 주문 목록 반환"""
-    shop_variants = _shop_id_variants(store)
     stmt = select(Order).where(
-        Order.shop_id.in_(shop_variants),
+        Order.store_id == store.id,
         Order.table_number == table.table_number,
         Order.payment_status == "unpaid",
         Order.order_type == "eat_in",
@@ -129,7 +120,6 @@ async def get_register_tables(
     store = await _resolve_store(shop_id, session)
     if store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    shop_variants = _shop_id_variants(store)
 
     # 모든 테이블 조회
     t_result = await session.execute(
@@ -144,7 +134,7 @@ async def get_register_tables(
             func.sum(Order.total_amount).label("total"),
             func.count(Order.id).label("order_count"),
         ).where(
-            Order.shop_id.in_(shop_variants),
+            Order.store_id == store.id,
             Order.payment_status == "unpaid",
             Order.order_type == "eat_in",
         ).group_by(Order.table_number)
@@ -414,14 +404,13 @@ async def get_today_sales(
     store = await _resolve_store(shop_id, session)
     if store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    shop_variants = _shop_id_variants(store)
     # [2026-05-22] PG-DT-DG-04 — date_only equality (함수형 변환, B-tree 인덱스 못 씀)
     # → UTC range predicate 로 전환. Order.created_at 의 B-tree 인덱스 활용 가능.
     # semantic 동일: JST today 00:00 ~ JST 내일 00:00 의 UTC range.
     today_start, today_end = jst_day_range_as_utc_naive()
 
     stmt = select(Order).where(
-        Order.shop_id.in_(shop_variants),
+        Order.store_id == store.id,
         Order.payment_status == "paid",
         Order.created_at >= today_start,
         Order.created_at < today_end,
@@ -477,13 +466,12 @@ async def get_takeout_orders(
     store = await _resolve_store(shop_id, session)
     if store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    shop_variants = _shop_id_variants(store)
     # [2026-05-22] PG-DT-DG-04 — date_only equality → UTC range (인덱스 활용)
     today_start, today_end = jst_day_range_as_utc_naive()
 
     # 픽업 완료(served)된 주문은 픽업 큐에서 제외
     stmt = select(Order).where(
-        Order.shop_id.in_(shop_variants),
+        Order.store_id == store.id,
         Order.order_type == "take_out",
         Order.status != "served",
         (

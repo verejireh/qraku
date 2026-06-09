@@ -513,12 +513,9 @@ async def refund_order(
         if not order:
             raise HTTPException(status_code=404, detail="Not found")
 
-        # 멀티테넌시: 다른 매장 주문 접근 차단
-        shop_id = order.shop_id
-        if shop_id.isdigit():
-            owner_match = int(shop_id) == admin_store.id
-        else:
-            owner_match = shop_id == admin_store.slug
+        # 멀티테넌시: 다른 매장 주문 접근 차단 (정규 store_id)
+        owner_match = (order.store_id == admin_store.id) if order.store_id is not None \
+            else (order.shop_id == str(admin_store.id) or order.shop_id == admin_store.slug)
         if not owner_match:
             raise HTTPException(status_code=404, detail="Not found")
 

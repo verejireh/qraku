@@ -277,7 +277,8 @@ async def _auto_create_order_from_pending(
     discount_amount = max(0.0, item_subtotal - float(pending.amount))
 
     order = Order(
-        shop_id=str(pending.store_id),
+        store_id=pending.store_id,            # 정규 FK
+        shop_id=str(pending.store_id),        # dual-write (레거시 호환)
         table_number="0",
         session_token="takeout",
         guest_uuid=pending.guest_uuid,

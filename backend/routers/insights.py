@@ -37,7 +37,7 @@ async def get_visitors(
             date_only(Order.created_at).label("day"),
             func.count(Order.id).label("orders"),
             func.count(func.distinct(Order.guest_uuid)).label("unique_guests"),
-        ).where(Order.shop_id == shop_id, Order.created_at >= since)
+        ).where(Order.store_id == admin_store.id, Order.created_at >= since)
         .group_by(date_only(Order.created_at))
         .order_by(date_only(Order.created_at))
     )).all()
@@ -70,7 +70,7 @@ async def get_popular_menus(
             func.sum(OrderItem.quantity * OrderItem.unit_price).label("revenue"),
         )
         .join(Order, OrderItem.order_id == Order.id)
-        .where(Order.shop_id == shop_id, Order.created_at >= since)
+        .where(Order.store_id == admin_store.id, Order.created_at >= since)
         .group_by(OrderItem.menu_item_id)
         .order_by(func.sum(OrderItem.quantity).desc())
         .limit(limit)
@@ -118,7 +118,7 @@ async def get_rescue_effect(
             func.coalesce(func.sum(Order.total_amount), 0).label("revenue"),
             func.coalesce(func.avg(Order.total_amount), 0).label("avg_amount"),
         )
-        .where(Order.shop_id == shop_id, Order.created_at >= since)
+        .where(Order.store_id == admin_store.id, Order.created_at >= since)
         .group_by((Order.discount_amount > 0))
     )).all()
 
@@ -162,7 +162,7 @@ async def get_neighborhood_avg(
             func.count(Order.id).label("orders"),
             func.coalesce(func.sum(Order.total_amount), 0).label("revenue"),
             func.coalesce(func.avg(Order.total_amount), 0).label("avg_amount"),
-        ).where(Order.shop_id == shop_id, Order.created_at >= since)
+        ).where(Order.store_id == admin_store.id, Order.created_at >= since)
     )).one()
 
     # 동네 매장 slug 목록 (같은 prefecture, 공개 허용)
@@ -175,16 +175,16 @@ async def get_neighborhood_avg(
             "note": "prefecture 미설정 — AdminHomePageView 에서 설정하세요",
         }
 
-    neighbor_slugs_rows = (await session.execute(
-        select(Store.slug).where(
+    neighbor_rows = (await session.execute(
+        select(Store.id).where(
             Store.prefecture == prefecture,
             Store.allow_public_listing == True,
-            Store.slug != admin_store.slug,
+            Store.id != admin_store.id,
         )
     )).all()
-    neighbor_slugs = [r.slug for r in neighbor_slugs_rows]
+    neighbor_ids = [r.id for r in neighbor_rows]
 
-    if not neighbor_slugs:
+    if not neighbor_ids:
         return {
             "days": days,
             "my": {"orders": int(my_row.orders), "revenue": float(my_row.revenue), "avg_amount": float(my_row.avg_amount)},
@@ -196,7 +196,7 @@ async def get_neighborhood_avg(
         select(
             func.count(Order.id).label("orders"),
             func.coalesce(func.avg(Order.total_amount), 0).label("avg_amount"),
-        ).where(Order.shop_id.in_(neighbor_slugs), Order.created_at >= since)
+        ).where(Order.store_id.in_(neighbor_ids), Order.created_at >= since)
     )).one()
 
     return {

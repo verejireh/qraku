@@ -385,7 +385,7 @@ async def create_order(
         # PayPayCompleteView 가 두 번 호출되거나 새로고침해도 중복 주문 방지
         existing_by_source = await session.execute(
             select(Order).where(Order.session_token == order_in.session_token,
-                                Order.shop_id == order_in.shop_id,
+                                Order.store_id == store.id,
                                 Order.square_payment_id != None)  # noqa: E711
             .order_by(Order.created_at.desc()).limit(1)
         )
@@ -483,7 +483,8 @@ async def create_order(
     order_status = "pending" if is_paid else "pending_payment"
 
     db_order = Order(
-        shop_id=order_in.shop_id,
+        store_id=store.id,                 # 정규 FK
+        shop_id=order_in.shop_id,          # dual-write (레거시 호환)
         table_number=order_in.table_number,
         session_token=order_in.session_token,
         guest_uuid=order_in.guest_uuid,
@@ -644,7 +645,7 @@ class OrderStatusUpdate(SQLModel):
     status: str
 
 async def _resolve_store_by_shop_id(shop_id: str, session: AsyncSession) -> Store:
-    """Order.shop_id(slug 또는 str(id))로 Store를 조회한다."""
+    """Order.shop_id(slug 또는 str(id))로 Store를 조회한다. (레거시 폴백 전용)"""
     store_result = await session.execute(select(Store).where(Store.slug == shop_id))
     store = store_result.scalar_one_or_none()
     if not store:
@@ -654,6 +655,28 @@ async def _resolve_store_by_shop_id(shop_id: str, session: AsyncSession) -> Stor
             store = None
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
+    return store
+
+
+async def _store_of_order(order: Order, session: AsyncSession) -> Store:
+    """주문의 매장을 정규 store_id 로 조회. 구 데이터(store_id 미설정)는 shop_id 로 폴백."""
+    if order.store_id is not None:
+        store = await session.get(Store, order.store_id)
+        if store:
+            return store
+    return await _resolve_store_by_shop_id(order.shop_id, session)
+
+
+async def _store_of_order_opt(order: Order, session: AsyncSession) -> Optional[Store]:
+    """best-effort(알림 등) — 못 찾으면 None. store_id 우선, shop_id 폴백."""
+    if order.store_id is not None:
+        store = await session.get(Store, order.store_id)
+        if store:
+            return store
+    store_result = await session.execute(select(Store).where(Store.slug == order.shop_id))
+    store = store_result.scalar_one_or_none()
+    if not store and (order.shop_id or "").isdigit():
+        store = await session.get(Store, int(order.shop_id))
     return store
 
 
@@ -667,10 +690,10 @@ async def update_order_status(
     order = await session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    store = await _resolve_store_by_shop_id(order.shop_id, session)
+    store = await _store_of_order(order, session)
     if store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     order.status = status_update.status
     session.add(order)
     await session.commit()
@@ -694,15 +717,8 @@ async def update_order_status(
                                    "name_en": menu.name_en if menu else None,
                                    "quantity": oi.quantity})
 
-            # store_id 조회: shop_id(str)로 Store를 다시 조회
-            from models import Store
-            store_result = await session.execute(select(Store).where(Store.slug == order.shop_id))
-            notify_store = store_result.scalar_one_or_none()
-            if not notify_store:
-                try:
-                    notify_store = await session.get(Store, int(order.shop_id))
-                except (ValueError, TypeError):
-                    notify_store = None
+            # 정규 store_id 로 매장 조회 (best-effort)
+            notify_store = await _store_of_order_opt(order, session)
 
             if notify_store:
                 from utils.events import emit_order_completed_customer
@@ -722,7 +738,7 @@ async def pay_order(
     order = await session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    order_store = await _resolve_store_by_shop_id(order.shop_id, session)
+    order_store = await _store_of_order(order, session)
     if order_store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
@@ -731,14 +747,7 @@ async def pay_order(
     session.add(order)
 
     # Check if ALL unpaid orders for this table session are now paid → close table
-    from models import Store
-    store_result = await session.execute(select(Store).where(Store.slug == order.shop_id))
-    store = store_result.scalar_one_or_none()
-    if not store:
-        try:
-            store = await session.get(Store, int(order.shop_id))
-        except (ValueError, TypeError):
-            store = None
+    store = order_store
 
     closed_table = None
     if store and order.order_type != "take_out":
@@ -753,7 +762,7 @@ async def pay_order(
             # Count remaining unpaid orders for this table session (excluding current)
             remaining = await session.execute(
                 select(Order).where(
-                    Order.shop_id == order.shop_id,
+                    Order.store_id == order.store_id,
                     Order.table_number == order.table_number,
                     Order.session_token == order.session_token,
                     Order.payment_status == "unpaid",
@@ -795,7 +804,7 @@ async def update_item_status(
         raise HTTPException(status_code=404, detail="Order item not found")
     item_order = await session.get(Order, item.order_id)
     if item_order:
-        item_store = await _resolve_store_by_shop_id(item_order.shop_id, session)
+        item_store = await _store_of_order(item_order, session)
         if item_store.id != auth_store.id:
             raise HTTPException(status_code=403, detail="Access denied")
 
@@ -822,15 +831,8 @@ async def update_item_status(
     await session.commit()
 
     if order:
-        from models import Store
         from utils.events import emit_item_status_update, emit_item_ready_customer, emit_pickup_ready_customer
-        store_result = await session.execute(select(Store).where(Store.slug == order.shop_id))
-        store = store_result.scalar_one_or_none()
-        if not store:
-            try:
-                store = await session.get(Store, int(order.shop_id))
-            except (ValueError, TypeError):
-                store = None
+        store = await _store_of_order_opt(order, session)
         if store:
             await emit_item_status_update(session, store.id, item, order)
             if body.status == "cooking_complete":
@@ -879,17 +881,10 @@ async def bulk_mark_items_served(
     await session.commit()
 
     if affected_order_ids:
-        from models import Store
         from utils.events import emit_items_served
         sample_order = await session.get(Order, list(affected_order_ids)[0])
         if sample_order:
-            store_result = await session.execute(select(Store).where(Store.slug == sample_order.shop_id))
-            store = store_result.scalar_one_or_none()
-            if not store:
-                try:
-                    store = await session.get(Store, int(sample_order.shop_id))
-                except (ValueError, TypeError):
-                    store = None
+            store = await _store_of_order_opt(sample_order, session)
             if store:
                 await emit_items_served(session, store.id, item_ids)
 
@@ -905,7 +900,7 @@ async def delete_order(
     order = await session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    order_store = await _resolve_store_by_shop_id(order.shop_id, session)
+    order_store = await _store_of_order(order, session)
     if order_store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
@@ -961,18 +956,10 @@ async def read_orders(
     if store.id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Order.shop_id 에 slug 또는 str(id) 어느 쪽이 저장돼 있어도 조회한다.
-    candidate_ids = {store_id}
-    if store.slug:
-        candidate_ids.add(store.slug)
-    candidate_ids.add(str(store.id))
-
-    from sqlalchemy import or_
-    conditions = [Order.shop_id == cid for cid in candidate_ids]
-
+    # 정규 store_id 로 조회.
     query = (
         select(Order)
-        .where(or_(*conditions))
+        .where(Order.store_id == store.id)
         .options(selectinload(Order.items))
         .order_by(Order.created_at.desc())
     )

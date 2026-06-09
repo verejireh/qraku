@@ -2,11 +2,14 @@
 플랫폼 무관 근처 매장 검색 코어 (LINE, WhatsApp 등 어댑터에서 재사용 가능).
 SECURITY: 암호화 토큰 컬럼은 절대 SELECT 하지 않는다 — IS NOT NULL 불리언 플래그만 사용.
 """
+import logging
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from utils.takeout import can_accept_takeout
 from utils.takeout_wait import compute_dynamic_waits
+
+logger = logging.getLogger(__name__)
 
 
 async def find_nearby_stores(
@@ -134,11 +137,17 @@ async def find_nearby_stores(
             "takeout_default_wait_minutes": r["takeout_default_wait_minutes"],
         })
 
-    # 동적 픽업 대기 (Redis 60s 캐시, 실패 시 직접 계산 폴백)
-    wait_keys = [(it["store_id"], it["slug"], it["takeout_default_wait_minutes"]) for it in items]
+    # 동적 픽업 대기 (Redis 60s 캐시, 실패 시 직접 계산 폴백).
+    # 테이크아웃 가능 매장만 계산 — 불가/노출 제외 매장은 무의미하므로 null.
+    wait_keys = [
+        (it["store_id"], it["slug"], it["takeout_default_wait_minutes"])
+        for it in items if it["can_accept_takeout"]
+    ]
     try:
         dyn = await compute_dynamic_waits(session, wait_keys)
     except Exception:
+        # 가용성 유지(정적값 폴백)하되 실 장애는 로그로 남긴다(DB/프로그래밍 오류 탐지).
+        logger.warning("find_nearby_stores: 동적 대기 계산 실패 — 정적값 폴백", exc_info=True)
         dyn = {}
     for it in items:
         it["takeout_dynamic_wait_minutes"] = dyn.get(it["store_id"])

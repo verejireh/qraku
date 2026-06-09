@@ -29,9 +29,17 @@ def all_shop_id_candidates(stores: Iterable[StoreKey]) -> list[str]:
 
 
 def shop_id_to_store_id(stores: Iterable[StoreKey]) -> dict[str, int]:
-    """후보 shop_id 문자열 → 정규 Store.id 역매핑. 집계 결과를 매장으로 되돌릴 때."""
+    """후보 shop_id 문자열 → 정규 Store.id 역매핑. 집계 결과를 매장으로 되돌릴 때.
+
+    결정성 보장: slug 를 먼저 채운 뒤 str(id) 로 덮어쓴다. 따라서 숫자 slug 가 다른 매장의
+    실제 id 와 충돌하면 **정규키인 id 가 항상 우선**한다(입력 순서와 무관). id 는 유일하므로
+    str(id) 끼리는 충돌하지 않는다. (근본 위생: 숫자 전용 slug 금지·slug UNIQUE 는 후속 과제.)
+    """
+    stores = list(stores)
     m: dict[str, int] = {}
     for store_id, slug in stores:
-        for c in store_shop_id_candidates(store_id, slug):
-            m[c] = store_id
+        if slug:
+            m[slug] = store_id
+    for store_id, _ in stores:
+        m[str(store_id)] = store_id  # id 우선 — 숫자 slug 충돌 시 id 가 이긴다
     return m

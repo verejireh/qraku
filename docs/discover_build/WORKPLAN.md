@@ -164,6 +164,7 @@
 
 | 날짜 | 스테이지 | 결과 |
 |---|---|---|
+| 2026-06-09 | S3.5 동적 주방 대기시간 | 완료. 미완료 테이크아웃 적체→분 환산(`base + backlog×3`, 상한 60), Redis 60s 캐싱+실패 폴백. 신규 `utils/order_store.py`(shop_id 후보 단일헬퍼)·`utils/takeout_wait.py`. **기존 버그 동반수정**: `discover.py`가 존재하지 않는 `Order.store_id` 참조 → `Order.shop_id` 후보매칭으로 통일(`/menus`·`/stores` 집계 복구). `/nearby`·LINE카드에 `takeout_dynamic_wait_minutes` 추가(기존 키 불변), 리스트·지도 동적값 우선, admin 운영관리에 설명 카드. pytest 33/33(신규 8)·build OK·신규 lint 0. 커밋 abd6e69…c9c51a3. (별도: `loyalty_analytics.py` 동일계열 버그는 후속 과제로 분리.) |
 | 2026-06-09 | 외부 코드리뷰(GPT-5.5) 반영 | Imp1 LINE 멱등성 commit+ON CONFLICT(미커밋 버그 수정)·Imp2 온라인결제 판정 결제방식 매칭·Imp3 지도 searchCenter recenter+로딩유지·Imp4 takeout_only LIMIT 전 적용·Min1 PII 미저장·Min3 catch lint. 검증리뷰 통과, pytest 25/25·build OK·lint 0, /nearby 불변. 커밋 b30b4eb·3c043b2·55deb7d·53b913f·35eeeea |
 | 2026-06-07 | S0 셋업 | 브랜치 `discover_build` 분리 + 본 워크플랜·하네스 규정 작성 |
 | 2026-06-08 | S1 발견→선결제 | 완료. 공통 헬퍼(`utils/takeout.py`)+9테스트, discover 3엔드포인트에 `can_accept_takeout`·`slug`, 근처/랭킹 카드 테이크아웃 CTA·뱃지·필터. 7 Task 전부 스펙+품질 리뷰 통과, Opus 최종리뷰 Ready. pytest 9/9·빌드 OK. 커밋 6a78a53…04fe715. (main 미병합 — 누적) |

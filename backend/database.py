@@ -283,6 +283,10 @@ async def init_db():
         # [2026-05-20] SPC-09: Menu 실시간 재고
         "ALTER TABLE menu ADD COLUMN IF NOT EXISTS stock_today_total INTEGER NULL",
         "ALTER TABLE menu ADD COLUMN IF NOT EXISTS stock_today_sold INTEGER DEFAULT 0",
+        # [2026-06-09] S3.5: 디스커버리 동적 대기시간 backlog 집계용 부분 인덱스
+        # (미완료 테이크아웃 주문만 인덱싱 — /nearby backlog COUNT 가속, Redis 미스/장애 대비)
+        'CREATE INDEX IF NOT EXISTS idx_order_takeout_backlog ON "order"(shop_id) '
+        "WHERE order_type = 'take_out' AND payment_status = 'paid' AND needs_serving = TRUE",
     ]
 
     # 무시할 PG 에러 (컬럼/인덱스 이미 존재)

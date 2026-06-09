@@ -6,6 +6,7 @@ from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from utils.takeout import can_accept_takeout
+from utils.takeout_wait import compute_dynamic_waits
 
 
 async def find_nearby_stores(
@@ -37,7 +38,8 @@ async def find_nearby_stores(
         theme, latitude, longitude, is_open, food_rescue_active,
         food_rescue_manual_active, food_rescue_msg, food_rescue_auto_minutes,
         about_description, specialty, business_hours, distance_m,
-        google_maps_url, can_accept_takeout, takeout_default_wait_minutes
+        google_maps_url, can_accept_takeout, takeout_default_wait_minutes,
+        takeout_dynamic_wait_minutes
     """
     # takeout_only 시 SQL 단에서 여유 후보를 확보해 파이썬 필터 후 limit 건을 채운다.
     sql_limit = max(limit, 60) if takeout_only else limit
@@ -131,6 +133,15 @@ async def find_nearby_stores(
             ),
             "takeout_default_wait_minutes": r["takeout_default_wait_minutes"],
         })
+
+    # 동적 픽업 대기 (Redis 60s 캐시, 실패 시 직접 계산 폴백)
+    wait_keys = [(it["store_id"], it["slug"], it["takeout_default_wait_minutes"]) for it in items]
+    try:
+        dyn = await compute_dynamic_waits(session, wait_keys)
+    except Exception:
+        dyn = {}
+    for it in items:
+        it["takeout_dynamic_wait_minutes"] = dyn.get(it["store_id"])
 
     if takeout_only:
         items = [it for it in items if it["can_accept_takeout"]]

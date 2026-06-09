@@ -11,7 +11,6 @@ from sqlmodel import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Order
-from utils.order_store import all_shop_id_candidates, shop_id_to_store_id
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +20,8 @@ SURCHARGE_CAP_MINUTES = 60
 CACHE_TTL_SECONDS = 60
 _CACHE_PREFIX = "discover:wait:backlog:"  # +{store_id} -> backlog count (str)
 
-# (store_id, slug, base_wait_minutes)
-StoreWaitKey = Tuple[int, Optional[str], Optional[int]]
+# (store_id, base_wait_minutes)
+StoreWaitKey = Tuple[int, Optional[int]]
 
 
 def dynamic_wait_minutes(base: Optional[int], backlog: int) -> int:
@@ -36,24 +35,19 @@ def dynamic_wait_minutes(base: Optional[int], backlog: int) -> int:
     return b + min(backlog * MINUTES_PER_ORDER, SURCHARGE_CAP_MINUTES)
 
 
-async def _query_backlog(session: AsyncSession, candidates: list[str], rev: dict[str, int]) -> dict[int, int]:
-    """단일 GROUP BY 쿼리로 매장별 미완료 테이크아웃 주문 수 (ORM — 예약어/배열바인딩 회피)."""
-    if not candidates:
+async def _query_backlog(session: AsyncSession, store_ids: list[int]) -> dict[int, int]:
+    """단일 GROUP BY 쿼리로 매장별 미완료 테이크아웃 주문 수 (정규 store_id)."""
+    if not store_ids:
         return {}
     result = await session.execute(
-        select(Order.shop_id, func.count(Order.id).label("cnt"))
-        .where(Order.shop_id.in_(candidates))
+        select(Order.store_id, func.count(Order.id).label("cnt"))
+        .where(Order.store_id.in_(store_ids))
         .where(Order.order_type == "take_out")
         .where(Order.payment_status == "paid")
         .where(Order.needs_serving == True)  # noqa: E712 (SQLAlchemy 비교)
-        .group_by(Order.shop_id)
+        .group_by(Order.store_id)
     )
-    backlog: dict[int, int] = {}
-    for row in result:
-        sid = rev.get(row.shop_id)
-        if sid is not None:
-            backlog[sid] = backlog.get(sid, 0) + int(row.cnt)
-    return backlog
+    return {row.store_id: int(row.cnt) for row in result}
 
 
 async def compute_dynamic_waits(session: AsyncSession, stores: Iterable[StoreWaitKey]) -> dict[int, int]:
@@ -61,10 +55,8 @@ async def compute_dynamic_waits(session: AsyncSession, stores: Iterable[StoreWai
     stores = list(stores)
     if not stores:
         return {}
-    keys = [(sid, slug) for sid, slug, _ in stores]
-    slug_by_id = dict(keys)
-    base_by_id = {sid: base for sid, _, base in stores}
-    all_ids = [sid for sid, _, _ in stores]
+    base_by_id = {sid: base for sid, base in stores}
+    all_ids = [sid for sid, _ in stores]
 
     backlog: dict[int, int] = {}
     miss_ids: list[int] = list(all_ids)
@@ -88,10 +80,7 @@ async def compute_dynamic_waits(session: AsyncSession, stores: Iterable[StoreWai
 
     # 2) 캐시 미스 매장만 단일 쿼리 집계
     if miss_ids:
-        miss_keys = [(sid, slug_by_id.get(sid)) for sid in miss_ids]
-        candidates = all_shop_id_candidates(miss_keys)
-        rev = shop_id_to_store_id(miss_keys)
-        fresh = await _query_backlog(session, candidates, rev)
+        fresh = await _query_backlog(session, miss_ids)
         for sid in miss_ids:
             backlog[sid] = fresh.get(sid, 0)
         # 3) 캐시 기록 (실패 무시)

@@ -14,7 +14,6 @@ from datetime import timedelta
 from utils.time_helpers import now_utc_naive
 from utils.takeout import can_accept_takeout_from_store
 from utils.nearby import find_nearby_stores
-from utils.order_store import all_shop_id_candidates, shop_id_to_store_id
 from utils.takeout_wait import MINUTES_PER_ORDER, SURCHARGE_CAP_MINUTES
 
 router = APIRouter(prefix="/public/discover", tags=["discover"])
@@ -28,29 +27,22 @@ SORT_OPTIONS = {
 
 
 async def _get_store_order_stats(session: AsyncSession, stores: List[Store], days: int = 30) -> Dict[int, Dict]:
-    """최근 N일간 가게별 주문 통계 (총 주문수, 테이블 수). Order.shop_id(polymorphic) 기준."""
+    """최근 N일간 가게별 주문 통계 (총 주문수, 테이블 수). 정규 Order.store_id 기준."""
     if not stores:
         return {}
 
-    keys = [(s.id, s.slug) for s in stores]
     store_ids = [s.id for s in stores]
-    candidates = all_shop_id_candidates(keys)
-    rev = shop_id_to_store_id(keys)
 
     since = now_utc_naive() - timedelta(days=days)
 
-    # 최근 N일 주문수 — Order.shop_id 후보로 매칭 후 store.id 로 환원
+    # 최근 N일 주문수 — 정규 store_id 매칭
     order_result = await session.execute(
-        select(Order.shop_id, func.count(Order.id).label("order_count"))
-        .where(Order.shop_id.in_(candidates))
+        select(Order.store_id, func.count(Order.id).label("order_count"))
+        .where(Order.store_id.in_(store_ids))
         .where(Order.created_at >= since)
-        .group_by(Order.shop_id)
+        .group_by(Order.store_id)
     )
-    order_counts: Dict[int, int] = {}
-    for row in order_result:
-        sid = rev.get(row.shop_id)
-        if sid is not None:
-            order_counts[sid] = order_counts.get(sid, 0) + row.order_count
+    order_counts: Dict[int, int] = {row.store_id: row.order_count for row in order_result}
 
     # 테이블 수 (Table.store_id 는 실제 FK — 그대로)
     table_result = await session.execute(
@@ -122,16 +114,15 @@ async def discover_menus(
     menu_result = await session.execute(menu_query)
     menus: List[Menu] = menu_result.scalars().all()
 
-    # 4. 메뉴별 주문 수 집계 (최근 30일) — Menu 조인으로 소유권 제한 + Order.shop_id 후보 매칭.
-    #    OrderItem.menu_item_id 는 str(menu.id) 이므로 cast(int) 로 Menu.id 와 조인 (orders.py:686 패턴).
+    # 4. 메뉴별 주문 수 집계 (최근 30일) — Menu 조인으로 소유권 제한 + 정규 store_id 매칭.
+    #    OrderItem.menu_item_id 는 str(menu.id) 이므로 cast(Integer) 로 Menu.id 와 조인.
     since = now_utc_naive() - timedelta(days=30)
-    menu_candidates = all_shop_id_candidates([(s.id, s.slug) for s in stores])
     item_order_result = await session.execute(
         select(Menu.id.label("menu_id"), func.sum(OrderItem.quantity).label("qty"))
         .join(OrderItem, OrderItem.menu_item_id.cast(Integer) == Menu.id)
         .join(Order, Order.id == OrderItem.order_id)
         .where(Menu.store_id.in_(store_ids))
-        .where(Order.shop_id.in_(menu_candidates))
+        .where(Order.store_id.in_(store_ids))
         .where(Order.created_at >= since)
         .group_by(Menu.id)
     )

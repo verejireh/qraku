@@ -140,7 +140,7 @@ async def find_nearby_stores(
     # 동적 픽업 대기 (Redis 60s 캐시, 실패 시 직접 계산 폴백).
     # 테이크아웃 가능 매장만 계산 — 불가/노출 제외 매장은 무의미하므로 null.
     wait_keys = [
-        (it["store_id"], it["slug"], it["takeout_default_wait_minutes"])
+        (it["store_id"], it["takeout_default_wait_minutes"])
         for it in items if it["can_accept_takeout"]
     ]
     try:

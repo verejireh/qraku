@@ -203,9 +203,9 @@ async def get_neighborhood_avg(
         "days": days,
         "my": {"orders": int(my_row.orders), "revenue": float(my_row.revenue), "avg_amount": float(my_row.avg_amount)},
         "neighborhood": {
-            "store_count": len(neighbor_slugs),
+            "store_count": len(neighbor_ids),
             "avg_amount": float(nb_row.avg_amount),
-            "orders_per_store": round(int(nb_row.orders) / len(neighbor_slugs), 1),
+            "orders_per_store": round(int(nb_row.orders) / len(neighbor_ids), 1),
         },
-        "note": f"{prefecture} エリア {len(neighbor_slugs)} 店舗との比較",
+        "note": f"{prefecture} エリア {len(neighbor_ids)} 店舗との比較",
     }

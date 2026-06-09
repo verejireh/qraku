@@ -473,7 +473,7 @@ export default function SuperAdminView() {
                                     <h3 className="text-sm font-bold text-white mb-3">店舗ランキング（30日間売上）</h3>
                                     <div className="space-y-2">
                                         {storeRanking.slice(0, 10).map((s, i) => (
-                                            <div key={s.shop_id} className="flex items-center gap-3">
+                                            <div key={s.store_id} className="flex items-center gap-3">
                                                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black ${i === 0 ? 'bg-amber-500/20 text-amber-400' : i === 1 ? 'bg-slate-400/20 text-slate-300' : i === 2 ? 'bg-orange-500/20 text-orange-400' : 'bg-white/5 text-white/40'}`}>
                                                     {i + 1}
                                                 </span>

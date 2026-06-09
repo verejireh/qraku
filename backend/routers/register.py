@@ -533,8 +533,7 @@ async def complete_takeout(
     order = await session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    store = await _resolve_store(order.shop_id, session)
-    if store.id != auth_store.id:
+    if order.store_id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
     if order.order_type != "take_out":
         raise HTTPException(status_code=400, detail="Not a take-out order")
@@ -570,8 +569,7 @@ async def delete_order_item(
     order = await session.get(Order, item.order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    store = await _resolve_store(order.shop_id, session)
-    if store.id != auth_store.id:
+    if order.store_id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
     if order.payment_status == "paid":
         raise HTTPException(status_code=400, detail="Cannot delete item from a paid order")

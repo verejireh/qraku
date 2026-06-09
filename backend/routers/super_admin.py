@@ -108,8 +108,6 @@ async def get_store_detail(
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
 
-    slug = store.slug or str(store.id)
-
     # Counts
     order_count = (await session.execute(
         select(func.count(Order.id)).where(Order.store_id == store_id)
@@ -215,19 +213,19 @@ async def list_all_stores(
     results = await session.execute(statement)
     stores = results.scalars().all()
 
-    # Get per-store order count and revenue in bulk
-    store_slugs = [s.slug or str(s.id) for s in stores]
+    # Get per-store order count and revenue in bulk (정규 store_id)
+    store_ids = [s.id for s in stores]
     store_stats = {}
-    if store_slugs:
+    if store_ids:
         stats_q = await session.execute(
             select(
-                Order.shop_id,
+                Order.store_id,
                 func.count(Order.id).label("order_count"),
                 func.sum(Order.total_amount).label("revenue")
-            ).where(Order.shop_id.in_(store_slugs)).group_by(Order.shop_id)
+            ).where(Order.store_id.in_(store_ids)).group_by(Order.store_id)
         )
         for row in stats_q.all():
-            store_stats[row.shop_id] = {"order_count": row.order_count, "revenue": float(row.revenue or 0)}
+            store_stats[row.store_id] = {"order_count": row.order_count, "revenue": float(row.revenue or 0)}
 
     # Get per-store table/menu counts
     table_counts = {}
@@ -244,18 +242,17 @@ async def list_all_stores(
     for sid, cnt in mc_q.all():
         menu_counts[sid] = cnt
 
-    # Last order dates
+    # Last order dates (정규 store_id)
     last_orders = {}
     lo_q = await session.execute(
-        select(Order.shop_id, func.max(Order.created_at)).group_by(Order.shop_id)
+        select(Order.store_id, func.max(Order.created_at)).group_by(Order.store_id)
     )
-    for shop_id, last_at in lo_q.all():
-        last_orders[shop_id] = last_at.isoformat() if last_at else None
+    for sid, last_at in lo_q.all():
+        last_orders[sid] = last_at.isoformat() if last_at else None
 
     result = []
     for s in stores:
-        slug = s.slug or str(s.id)
-        ss = store_stats.get(slug, {"order_count": 0, "revenue": 0})
+        ss = store_stats.get(s.id, {"order_count": 0, "revenue": 0})
         result.append({
             "id": s.id,
             "name": s.name,
@@ -274,7 +271,7 @@ async def list_all_stores(
             "total_revenue": ss["revenue"],
             "table_count": table_counts.get(s.id, 0),
             "menu_count": menu_counts.get(s.id, 0),
-            "last_order_at": last_orders.get(slug),
+            "last_order_at": last_orders.get(s.id),
             "square_connected": s.square_connected,
             "kitchen_mode": s.kitchen_mode,
             "takeout_enabled": s.takeout_enabled,
@@ -415,25 +412,22 @@ async def store_ranking(
     since = days_ago_jst_as_utc_naive(days)  # [PG-DT-MIGRATE-02b]
     q = await session.execute(
         select(
-            Order.shop_id,
+            Order.store_id,
             func.sum(Order.total_amount).label("revenue"),
             func.count(Order.id).label("orders")
         ).where(Order.created_at >= since)
-        .group_by(Order.shop_id)
+        .group_by(Order.store_id)
         .order_by(func.sum(Order.total_amount).desc())
     )
     rows = q.all()
 
-    # Map slug to store name
+    # Map store_id to store name
     store_q = await session.execute(select(Store))
-    stores_map = {}
-    for s in store_q.scalars().all():
-        slug = s.slug or str(s.id)
-        stores_map[slug] = s.name
+    stores_map = {s.id: s.name for s in store_q.scalars().all()}
 
     return [{
-        "shop_id": r.shop_id,
-        "store_name": stores_map.get(r.shop_id, r.shop_id),
+        "store_id": r.store_id,
+        "store_name": stores_map.get(r.store_id, str(r.store_id)),
         "revenue": float(r.revenue or 0),
         "orders": r.orders,
     } for r in rows]

@@ -279,6 +279,19 @@ export default function AdminOperationView() {
                                     onBlur={e => handleStoreUpdate('takeout_default_wait_minutes', parseInt(e.target.value))}
                                     className="w-32 px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-adminprimary/50" />
                                 <p className="text-[10px] text-slate-400 mt-1">お客様がピックアップ時間を未入力の場合の初期値です</p>
+
+                                <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/60 p-3 space-y-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="material-symbols-outlined text-blue-500 text-[18px]">schedule</span>
+                                        <p className="text-xs font-bold text-slate-700">混雑時は待ち時間が自動で延びます</p>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                                        お店が忙しいとき（未完了のテイクアウト注文がたまっているとき）、ディスカバリーでお客様に表示されるピックアップ目安が自動的に延長されます。
+                                    </p>
+                                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                                        目安 = 上記のデフォルト待ち時間 ＋ 未完了テイクアウト注文数 × 約3分（最大60分）。設定は不要です。正直な待ち時間でお客様の信頼につながります。
+                                    </p>
+                                </div>
                             </div>
                         )}
                     </div>

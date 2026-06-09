@@ -65,8 +65,8 @@ export default function DiscoverNearbyMap({ stores, userCoords, searchCenter, ra
                   {s.food_rescue_manual_active && s.food_rescue_active && (
                     <p style={{ fontSize: 11, color: '#ea580c', fontWeight: 700, margin: '0 0 6px' }}>⚡ 割引中</p>
                   )}
-                  {s.can_accept_takeout && s.is_open && s.takeout_default_wait_minutes > 0 && (
-                    <p style={{ fontSize: 11, color: '#c21e2f', fontWeight: 700, margin: '0 0 6px' }}>🕒 約{s.takeout_default_wait_minutes}分で受取</p>
+                  {s.can_accept_takeout && s.is_open && (s.takeout_dynamic_wait_minutes ?? s.takeout_default_wait_minutes) > 0 && (
+                    <p style={{ fontSize: 11, color: '#c21e2f', fontWeight: 700, margin: '0 0 6px' }}>🕒 約{s.takeout_dynamic_wait_minutes ?? s.takeout_default_wait_minutes}分で受取</p>
                   )}
                   {s.can_accept_takeout && s.slug && (
                     <a href={`/${s.slug}/takeout`} style={{ display: 'block', textAlign: 'center', background: '#c21e2f', color: '#fff', fontWeight: 800, padding: '7px 0', borderRadius: 8, textDecoration: 'none', marginBottom: 6 }}>テイクアウト注文</a>

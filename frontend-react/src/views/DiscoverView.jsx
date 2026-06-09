@@ -78,10 +78,10 @@ function StoreCard({ store }) {
           </div>
         )}
 
-        {store.can_accept_takeout && store.is_open && store.takeout_default_wait_minutes > 0 && (
+        {store.can_accept_takeout && store.is_open && (store.takeout_dynamic_wait_minutes ?? store.takeout_default_wait_minutes) > 0 && (
           <p className="text-xs text-[#c21e2f] font-bold flex items-center gap-1">
             <MSI name="schedule" className="text-sm" />
-            約{store.takeout_default_wait_minutes}分で受取
+            約{store.takeout_dynamic_wait_minutes ?? store.takeout_default_wait_minutes}分で受取
           </p>
         )}
 

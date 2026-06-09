@@ -164,6 +164,7 @@
 
 | 날짜 | 스테이지 | 결과 |
 |---|---|---|
+| 2026-06-09 | S3.5 외부 코드리뷰(GPT-5.5) 반영 | Crit: `/menus` 메뉴집계가 미존재 `OrderItem.menu_id` 참조 → `menu_item_id.cast(Integer)`+Menu 소유권 조인으로 수정(`.cast(int)`는 컴파일 실패 발견 → orders.py:686 동일 잠재버그 후속분리). Imp2 역매핑 id우선 결정성, Imp4 LINE카드 동적값, Imp5 상한을 혼잡가산분에만(admin base 120 보존), Imp6 backlog 부분인덱스, Min7 TTL jitter, Min8 DB실패 로깅, Min9 테이크아웃 가능매장만 계산, Min10 음수 backlog 방어. 회귀 가드 테스트(`test_discover_queries.py`) 추가. pytest 43/43. push back: `Order.store_id` FK 마이그레이션은 합의된 헬퍼 방식 유지로 보류(숫자 slug 위생은 후속). 커밋 a09197e…512bdc1 |
 | 2026-06-09 | S3.5 동적 주방 대기시간 | 완료. 미완료 테이크아웃 적체→분 환산(`base + backlog×3`, 상한 60), Redis 60s 캐싱+실패 폴백. 신규 `utils/order_store.py`(shop_id 후보 단일헬퍼)·`utils/takeout_wait.py`. **기존 버그 동반수정**: `discover.py`가 존재하지 않는 `Order.store_id` 참조 → `Order.shop_id` 후보매칭으로 통일(`/menus`·`/stores` 집계 복구). `/nearby`·LINE카드에 `takeout_dynamic_wait_minutes` 추가(기존 키 불변), 리스트·지도 동적값 우선, admin 운영관리에 설명 카드. pytest 33/33(신규 8)·build OK·신규 lint 0. 커밋 abd6e69…c9c51a3. (별도: `loyalty_analytics.py` 동일계열 버그는 후속 과제로 분리.) |
 | 2026-06-09 | 외부 코드리뷰(GPT-5.5) 반영 | Imp1 LINE 멱등성 commit+ON CONFLICT(미커밋 버그 수정)·Imp2 온라인결제 판정 결제방식 매칭·Imp3 지도 searchCenter recenter+로딩유지·Imp4 takeout_only LIMIT 전 적용·Min1 PII 미저장·Min3 catch lint. 검증리뷰 통과, pytest 25/25·build OK·lint 0, /nearby 불변. 커밋 b30b4eb·3c043b2·55deb7d·53b913f·35eeeea |
 | 2026-06-07 | S0 셋업 | 브랜치 `discover_build` 분리 + 본 워크플랜·하네스 규정 작성 |

@@ -407,7 +407,8 @@ class OrderType(str, Enum):
 class Order(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     # 정규 매장 FK — 매장↔주문 매칭은 반드시 이 컬럼 사용.
-    store_id: Optional[int] = Field(default=None, foreign_key="store.id", index=True)
+    # 실제 FK 제약·NOT NULL 은 database.py 마이그레이션이 소유(fresh/기존 DB 일관, 이중 FK 방지).
+    store_id: Optional[int] = Field(default=None, index=True)
     # @deprecated: polymorphic(slug 또는 str(id)). store_id 도입으로 매칭에는 더 이상 쓰지 않으나,
     #   레거시 경로(데모 cleanup·pickup_code 등) 호환을 위해 생성 시 store_id 와 함께 기록(dual-write).
     shop_id: str = Field(index=True)

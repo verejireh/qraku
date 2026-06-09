@@ -285,6 +285,18 @@ async def init_db():
         "ALTER TABLE menu ADD COLUMN IF NOT EXISTS stock_today_sold INTEGER DEFAULT 0",
         # [2026-06-09] Order.store_id 정규 FK (shop_id polymorphic 통일). 생성 시 dual-write.
         'ALTER TABLE "order" ADD COLUMN IF NOT EXISTS store_id INTEGER NULL',
+        # 기존 주문 backfill: slug 우선 → 숫자 ID 후순위 (애플리케이션은 store_id 만 조회)
+        'UPDATE "order" o SET store_id = s.id FROM store s '
+        "WHERE o.store_id IS NULL AND s.slug = o.shop_id",
+        'UPDATE "order" o SET store_id = s.id FROM store s '
+        "WHERE o.store_id IS NULL AND o.shop_id ~ '^[0-9]+$' AND s.id = o.shop_id::int",
+        # 매장이 사라진 고아 주문(미해결) 정리 — 출시 전이라 안전. NOT NULL 보장.
+        'DELETE FROM orderitem WHERE order_id IN (SELECT id FROM "order" WHERE store_id IS NULL)',
+        'DELETE FROM "order" WHERE store_id IS NULL',
+        # 무결성 강제: NOT NULL + 실제 FK (이후 dual-write 누락/손상 FK 를 DB 가 차단)
+        'ALTER TABLE "order" ALTER COLUMN store_id SET NOT NULL',
+        'ALTER TABLE "order" ADD CONSTRAINT fk_order_store_id '
+        'FOREIGN KEY (store_id) REFERENCES store(id)',
         'CREATE INDEX IF NOT EXISTS idx_order_store ON "order"(store_id)',
         # [2026-06-09] S3.5: 디스커버리 동적 대기시간 backlog 집계용 부분 인덱스
         # (미완료 테이크아웃 주문만 인덱싱 — /nearby backlog COUNT 가속, Redis 미스/장애 대비)

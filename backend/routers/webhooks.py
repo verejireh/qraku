@@ -273,7 +273,7 @@ async def _auto_create_order_from_pending(
         return None, "rejected"
 
     # ── pickup_code + discount 계산 (P1-C / P1-D) ──
-    pickup_code = await next_pickup_code(session, str(pending.store_id))
+    pickup_code = await next_pickup_code(session, pending.store_id)
     discount_amount = max(0.0, item_subtotal - float(pending.amount))
 
     order = Order(

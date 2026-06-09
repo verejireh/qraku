@@ -381,15 +381,8 @@ async def create_order(
         if not order_in.source_id:
             raise HTTPException(status_code=400, detail="テイクアウトには決済情報が必要です (source_id required)")
 
-        # ── 멱등성: source_id (PayPay merchant_payment_id) 로 이미 주문 만들어졌으면 그대로 반환 ──
-        # PayPayCompleteView 가 두 번 호출되거나 새로고침해도 중복 주문 방지
-        existing_by_source = await session.execute(
-            select(Order).where(Order.session_token == order_in.session_token,
-                                Order.store_id == store.id,
-                                Order.square_payment_id != None)  # noqa: E711
-            .order_by(Order.created_at.desc()).limit(1)
-        )
-        # 더 정확한 검사는 결제 후 payment_id 받은 뒤 진행
+        # 멱등성은 결제 후 square_payment_id UNIQUE INDEX 로 강제(아래). 선결제 전 중복검사는
+        # Order.square_payment_id UNIQUE 가 담당하므로 별도 사전 쿼리는 두지 않는다.
 
         # New Adapter Flow (Square: card nonce, PayPay: merchant_payment_id)
         payment_adapter = get_payment_adapter(store, store.payment_settings)
@@ -472,7 +465,7 @@ async def create_order(
     # ── 5. Create DB Order ────────────────────────────────────────────────────
     # 테이크아웃 주문에는 101번부터 시작하는 당일 순차 접수번호 생성
     # (PG-PAYPAY-AUTO-ORDER-HOTFIX: webhook 자동 생성 경로와 helper 공유)
-    pickup_code = await next_pickup_code(session, order_in.shop_id) if is_take_out else None
+    pickup_code = await next_pickup_code(session, store.id) if is_take_out else None
 
     # 결제 상태 결정: 테이크아웃 선결제 완료 → "paid" / 이트인 → "unpaid"
     is_paid = bool(is_take_out and square_payment_id)
@@ -644,40 +637,20 @@ async def create_order(
 class OrderStatusUpdate(SQLModel):
     status: str
 
-async def _resolve_store_by_shop_id(shop_id: str, session: AsyncSession) -> Store:
-    """Order.shop_id(slug 또는 str(id))로 Store를 조회한다. (레거시 폴백 전용)"""
-    store_result = await session.execute(select(Store).where(Store.slug == shop_id))
-    store = store_result.scalar_one_or_none()
+async def _store_of_order(order: Order, session: AsyncSession) -> Store:
+    """주문의 매장을 정규 store_id 로 조회 (store_id 는 NOT NULL + FK 보장)."""
+    store = await session.get(Store, order.store_id) if order.store_id is not None else None
     if not store:
-        try:
-            store = await session.get(Store, int(shop_id))
-        except (ValueError, TypeError):
-            store = None
-    if not store:
+        # store_id NOT NULL/FK 전제상 도달 불가 — 데이터 손상으로 간주.
         raise HTTPException(status_code=404, detail="Store not found")
     return store
 
 
-async def _store_of_order(order: Order, session: AsyncSession) -> Store:
-    """주문의 매장을 정규 store_id 로 조회. 구 데이터(store_id 미설정)는 shop_id 로 폴백."""
-    if order.store_id is not None:
-        store = await session.get(Store, order.store_id)
-        if store:
-            return store
-    return await _resolve_store_by_shop_id(order.shop_id, session)
-
-
 async def _store_of_order_opt(order: Order, session: AsyncSession) -> Optional[Store]:
-    """best-effort(알림 등) — 못 찾으면 None. store_id 우선, shop_id 폴백."""
-    if order.store_id is not None:
-        store = await session.get(Store, order.store_id)
-        if store:
-            return store
-    store_result = await session.execute(select(Store).where(Store.slug == order.shop_id))
-    store = store_result.scalar_one_or_none()
-    if not store and (order.shop_id or "").isdigit():
-        store = await session.get(Store, int(order.shop_id))
-    return store
+    """best-effort(알림 등) — 정규 store_id 로 조회, 없으면 None."""
+    if order.store_id is None:
+        return None
+    return await session.get(Store, order.store_id)
 
 
 @router.patch("/{order_id}/status", response_model=Order)
@@ -762,7 +735,7 @@ async def pay_order(
             # Count remaining unpaid orders for this table session (excluding current)
             remaining = await session.execute(
                 select(Order).where(
-                    Order.store_id == order.store_id,
+                    Order.store_id == store.id,
                     Order.table_number == order.table_number,
                     Order.session_token == order.session_token,
                     Order.payment_status == "unpaid",

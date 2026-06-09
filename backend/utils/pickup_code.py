@@ -14,17 +14,17 @@ from models import Order
 from utils.time_helpers import today_start_jst_as_utc_naive
 
 
-async def next_pickup_code(session: AsyncSession, shop_id: str) -> str:
-    """주어진 shop 의 당일 take_out 주문 다음 pickup_code 를 계산.
+async def next_pickup_code(session: AsyncSession, store_id: int) -> str:
+    """주어진 매장(store_id)의 당일 take_out 주문 다음 pickup_code 를 계산.
 
-    동시 take_out 주문은 같은 번호를 뽑을 수 있음 — Order 에 (shop_id, pickup_code)
-    UNIQUE 제약이 없어 완전 보장은 아님. 운영상 식별성 보완용.
-    강제 보장이 필요하면 counter table 또는 partial UNIQUE 도입 필요.
+    정규 store_id 로 조회 — 두 생성 경로(slug/숫자)가 같은 매장에서 번호 namespace 를
+    분리하던 문제 해소. 동시 take_out 은 같은 번호 가능(완전 보장 아님) — 강제 보장은
+    (store_id, 영업일, pickup_code) partial UNIQUE + 충돌 재시도 필요(후속).
     """
     today_start = today_start_jst_as_utc_naive()
     codes_res = await session.execute(
         select(Order.pickup_code).where(
-            Order.shop_id == shop_id,
+            Order.store_id == store_id,
             Order.order_type == "take_out",
             Order.created_at >= today_start,
         )

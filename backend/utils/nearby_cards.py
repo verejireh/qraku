@@ -21,7 +21,7 @@ def to_store_cards(stores: List[dict]) -> List[dict]:
             "is_open": bool(s.get("is_open")),
             "can_accept_takeout": bool(s.get("can_accept_takeout")),
             "food_rescue": bool(s.get("food_rescue_manual_active") and s.get("food_rescue_active")),
-            "wait_minutes": s.get("takeout_default_wait_minutes") or 0,
+            "wait_minutes": s.get("takeout_dynamic_wait_minutes") or s.get("takeout_default_wait_minutes") or 0,
             "slug": s.get("slug"),
             "google_maps_url": s.get("google_maps_url"),
         })

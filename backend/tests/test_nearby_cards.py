@@ -35,5 +35,25 @@ def test_to_store_cards_food_rescue_requires_both_flags():
     assert cards[0]["wait_minutes"] == 0
 
 
+def test_to_store_cards_prefers_dynamic_wait():
+    # 동적 대기시간이 있으면 정적값보다 우선
+    cards = to_store_cards([{
+        "store_id": 3, "store_name": "C", "distance_m": 50,
+        "takeout_default_wait_minutes": 15, "takeout_dynamic_wait_minutes": 27,
+        "slug": "c", "google_maps_url": None,
+    }])
+    assert cards[0]["wait_minutes"] == 27
+
+
+def test_to_store_cards_falls_back_to_static_wait():
+    # 동적값이 없으면(None) 정적값 사용
+    cards = to_store_cards([{
+        "store_id": 4, "store_name": "D", "distance_m": 50,
+        "takeout_default_wait_minutes": 15, "takeout_dynamic_wait_minutes": None,
+        "slug": "d", "google_maps_url": None,
+    }])
+    assert cards[0]["wait_minutes"] == 15
+
+
 def test_to_store_cards_empty():
     assert to_store_cards([]) == []

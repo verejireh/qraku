@@ -34,7 +34,8 @@ def _adapter_class_for_method(method: Optional[str]):
     m = (method or "").upper()
     if m in ("PAYPAY_DIRECT", "PAYPAY"):
         return PayPayDirectAdapter
-    if m in ("SQUARE", "CARD"):
+    # SQUARE_INTEGRATED 가 실제 주문 저장값(enum .value). SQUARE/CARD 는 레거시 호환.
+    if m in ("SQUARE_INTEGRATED", "SQUARE", "CARD"):
         return SquareAdapter
     return None
 

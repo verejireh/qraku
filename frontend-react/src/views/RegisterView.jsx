@@ -56,6 +56,7 @@ export default function RegisterView() {
     const [detailLoading, setDetailLoading] = useState(false)
     const [payMethod, setPayMethod] = useState('cash')
     const [paying, setPaying] = useState(false)
+    const [terminalOperation, setTerminalOperation] = useState(null)
 
     /* ── 売上サマリーモーダル ──────────────────────────── */
     const [showSales, setShowSales] = useState(false)
@@ -156,15 +157,74 @@ export default function RegisterView() {
         return () => { cancelled = true }
     }, [selectedTable?.id])
 
+    useEffect(() => {
+        const active = tableDetail?.square_terminal_checkout
+        if (active?.operation_id) {
+            setTerminalOperation({
+                operation_id: active.operation_id,
+                status: active.status,
+                amount: active.amount,
+            })
+        } else if (!selectedTable) {
+            setTerminalOperation(null)
+        }
+    }, [tableDetail?.square_terminal_checkout, selectedTable])
+
+    useEffect(() => {
+        if (!terminalOperation?.operation_id) return
+        if (['COMPLETED', 'CANCELED', 'FAILED'].includes(terminalOperation.status)) return
+
+        const timer = setInterval(async () => {
+            try {
+                const res = await staffApi.get(
+                    `/api/register/square-terminal-checkout/${terminalOperation.operation_id}`
+                )
+                setTerminalOperation(res.data)
+                if (res.data.status === 'COMPLETED') {
+                    setPaying(false)
+                    setSelectedTableId(null)
+                    setTableDetail(null)
+                    await fetchAll()
+                } else if (['CANCELED', 'FAILED'].includes(res.data.status)) {
+                    setPaying(false)
+                    alert('Square端末で決済が完了しませんでした。端末を確認して再度お試しください。')
+                }
+            } catch (e) {
+                console.error('Square Terminal status check failed', e)
+            }
+        }, 2000)
+        return () => clearInterval(timer)
+    }, [terminalOperation?.operation_id, terminalOperation?.status, fetchAll])
+
     /* ── 決済処理 ──────────────────────────────────────── */
     const handlePay = async () => {
-        if (!selectedTable || !window.confirm(`テーブル ${selectedTable.table_number}番の会計を完了しますか？`)) return
+        if (!selectedTable) return
+        if (payMethod === 'square' && !tableDetail?.square_terminal_available) {
+            alert('Square Terminalが未接続です。管理画面の「決済設定」でペアリングしてください。')
+            return
+        }
+        const message = payMethod === 'square'
+            ? `テーブル ${selectedTable.table_number}番の金額をSquare Terminalへ送信しますか？`
+            : `テーブル ${selectedTable.table_number}番の会計を完了しますか？`
+        if (!window.confirm(message)) return
         setPaying(true)
         try {
+            if (payMethod === 'square') {
+                const res = await staffApi.post(
+                    `/api/register/table/${selectedTable.id}/square-terminal-checkout`
+                )
+                setTerminalOperation(res.data)
+                return
+            }
             await staffApi.post(`/api/register/table/${selectedTable.id}/pay`, { payment_method: payMethod })
-            setSelectedTableId(null); setTableDetail(null); fetchAll()
-        } catch (e) { alert('決済処理に失敗しました') }
-        finally { setPaying(false) }
+            setSelectedTableId(null)
+            setTableDetail(null)
+            await fetchAll()
+            setPaying(false)
+        } catch (e) {
+            setPaying(false)
+            alert(e.response?.data?.detail || '決済処理に失敗しました')
+        }
     }
 
     /* ── テイクアウト完了 ─────────────────────────────── */
@@ -183,7 +243,7 @@ export default function RegisterView() {
         setCancelingId(order.order_id)
         try {
             const res = await staffApi.post(`/api/register/takeout/${order.order_id}/cancel-refund`)
-            if (res.data?.refunded) alert('全額返金してキャンセルしました')
+            if (res.data?.refunded) alert('返金を受け付けました（反映まで数日かかる場合があります）')
             await fetchAll()
         } catch (e) {
             const st = e?.response?.status
@@ -565,12 +625,14 @@ export default function RegisterView() {
                                         { value: 'card', icon: 'credit_card', label: 'カード' },
                                         { value: 'square', icon: 'point_of_sale', label: 'Square' },
                                     ].map(({ value, icon, label }) => (
-                                        <button key={value} onClick={() => setPayMethod(value)}
+                                        <button key={value}
+                                            onClick={() => setPayMethod(value)}
+                                            disabled={value === 'square' && !tableDetail?.square_terminal_available}
                                             className={`py-4 rounded-xl flex flex-col items-center gap-2 border-2 text-sm font-bold transition-all ${
                                                 payMethod === value
                                                     ? 'bg-[#b80035]/10 border-[#b80035] text-[#b80035] shadow-sm'
                                                     : 'bg-white border-stone-200 text-stone-400 hover:border-stone-300'
-                                            }`}>
+                                            } disabled:opacity-35 disabled:cursor-not-allowed`}>
                                             <Icon name={icon} className="!text-2xl" />
                                             {label}
                                         </button>
@@ -578,13 +640,25 @@ export default function RegisterView() {
                                 </div>
                             </div>
 
+                            {terminalOperation && !['COMPLETED', 'CANCELED', 'FAILED'].includes(terminalOperation.status) && (
+                                <div className="rounded-2xl border-2 border-blue-200 bg-blue-50 p-4 flex items-center gap-3">
+                                    <div className="w-6 h-6 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
+                                    <div>
+                                        <p className="font-bold text-blue-800">Square Terminalで決済待ち</p>
+                                        <p className="text-xs text-blue-600 mt-0.5">
+                                            端末に表示された ¥{(terminalOperation.amount || 0).toLocaleString()} をお客様にお支払いいただいてください。
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Confirm button */}
                             <button onClick={handlePay} disabled={paying}
                                 className="w-full py-4 bg-gradient-to-r from-[#b80035] to-[#e11d48] text-white rounded-xl font-bold text-lg tracking-wide hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg">
                                 {paying ? (
-                                    <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> 処理中...</>
+                                    <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> {payMethod === 'square' ? '端末で決済待ち...' : '処理中...'}</>
                                 ) : (
-                                    <><Icon name="check_circle" className="!text-xl" /> 会計完了</>
+                                    <><Icon name="check_circle" className="!text-xl" /> {payMethod === 'square' ? 'Square端末へ送信' : '会計完了'}</>
                                 )}
                             </button>
                         </div>

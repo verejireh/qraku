@@ -15,6 +15,8 @@ export default function AdminPaymentView() {
     const [paypayForm, setPaypayForm] = useState({ api_key: '', api_secret: '', merchant_id: '' })
     const [paypayFormDirty, setPaypayFormDirty] = useState(false)
     const [saving, setSaving] = useState(false)
+    const [terminalState, setTerminalState] = useState({ status: 'NOT_PAIRED' })
+    const [terminalBusy, setTerminalBusy] = useState(false)
 
     useEffect(() => {
         async function load() {
@@ -28,6 +30,12 @@ export default function AdminPaymentView() {
                 if (payRes?.data) {
                     setPaymentSettings(payRes.data)
                     setActiveMethod(payRes.data.payment_method_type || 'PAY_AT_COUNTER')
+                    setTerminalState({
+                        status: payRes.data.square_terminal_status || 'NOT_PAIRED',
+                        deviceId: payRes.data.square_terminal_device_id || null,
+                        deviceName: payRes.data.square_terminal_device_name || null,
+                        pairBy: payRes.data.square_terminal_pair_by || null,
+                    })
                     setPaypayForm(prev => ({
                         ...prev,
                         merchant_id: payRes.data.paypay_merchant_id || '',
@@ -38,6 +46,64 @@ export default function AdminPaymentView() {
         }
         load()
     }, [shop_id])
+
+    useEffect(() => {
+        if (terminalState.status !== 'UNPAIRED') return
+        const timer = setInterval(async () => {
+            try {
+                const res = await axios.get(`/api/square/terminal/device-code/${shop_id}`)
+                setTerminalState({
+                    status: res.data.status,
+                    code: res.data.code || null,
+                    pairBy: res.data.pair_by || null,
+                    deviceId: res.data.device_id || null,
+                    deviceName: res.data.device_name || null,
+                })
+            } catch (e) {
+                console.error('Square Terminal pairing status failed', e)
+            }
+        }, 3000)
+        return () => clearInterval(timer)
+    }, [shop_id, terminalState.status])
+
+    const startSquareOAuth = async () => {
+        try {
+            const res = await axios.get('/api/square/authorize', { params: { shop_id } })
+            window.location.href = res.data.authorization_url
+        } catch (e) {
+            alert('Square連携を開始できません: ' + (e.response?.data?.detail || e.message))
+        }
+    }
+
+    const startTerminalPairing = async () => {
+        setTerminalBusy(true)
+        try {
+            const res = await axios.post(`/api/square/terminal/device-code/${shop_id}`)
+            setTerminalState({
+                status: res.data.status,
+                code: res.data.code,
+                pairBy: res.data.pair_by,
+                deviceName: res.data.device_name,
+            })
+        } catch (e) {
+            alert('ペアリングコードを発行できません: ' + (e.response?.data?.detail || e.message))
+        } finally {
+            setTerminalBusy(false)
+        }
+    }
+
+    const forgetTerminal = async () => {
+        if (!window.confirm('Square Terminalのペアリング情報を解除しますか？')) return
+        setTerminalBusy(true)
+        try {
+            await axios.delete(`/api/square/terminal/device/${shop_id}`)
+            setTerminalState({ status: 'NOT_PAIRED' })
+        } catch (e) {
+            alert('端末情報を解除できません: ' + (e.response?.data?.detail || e.message))
+        } finally {
+            setTerminalBusy(false)
+        }
+    }
 
     const selectPaymentMethod = async (methodType) => {
         try {
@@ -86,17 +152,12 @@ export default function AdminPaymentView() {
         {
             key: 'SQUARE_INTEGRATED',
             label: 'Square 決済',
-            desc: 'Square POS連携で、クレジットカード・電子マネー等のオンライン決済を処理します。',
+            desc: 'Square POS連携で、クレジットカード・電子マネー（PayPay等）のオンライン決済を処理します。',
             icon: 'credit_card',
             color: 'blue',
         },
-        {
-            key: 'PAYPAY_DIRECT',
-            label: 'PayPay ダイレクト',
-            desc: 'PayPay APIを直接統合し、低手数料でQRコード決済を受け付けます。',
-            icon: 'qr_code_2',
-            color: 'red',
-        },
+        // [2026-06-12] PayPay ダイレクトは保留。テイクアウト先決済は Square に一本化。
+        //   (백엔드/콜백/설정블록 코드는 재개 대비로 보존 — 선택지만 제거)
     ]
 
     return (
@@ -221,6 +282,71 @@ export default function AdminPaymentView() {
                                 </a>
                             </div>
                         )}
+                        {storeData?.square_connected && (
+                            <div className="mb-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <p className="font-black text-sm text-slate-800">Square Terminal ペアリング</p>
+                                        <p className="text-[11px] text-slate-500 mt-1">
+                                            イートイン会計をQRakuから端末へ送信する場合に設定します。
+                                        </p>
+                                    </div>
+                                    <span className={`text-[10px] font-black px-2.5 py-1 rounded-full ${
+                                        terminalState.status === 'PAIRED'
+                                            ? 'bg-emerald-100 text-emerald-700'
+                                            : 'bg-amber-100 text-amber-700'
+                                    }`}>
+                                        {terminalState.status === 'PAIRED' ? '接続済み' : '未接続'}
+                                    </span>
+                                </div>
+
+                                {terminalState.status === 'PAIRED' ? (
+                                    <div className="space-y-2">
+                                        <div className="rounded-xl bg-white border border-emerald-200 p-3 text-xs text-slate-600">
+                                            <p className="font-bold text-emerald-700">
+                                                {terminalState.deviceName || 'Square Terminal'}
+                                            </p>
+                                            <p className="mt-1 font-mono text-[10px] break-all">
+                                                Device ID: {terminalState.deviceId}
+                                            </p>
+                                        </div>
+                                        <button onClick={forgetTerminal} disabled={terminalBusy}
+                                            className="w-full py-2.5 rounded-xl border border-red-200 bg-white text-red-600 text-xs font-bold disabled:opacity-50">
+                                            Terminalの接続情報を解除
+                                        </button>
+                                    </div>
+                                ) : terminalState.status === 'UNPAIRED' && terminalState.code ? (
+                                    <div className="space-y-3">
+                                        <div className="rounded-xl bg-white border-2 border-blue-200 p-4 text-center">
+                                            <p className="text-xs text-slate-500 mb-1">端末に入力するコード</p>
+                                            <p className="text-4xl font-black tracking-[0.25em] text-blue-700">
+                                                {terminalState.code}
+                                            </p>
+                                            <p className="text-[10px] text-amber-600 mt-2">
+                                                コードは約5分で期限切れになります
+                                            </p>
+                                        </div>
+                                        <ol className="text-xs text-slate-600 space-y-1 list-decimal pl-5">
+                                            <li>Square Terminalを起動してWi-Fiに接続</li>
+                                            <li>「設定」からログアウトし、ログイン画面を表示</li>
+                                            <li>上のコードを入力して「接続」を選択</li>
+                                            <li>この画面が「接続済み」になるまで待つ</li>
+                                        </ol>
+                                    </div>
+                                ) : (
+                                    <button onClick={startTerminalPairing} disabled={terminalBusy}
+                                        className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl disabled:opacity-50">
+                                        {terminalBusy ? 'コード発行中...' : 'Terminalペアリングコードを発行'}
+                                    </button>
+                                )}
+
+                                <a href="/docs/payment_setup_guide.html#terminal-pairing"
+                                    target="_blank" rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:underline">
+                                    詳しいペアリング手順を見る
+                                </a>
+                            </div>
+                        )}
                         {storeData?.square_connected ? (
                             <button onClick={async () => {
                                 if (window.confirm('Square連携を解除しますか？')) {
@@ -236,7 +362,7 @@ export default function AdminPaymentView() {
                                 Square連携を解除
                             </button>
                         ) : (
-                            <button onClick={() => { window.location.href = `/api/square/authorize?shop_id=${shop_id}` }}
+                            <button onClick={startSquareOAuth}
                                 className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-md shadow-blue-500/20">
                                 <span className="material-symbols-outlined text-sm">open_in_new</span>
                                 Squareアカウントを連携する (OAuth)

@@ -13,6 +13,8 @@ def test_paypay_method_selects_paypay_adapter():
 
 
 def test_square_and_card_select_square_adapter():
+    # SQUARE_INTEGRATED 가 실제 주문 저장값 — 반드시 Square 어댑터로
+    assert _adapter_class_for_method("SQUARE_INTEGRATED") is SquareAdapter
     assert _adapter_class_for_method("square") is SquareAdapter
     assert _adapter_class_for_method("CARD") is SquareAdapter
 

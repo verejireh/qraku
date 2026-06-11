@@ -60,3 +60,20 @@
 **권한(Imp7) — 의도적 유지**: `require_staff_or_admin`. 점포 미이행 환불은 **카운터 스태프가 현장에서** 처리해야 하는 동작이라 admin 전용은 기능 목적을 훼손. 대신 확인 다이얼로그 + 감사 로그 + 멱등으로 완화. (운영 정책상 admin 전용 원하면 1줄 변경.)
 
 **검증 한계**: Square `/v2/refunds` 는 sandbox 자격증명이 없어 **실결제 환불 E2E 미검증**. 단위검증(어댑터 선택 3테스트)·import·pyflakes·build 통과. **배포 전 Square/PayPay sandbox E2E 필수.**
+
+---
+
+## 2차 마무리 — Square sandbox 검증 완료 (2026-06-12)
+
+**Square sandbox(JPY 계정)로 환불 레일 실검증 통과:**
+- 테스트 결제 생성(COMPLETED) → `/v2/refunds` 환불 → **같은 idempotency_key 로 재호출해도 동일 refund_id 반환**(이중환불 없음) → payment 재조회 refund_ids=1, refunded_money=100JPY.
+- 즉 GPT 리뷰의 최우선 blocker였던 **이중환불이 고정 idempotency_key 로 Square 서버단에서 차단됨이 실증**됨.
+
+**적용한 수정:**
+- **(리뷰 Imp5 — 내가 만든 버그) `_adapter_class_for_method`가 실제 주문값 `SQUARE_INTEGRATED` 를 못 잡던 문제 수정** — 이제 `SQUARE_INTEGRATED`(+레거시 SQUARE/CARD) → SquareAdapter. 단위테스트 보강.
+- **(리뷰 Imp4 — PENDING) sandbox 가 환불을 `status=PENDING`(비동기)으로 반환** 확인 → 손님/스태프 문구를 "全額返金しました"(완료 단정) → **"返金を受け付けました（반영까지 수일）"**(접수)로 정정. 돈은 결국 환불됨.
+
+**남은 한계(후속, 위험 낮음):**
+- PENDING→COMPLETED **자동 reconciliation(폴링/webhook) 미구현** — 드물게 PENDING 환불이 실패하면 order 는 refunded 표기 유지. RefundLog.refund_id 로 수동 추적 가능. (Square 환불은 접수 후 실패가 드묾.)
+- 실제 **앱 E2E**(UI 주문→환불→DB)는 로컬 Postgres + sandbox 토큰 매장 세팅 필요 — 레일은 실증됐고, 어댑터 선택은 단위테스트로 커버.
+- PayPay Direct 보류로, 신규 테이크아웃은 Square 전용 → 환불도 Square 만 해당.

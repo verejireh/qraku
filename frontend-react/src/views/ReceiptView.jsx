@@ -130,7 +130,7 @@ export default function ReceiptView() {
                 {isRefunded ? (
                     <div className="mt-2 inline-flex items-center gap-2 text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-4 py-2 rounded-full">
                         <CheckCircle size={16} />
-                        <span className="font-bold text-sm">¥{(order.total_amount || 0).toLocaleString()} を全額返金しました</span>
+                        <span className="font-bold text-sm">¥{(order.total_amount || 0).toLocaleString()} の返金を受け付けました（反映まで数日かかる場合があります）</span>
                     </div>
                 ) : (
                     <div className="mt-2 inline-flex items-center gap-2 text-amber-300 bg-amber-500/10 border border-amber-500/30 px-4 py-2 rounded-full">

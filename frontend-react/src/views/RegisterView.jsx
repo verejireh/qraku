@@ -171,6 +171,22 @@ export default function RegisterView() {
         try { await staffApi.post(`/api/register/takeout/${id}/complete`); fetchAll() } catch (e) { alert('処理失敗') }
     }
 
+    /* ── テイクアウト 店舗都合キャンセル + 全額返金 ─────────── */
+    const handleTakeoutCancelRefund = async (order) => {
+        const paid = order.payment_status === 'paid'
+        const msg = paid
+            ? `この注文(#${order.order_id} ¥${(order.total_amount || 0).toLocaleString()})を全額返金してキャンセルします。よろしいですか？`
+            : `この注文(#${order.order_id})をキャンセルします。よろしいですか？`
+        if (!window.confirm(msg)) return
+        try {
+            const res = await staffApi.post(`/api/register/takeout/${order.order_id}/cancel-refund`)
+            if (res.data?.refunded) alert('全額返金してキャンセルしました')
+            fetchAll()
+        } catch (e) {
+            alert(e?.response?.status === 502 ? '返金処理に失敗しました。決済設定を確認してください' : 'キャンセル処理に失敗しました')
+        }
+    }
+
     /* ── POS 手動注文 ─────────────────────────────────── */
     const openPosModal = (table) => { setSelectedPosTable(table); setCart([]); setActiveCategory('All'); setPosModalOpen(true) }
     const addToPosCart = (m) => {
@@ -391,14 +407,21 @@ export default function RegisterView() {
                                                             </span>
                                                         )}
                                                     </div>
-                                                    {isPaid ? (
-                                                        <button onClick={() => handleTakeoutComplete(order.order_id)}
-                                                            className={`text-[10px] font-bold uppercase px-2 py-1 rounded ${isReady ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'text-[#b80035] hover:underline'}`}>
-                                                            受渡完了
+                                                    <div className="flex items-center gap-1.5">
+                                                        <button onClick={() => handleTakeoutCancelRefund(order)}
+                                                            title="店舗都合で提供できない場合（全額返金してキャンセル）"
+                                                            className="text-[10px] font-bold uppercase px-2 py-1 rounded text-stone-400 hover:text-[#93000a] hover:bg-[#ffdad6]">
+                                                            準備不可
                                                         </button>
-                                                    ) : (
-                                                        <span className="text-stone-300">{formatTime(order.created_at)}</span>
-                                                    )}
+                                                        {isPaid ? (
+                                                            <button onClick={() => handleTakeoutComplete(order.order_id)}
+                                                                className={`text-[10px] font-bold uppercase px-2 py-1 rounded ${isReady ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'text-[#b80035] hover:underline'}`}>
+                                                                受渡完了
+                                                            </button>
+                                                        ) : (
+                                                            <span className="text-stone-300">{formatTime(order.created_at)}</span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         )

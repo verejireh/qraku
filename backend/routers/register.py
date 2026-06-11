@@ -8,6 +8,7 @@ Register (카운터/레지스터) 전용 API 라우터
   GET  /register/today-sales         - 오늘 매출 요약
   GET  /register/takeout             - 오늘 테이크아웃 주문 목록
   POST /register/takeout/{order_id}/complete - 테이크아웃 픽업 완료
+  POST /register/takeout/{order_id}/cancel-refund - 店舗都合 미이행 취소+전액환불
   DELETE /register/order-item/{item_id}      - 주문 항목 삭제 (실수 대응)
 """
 
@@ -548,6 +549,76 @@ async def complete_takeout(
     await session.commit()
 
     return {"message": "Takeout order completed", "order_id": order_id}
+
+
+# ── 6.5 테이크아웃 미이행 취소 + 환불 (店舗都合) ────────────────────────────────
+
+@router.post("/takeout/{order_id}/cancel-refund")
+async def cancel_refund_takeout(
+    order_id: int,
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
+):
+    """店舗都合でテイクアウトを履行できない時 → 全額返金 + キャンセル。
+
+    선결제(paid)면 기존 perform_refund 로 전액 환불, 미결제면 취소만.
+    with_idempotency 로 동시 더블클릭/중복환불 차단(결제 신규 로직 없음 — R3 안전).
+    """
+    from utils.idempotency import with_idempotency
+    from utils.refunds import perform_refund
+    from utils.event_log import log_event
+    from utils.events import emit_order_cancelled
+
+    async def _do():
+        order = await session.get(Order, order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if order.store_id != auth_store.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        if order.order_type != "take_out":
+            raise HTTPException(status_code=400, detail="Not a take-out order")
+
+        # 이미 취소/환불됨 → 멱등 no-op
+        if order.status == "cancelled" or order.payment_status in ("refunded", "partial_refund"):
+            return {"order_id": order.id, "status": order.status,
+                    "payment_status": order.payment_status, "refunded": False, "noop": True}
+
+        reason = "店舗都合によるキャンセル（テイクアウト未提供）"
+        refunded = False
+
+        if order.payment_status == "paid":
+            store_full = await session.get(
+                Store, auth_store.id, options=[selectinload(Store.payment_settings)],
+            )
+            result = await perform_refund(
+                session, store_full or auth_store, order,
+                amount=order.total_amount, reason=reason,
+                admin_user_id=str(auth_store.id),
+            )
+            if result["status"] != "ok":
+                raise HTTPException(status_code=502, detail="返金処理に失敗しました")
+            order.payment_status = "refunded"
+            refunded = True
+
+        order.status = "cancelled"
+        session.add(order)
+        await session.commit()
+
+        await log_event(
+            session, store_id=auth_store.id, actor_type="staff",
+            actor_id=str(auth_store.id), action="takeout.cancel_refund",
+            target_type="order", target_id=order.id,
+            payload={"amount": order.total_amount, "refunded": refunded, "reason": reason},
+        )
+        try:
+            await emit_order_cancelled(session, auth_store.id, order, reason=reason)
+        except Exception:
+            pass
+
+        return {"order_id": order.id, "status": "cancelled",
+                "payment_status": order.payment_status, "refunded": refunded}
+
+    return await with_idempotency(f"takeout-refund:{order_id}", _do)
 
 
 # ── 7. 주문 항목 삭제 (실수 대응) ──────────────────────────────────────────────

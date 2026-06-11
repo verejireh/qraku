@@ -616,6 +616,13 @@ class PaymentSettings(SQLModel, table=True):
     square_refresh_token: Optional[str] = None
     square_merchant_id: Optional[str] = None
     square_location_id: Optional[str] = None
+    square_terminal_device_id: Optional[str] = Field(default=None, max_length=128)
+    square_terminal_device_name: Optional[str] = Field(default=None, max_length=128)
+    square_terminal_device_code_id: Optional[str] = Field(default=None, max_length=128)
+    square_terminal_device_code: Optional[str] = Field(default=None, max_length=16)
+    square_terminal_pairing_status: Optional[str] = Field(default=None, max_length=32)
+    square_terminal_pair_by: Optional[datetime] = None
+    square_terminal_paired_at: Optional[datetime] = None
     
     # 3. PayPay Credentials (for direct API)
     paypay_api_key: Optional[str] = None
@@ -626,6 +633,28 @@ class PaymentSettings(SQLModel, table=True):
     pos_type: POSType = Field(default=POSType.NONE)
     
     store: Optional[Store] = Relationship(back_populates="payment_settings")
+
+
+class SquareTerminalCheckout(SQLModel, table=True):
+    """One Square Terminal payment attempt for an eat-in table session."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    store_id: int = Field(foreign_key="store.id", index=True)
+    table_id: int = Field(foreign_key="table.id", index=True)
+    session_token: str = Field(max_length=255, index=True)
+    idempotency_key: str = Field(max_length=64, unique=True, index=True)
+    square_checkout_id: Optional[str] = Field(default=None, max_length=128, unique=True, index=True)
+    device_id: str = Field(max_length=128)
+    amount: int
+    currency: str = Field(default="JPY", max_length=3)
+    status: str = Field(default="CREATING", max_length=32, index=True)
+    order_ids_json: str = Field(sa_column=Column(Text))
+    course_session_ids_json: str = Field(default="[]", sa_column=Column(Text))
+    payment_ids_json: str = Field(default="[]", sa_column=Column(Text))
+    error_message: Optional[str] = Field(default=None, sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=now_utc_naive, index=True)
+    updated_at: datetime = Field(default_factory=now_utc_naive)
+    completed_at: Optional[datetime] = None
 
 
 # ── Messaging System ─────────────────────────────────────────────

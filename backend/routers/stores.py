@@ -228,6 +228,8 @@ async def read_store(store_id: str, session: AsyncSession = Depends(get_session)
         for secret_key in [
             "square_access_token", "square_refresh_token",
             "paypay_api_key", "paypay_api_secret",
+            "square_terminal_device_id", "square_terminal_device_code_id",
+            "square_terminal_device_code",
         ]:
             ps.pop(secret_key, None)
 

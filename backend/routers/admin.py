@@ -438,13 +438,28 @@ async def get_payment_settings(store_id: int, admin_store: Store = Depends(requi
     if not ps:
         return {
             "payment_method_type": "PAY_AT_COUNTER",
+            "pos_type": "NONE",
             "has_paypay_credentials": False,
             "paypay_merchant_id": None,
+            "square_terminal_status": "NOT_PAIRED",
+            "square_terminal_device_id": None,
+            "square_terminal_device_name": None,
         }
     return {
         "payment_method_type": str(ps.payment_method_type),
+        "pos_type": str(ps.pos_type),
         "has_paypay_credentials": bool(ps.paypay_api_key and ps.paypay_api_secret),
         "paypay_merchant_id": ps.paypay_merchant_id,
+        "square_terminal_status": (
+            "PAIRED" if ps.square_terminal_device_id
+            else ps.square_terminal_pairing_status or "NOT_PAIRED"
+        ),
+        "square_terminal_device_id": ps.square_terminal_device_id,
+        "square_terminal_device_name": ps.square_terminal_device_name,
+        "square_terminal_pair_by": (
+            ps.square_terminal_pair_by.isoformat()
+            if ps.square_terminal_pair_by else None
+        ),
     }
 
 

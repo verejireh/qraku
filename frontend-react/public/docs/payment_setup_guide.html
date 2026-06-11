@@ -354,10 +354,10 @@
     <div class="hero">
         <div class="hero-badge">
             <span class="material-symbols-outlined" style="font-size:16px">verified</span>
-            公式ドキュメント — 2026年4月版
+            公式ドキュメント — 2026年6月版
         </div>
         <h1>💳 決済導入ガイド</h1>
-        <p class="subtitle">Square決済・PayPayダイレクト決済をQRakuに接続するための完全マニュアルです。</p>
+        <p class="subtitle">テイクアウトのSquare先払いと、イートインのSquare Terminal対面決済を設定するための店舗向けマニュアルです。</p>
     </div>
 
     <!-- ============ TOOLBAR ============ -->
@@ -381,7 +381,7 @@
         <ol>
             <li><a href="#overview">決済方式の概要と比較</a></li>
             <li><a href="#square-setup">Square 決済の導入手順</a></li>
-            <li><a href="#paypay-setup">PayPay ダイレクト決済の導入手順</a></li>
+            <li><a href="#terminal-pairing">Square Terminal ペアリング手順</a></li>
             <li><a href="#qraku-config">QRaku 管理画面での設定方法</a></li>
             <li><a href="#testing">テスト・動作確認の方法</a></li>
             <li><a href="#faq">よくある質問 (FAQ)</a></li>
@@ -396,11 +396,11 @@
             </div>
             <div>
                 <div class="section-title">1. 決済方式の概要と比較</div>
-                <div class="section-subtitle">QRakuが対応する3つの決済方式</div>
+                <div class="section-subtitle">注文形態ごとの決済経路</div>
             </div>
         </div>
 
-        <p style="margin-bottom:16px;">QRakuでは、お店の運営スタイルに合わせて以下の3つの決済方式から選択できます。</p>
+        <p style="margin-bottom:16px;">現在の推奨構成は、テイクアウトをSquareオンライン先払い、イートインをSquare Terminalまたは現金で精算する方式です。</p>
 
         <table class="comparison-table">
             <thead>
@@ -408,7 +408,7 @@
                     <th>項目</th>
                     <th>🏪 現場決済</th>
                     <th>💳 Square決済</th>
-                    <th>📱 PayPay決済</th>
+                    <th>📱 PayPay店頭決済</th>
                 </tr>
             </thead>
             <tbody>
@@ -416,11 +416,11 @@
                     <td><strong>概要</strong></td>
                     <td>レジ・現金等でお客様と直接精算</td>
                     <td>SquareのPOS端末・オンラインカード決済</td>
-                    <td>PayPayアプリでQRコード決済</td>
+                    <td>店舗のPayPay QRで現場精算（QRaku外）</td>
                 </tr>
                 <tr>
                     <td><strong>初期費用</strong></td>
-                    <td>なし</td>
+                    <td>店舗契約による</td>
                     <td>Square Reader: ¥7,980 (税込)</td>
                     <td>なし</td>
                 </tr>
@@ -428,31 +428,31 @@
                     <td><strong>決済手数料</strong></td>
                     <td>なし</td>
                     <td>3.25〜3.75%</td>
-                    <td>1.60〜1.98%</td>
+                    <td>PayPayの店舗契約による</td>
                 </tr>
                 <tr>
                     <td><strong>入金サイクル</strong></td>
                     <td>即時（現金）</td>
                     <td>翌営業日〜</td>
-                    <td>月末締め翌月払い</td>
+                    <td>PayPayの店舗契約による</td>
                 </tr>
                 <tr>
                     <td><strong>対応カード</strong></td>
                     <td>—</td>
                     <td>Visa, Mastercard, AMEX, JCB, etc.</td>
-                    <td>PayPay残高のみ</td>
+                    <td>PayPay</td>
                 </tr>
                 <tr>
                     <td><strong>導入難易度</strong></td>
                     <td>⭐ 不要</td>
                     <td>⭐⭐ OAuthボタン1クリック</td>
-                    <td>⭐⭐⭐ APIキー取得が必要</td>
+                    <td>QRaku API連携なし</td>
                 </tr>
                 <tr>
                     <td><strong>おすすめシーン</strong></td>
                     <td>小規模・現金中心</td>
                     <td>カード対応したい全店舗</td>
-                    <td>日本国内・若年層集客</td>
+                    <td>既存の店頭QRを継続利用</td>
                 </tr>
             </tbody>
         </table>
@@ -502,8 +502,9 @@
             <ul>
                 <li><strong>PAYMENTS_WRITE</strong> — 決済の作成</li>
                 <li><strong>PAYMENTS_READ</strong> — 決済情報の読み取り</li>
-                <li><strong>ORDERS_WRITE / ORDERS_READ</strong> — 注文管理</li>
+                <li><strong>ORDERS_WRITE</strong> — 注文管理</li>
                 <li><strong>MERCHANT_PROFILE_READ</strong> — 加盟店情報の読み取り</li>
+                <li><strong>DEVICE_CREDENTIAL_MANAGEMENT</strong> — Square Terminalのペアリング</li>
             </ul>
             <div class="info-box warning">
                 <span class="material-symbols-outlined">info</span>
@@ -529,44 +530,38 @@
         </div>
 
         <!-- Step 4 -->
-        <div class="step-card">
-            <h4><span class="step-number blue">4</span>Square Reader / Terminal の準備（対面決済の場合）</h4>
-            <p>店内のテーブル決済でクレジットカードを受け付ける場合は、Square端末が必要です：</p>
-            <table class="comparison-table">
-                <thead>
-                    <tr>
-                        <th>端末</th>
-                        <th>価格</th>
-                        <th>特徴</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td><strong>Square Reader</strong></td>
-                        <td>¥7,980</td>
-                        <td>Bluetooth接続。スマホ・タブレットと連携。タッチ決済・ICチップ対応</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Square Terminal</strong></td>
-                        <td>¥46,980</td>
-                        <td>オールインワン端末。Wi-Fi内蔵、レシート印刷可</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Square Stand</strong></td>
-                        <td>¥36,980</td>
-                        <td>iPad用POS端末。レジカウンター設置型</td>
-                    </tr>
-                </tbody>
-            </table>
+        <div class="step-card" id="terminal-pairing">
+            <h4><span class="step-number blue">4</span>Square Terminalをペアリングする（イートイン対面決済）</h4>
+            <p>QRakuの会計金額を端末へ自動送信する機能は、<strong>Square Terminal</strong>を使用します。Square Reader / Standはこのペアリング手順の対象外です。</p>
+            <ol>
+                <li>Square Terminalを電源に接続し、店舗のWi-Fiへ接続する</li>
+                <li>QRaku管理画面 → <strong>「決済設定」</strong>を開く</li>
+                <li>Square連携済みであることを確認し、<strong>「Terminalペアリングコードを発行」</strong>を押す</li>
+                <li>画面に表示された6文字のコードを控える（コードは約5分で失効）</li>
+                <li>Square Terminalのログイン画面で、そのコードを入力して接続する</li>
+                <li>QRaku管理画面が<strong>「接続済み」</strong>になるまで待つ</li>
+            </ol>
+            <div class="info-box warning">
+                <span class="material-symbols-outlined">timer</span>
+                <div>5分を過ぎた場合は、QRaku側で新しいコードを発行してください。古いコードは使用できません。</div>
+            </div>
+            <div class="info-box tip">
+                <span class="material-symbols-outlined">point_of_sale</span>
+                <div>会計時はRegister画面で「Square」を選び、<strong>「Square端末へ送信」</strong>を押します。端末で決済が完了し、Squareから完了通知を受け取った時点でのみQRakuの注文が支払済みになります。</div>
+            </div>
             <div class="info-box tip">
                 <span class="material-symbols-outlined">lightbulb</span>
-                <div><strong>QRaku × Square のオンライン決済</strong>のみを使用する場合は、物理端末は不要です。お客様はスマホのブラウザ上でカード情報を入力して決済できます。</div>
+                <div><strong>テイクアウトのSquareオンライン先払い</strong>だけを使用する場合は、物理端末のペアリングは不要です。</div>
             </div>
         </div>
     </div>
 
     <!-- ============ SECTION 3: PAYPAY ============ -->
     <div class="section page-break" id="paypay-setup">
+        <div class="info-box warning">
+            <span class="material-symbols-outlined">pause_circle</span>
+            <div><strong>現在、PayPayダイレクトの新規設定は保留中です。</strong> テイクアウト先払いはSquareをご利用ください。既存のPayPay店頭QRはイートインの現場決済として利用できます。</div>
+        </div>
         <div class="section-header">
             <div class="section-icon red">
                 <span class="material-symbols-outlined">qr_code_2</span>
@@ -732,10 +727,11 @@
         <div class="step-card">
             <h4><span class="step-number emerald">✓</span>Square のテスト</h4>
             <ol>
-                <li>Square Developer ダッシュボードの<strong>サンドボックス</strong>モードでテスト用アカウントを作成</li>
-                <li>QRakuの管理画面でSquare連携（サンドボックスモード）を完了</li>
-                <li>テスト用テーブルQRコードをスキャンし、注文・決済を実施</li>
-                <li>Square ダッシュボードの「トランザクション」で決済が記録されていることを確認</li>
+                <li>テイクアウトはSquareサンドボックスでオンラインカード決済を完了する</li>
+                <li>イートインは本番移行前にTerminalペアリングと端末送信を確認する</li>
+                <li>端末で決済を完了し、QRaku Registerからテーブルが自動で消えることを確認する</li>
+                <li>Square Dashboardの取引金額とQRakuの注文合計が一致することを確認する</li>
+                <li>端末でキャンセルした場合、QRaku注文が支払済みにならないことを確認する</li>
             </ol>
             <div class="info-box tip">
                 <span class="material-symbols-outlined">lightbulb</span>
@@ -757,7 +753,9 @@
             <h4><span class="step-number emerald">✓</span>本番切り替えチェックリスト</h4>
             <ul>
                 <li>✅ サンドボックスでのテスト決済が問題なく完了した</li>
-                <li>✅ 本番用のAPIキー / OAuth連携に切り替えた</li>
+                <li>✅ 本番用のSquare OAuth連携に切り替えた</li>
+                <li>✅ Square Terminalが「接続済み」と表示される</li>
+                <li>✅ Square webhookの署名キーと通知URLが本番環境に設定されている</li>
                 <li>✅ 実際の少額決済（¥1〜¥100）でテストし、入金確認済み</li>
                 <li>✅ 返金（Refund）のフローも確認済み</li>
                 <li>✅ 店舗スタッフへの操作手順を共有済み</li>
@@ -788,13 +786,23 @@
         </div>
 
         <div class="step-card">
+            <h4>Q. Terminalのコードを入力しても接続済みになりません</h4>
+            <p><strong>A.</strong> コードの有効期限は約5分です。TerminalがWi-Fiに接続されていることを確認し、QRakuで新しいコードを発行してください。既存のSquare POSログイン状態ではなく、端末のログイン画面でコードを入力します。</p>
+        </div>
+
+        <div class="step-card">
+            <h4>Q. Square端末で支払ったのにQRakuが決済待ちのままです</h4>
+            <p><strong>A.</strong> 数秒待っても変わらない場合はRegister画面を再読み込みしてください。改善しない場合は、Square Dashboardで取引がCOMPLETEDか確認し、システム管理者にWebhook設定（<code>SQUARE_WEBHOOK_SIGNATURE_KEY</code> / <code>SQUARE_WEBHOOK_NOTIFICATION_URL</code>）の確認を依頼してください。二重決済を避けるため、状態確認前に再送信しないでください。</p>
+        </div>
+
+        <div class="step-card">
             <h4>Q. PayPayの認証情報を忘れました</h4>
-            <p><strong>A.</strong> PayPay for Developersダッシュボードにログインし、「APIキー管理」からAPIキーを再発行してください。API Secretは再表示できないため、再発行が必要です。</p>
+            <p><strong>A.</strong> PayPayダイレクト連携は現在保留中です。既存の店頭PayPay QRは現場決済として継続利用できます。</p>
         </div>
 
         <div class="step-card">
             <h4>Q. Square と PayPay を同時に使えますか？</h4>
-            <p><strong>A.</strong> 現在のQRakuでは、一度に<strong>1つの決済方式</strong>のみ有効にできます。ただし、「現場決済」モードでSquare端末とPayPay店頭QRコードを併用する使い方は可能です。</p>
+            <p><strong>A.</strong> テイクアウト先払いとSquare Terminal対面決済はSquareに統一します。イートインで既存のPayPay店頭QRを使った場合は、スタッフがRegisterで現場決済として記録してください。</p>
         </div>
 
         <div class="step-card">

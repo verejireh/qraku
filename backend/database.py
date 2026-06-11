@@ -135,6 +135,13 @@ async def init_db():
         "UPDATE paymentsettings SET payment_method_type = 'PAY_AT_COUNTER' WHERE payment_method_type::text = 'pay_at_counter'",
         "UPDATE paymentsettings SET payment_method_type = 'SQUARE_INTEGRATED' WHERE payment_method_type::text = 'square_integrated'",
         "UPDATE paymentsettings SET payment_method_type = 'PAYPAY_DIRECT' WHERE payment_method_type::text = 'paypay_direct'",
+        "ALTER TABLE paymentsettings ADD COLUMN IF NOT EXISTS square_terminal_device_id VARCHAR(128) NULL",
+        "ALTER TABLE paymentsettings ADD COLUMN IF NOT EXISTS square_terminal_device_name VARCHAR(128) NULL",
+        "ALTER TABLE paymentsettings ADD COLUMN IF NOT EXISTS square_terminal_device_code_id VARCHAR(128) NULL",
+        "ALTER TABLE paymentsettings ADD COLUMN IF NOT EXISTS square_terminal_device_code VARCHAR(16) NULL",
+        "ALTER TABLE paymentsettings ADD COLUMN IF NOT EXISTS square_terminal_pairing_status VARCHAR(32) NULL",
+        "ALTER TABLE paymentsettings ADD COLUMN IF NOT EXISTS square_terminal_pair_by TIMESTAMP NULL",
+        "ALTER TABLE paymentsettings ADD COLUMN IF NOT EXISTS square_terminal_paired_at TIMESTAMP NULL",
         # [2026-05-24] PG-AUDIT-ENUM-CONSISTENCY: MenuGroupType name == value 통일
         "UPDATE menugroup SET group_type = 'TIME_WINDOW' WHERE group_type::text = 'time_window'",
         "UPDATE menugroup SET group_type = 'COURSE' WHERE group_type::text = 'course'",
@@ -261,6 +268,8 @@ async def init_db():
         "CREATE INDEX IF NOT EXISTS idx_eventlog_store_action ON eventlog(store_id, action)",
         # [2026-05-09] INF-04: WebhookEvent 수신시각 복합 인덱스
         "CREATE INDEX IF NOT EXISTS idx_webhookevent_provider_received ON webhookevent(provider, received_at)",
+        "CREATE INDEX IF NOT EXISTS idx_squareterminalcheckout_store_status ON squareterminalcheckout(store_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_squareterminalcheckout_table_session ON squareterminalcheckout(table_id, session_token)",
         # [2026-05-09] INF-03: Order 클라이언트 Idempotency-Key (중복 주문 차단)
         'ALTER TABLE "order" ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(64) NULL',
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_order_idem_key ON "order"(idempotency_key)',

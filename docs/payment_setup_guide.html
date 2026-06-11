@@ -138,8 +138,8 @@ hr {
 
 <div class="cover">
   <h1>QRaku 決済連携<br>店舗オーナー向け 導入ガイド</h1>
-  <div class="sub">Square & PayPay ダイレクト 設定マニュアル</div>
-  <div class="sub" style="margin-top:30px;font-size:11pt;">Version 1.0 &nbsp;|&nbsp; 2026年4月</div>
+  <div class="sub">Square オンライン決済 & Terminal 設定マニュアル</div>
+  <div class="sub" style="margin-top:30px;font-size:11pt;">Version 1.1 &nbsp;|&nbsp; 2026年6月</div>
 </div>
 
 <div class="page-break"></div>
@@ -150,7 +150,7 @@ hr {
     <li>はじめに（本システムの決済方式）</li>
     <li>事前に準備するもの</li>
     <li>Square 決済 導入手順</li>
-    <li>PayPay ダイレクト 導入手順</li>
+    <li>Square Terminal ペアリング手順</li>
     <li>管理画面での店舗側設定</li>
     <li>テイクアウト機能 有効化手順</li>
     <li>動作テスト（サンドボックス / 本番）</li>
@@ -167,11 +167,11 @@ hr {
 <tr><th>方式</th><th>特徴</th><th>必要な契約</th></tr>
 <tr><td><b>① 窓口支払い</b><br>(pay_at_counter)</td><td>食後に店舗レジで現金/カード決済。オンライン決済は使わない。</td><td>不要</td></tr>
 <tr><td><b>② Square 連携</b><br>(square_integrated)</td><td>カード・Apple Pay・Google Pay など。テイクアウト先払いも Square POS / プリンターと同期。</td><td>Square アカウント</td></tr>
-<tr><td><b>③ PayPay ダイレクト</b><br>(paypay_direct)</td><td>PayPay ユーザー向け。手数料が低く、日本国内のお客様に最適。</td><td>PayPay for Business + PayPay for Developers</td></tr>
+<tr><td><b>③ PayPay 店頭QR</b></td><td>既存のPayPay QRで現場精算し、QRakuでは現場決済として記録する。</td><td>PayPay for Business</td></tr>
 </table>
 
 <div class="note">
-<b>重要:</b> テイクアウト（お持ち帰り）注文を受け付けるには ②または③ の契約が必要です。先払いが行われないと注文そのものが成立しない仕様になっています。
+<b>重要:</b> テイクアウト（お持ち帰り）の先払いは Square に統一されています。イートインはSquare Terminalまたは現場決済を利用します。
 </div>
 
 <h2>2. 事前に準備するもの</h2>
@@ -220,14 +220,29 @@ hr {
 <b>連携で保存されるもの:</b> access_token / refresh_token / merchant_id / location_id。自動取得されるため、オーナー様が手入力する項目はありません。
 </div>
 
-<h3>3-4. お客様側で使える決済手段</h3>
+<h3 id="terminal-pairing">3-4. Square Terminalをペアリングする</h3>
+<ol>
+  <li>Square Terminalを店舗Wi-Fiへ接続する。</li>
+  <li>QRaku 管理画面 → 「決済設定」を開く。</li>
+  <li>「Terminalペアリングコードを発行」を押す。</li>
+  <li>表示された6文字のコードをSquare Terminalのログイン画面へ入力する。</li>
+  <li>QRaku側が「接続済み」になるまで待つ。</li>
+</ol>
+<div class="warn">
+<b>注意:</b> コードは約5分で失効します。期限切れの場合は新しいコードを発行してください。この連携はSquare Terminal専用で、Square Reader / Standは対象外です。
+</div>
+<div class="ok">
+<b>会計方法:</b> Register画面で「Square」→「Square端末へ送信」。端末で決済が完了し、SquareのCOMPLETED通知を受信した場合だけQRaku注文が支払済みになります。
+</div>
+
+<h3>3-5. お客様側で使える決済手段</h3>
 <ul>
   <li>Visa / Mastercard / JCB / American Express / Diners</li>
   <li>Apple Pay（iOS Safari）</li>
   <li>Google Pay（Android Chrome）</li>
 </ul>
 
-<h3>3-5. Square 決済の手数料</h3>
+<h3>3-6. Square 決済の手数料</h3>
 <table>
 <tr><th>方式</th><th>手数料（2026年4月時点）</th></tr>
 <tr><td>対面カード決済</td><td>3.25%</td></tr>
@@ -353,7 +368,7 @@ hr {
   <li>店頭 QR をスキャン → テイクアウト可能メニューだけが表示される</li>
   <li>カートに追加 → 「注文する」ボタン</li>
   <li>受取予定時刻を選択</li>
-  <li>Square / PayPay で<b>先払い</b></li>
+  <li>Square で<b>先払い</b></li>
   <li>決済完了後、注文が厨房に送信され、4 桁の受取コードが発行される</li>
   <li>完成したら Kitchen → Register で「受取準備完了」 → スタッフが受取コードを確認して商品を渡す</li>
 </ol>
@@ -375,6 +390,8 @@ hr {
   </li>
   <li>厨房画面に注文が表示されることを確認</li>
   <li>レシートページが正しく生成されることを確認</li>
+  <li>Square Terminalを接続し、Registerから端末へ金額が送信されることを確認</li>
+  <li>端末決済完了後にテーブルが自動で会計完了になることを確認</li>
 </ol>
 
 <h3>7-2. PayPay ステージングテスト</h3>
@@ -401,12 +418,14 @@ hr {
 <tr><td>Kitchen 画面に注文が出ない</td><td>テイクアウト注文は<b>決済完了後</b>のみ表示されます。未決済は表示されません。</td></tr>
 <tr><td>「Authentication required」エラー</td><td>管理画面のセッションが切れています。再ログインしてください。</td></tr>
 <tr><td>Square トークン期限切れ（約 90日）</td><td>決済設定で OAuth を解除し、再度「Square と連携する」を押してください。</td></tr>
+<tr><td>Terminalが接続済みにならない</td><td>コードは約5分で失効します。端末のWi-Fiを確認し、新しいコードをログイン画面へ入力してください。</td></tr>
+<tr><td>端末決済後も決済待ちのまま</td><td>Square DashboardでCOMPLETEDを確認し、システム管理者にWebhook署名キーと通知URLの設定確認を依頼してください。状態確認前に再送信しないでください。</td></tr>
 </table>
 
 <h2>9. よくある質問</h2>
 
 <h4>Q1. 複数の決済方式を同時に使えますか？</h4>
-<p>1 店舗 1 方式までです。Square 連携中は PayPay ダイレクトと併用できません。テイクアウト用に PayPay、イートインはレジ後払い、という運用は可能です。</p>
+<p>テイクアウト先払いとSquare Terminal対面決済はSquareを使用します。既存のPayPay店頭QRはイートインの現場決済として併用できます。</p>
 
 <h4>Q2. 手数料はいつ・どう引かれますか？</h4>
 <p>Square / PayPay のそれぞれの入金サイクルで、売上から手数料を差し引いた金額が銀行口座に振り込まれます。QRaku 側では手数料を取りません。</p>

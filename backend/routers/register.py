@@ -21,7 +21,8 @@ from database import get_session
 from models import (
     Store, Table, TableStatus, Order, OrderItem, Menu,
     CustomerPoint, PointHistory, PointTransactionType, PointAccrualType,
-    GuestProfile, TabehoudaiSession, MenuGroup,
+    GuestProfile, PaymentSettings, SquareTerminalCheckout,
+    TabehoudaiSession, MenuGroup,
 )
 from utils.jwt import require_staff_or_admin
 from utils.db_compat import date_only
@@ -59,6 +60,8 @@ async def _get_unpaid_orders_for_table(
         Order.payment_status == "unpaid",
         Order.order_type == "eat_in",
     )
+    if table.session_token:
+        stmt = stmt.where(Order.session_token == table.session_token)
     result = await session.execute(stmt)
     return result.scalars().all()
 
@@ -226,6 +229,24 @@ async def get_table_detail(
         })
 
     total_amount = items_subtotal + tabehoudai_total
+    settings_result = await session.execute(
+        select(PaymentSettings).where(PaymentSettings.store_id == store.id)
+    )
+    payment_settings = settings_result.scalar_one_or_none()
+    active_checkout_result = await session.execute(
+        select(SquareTerminalCheckout)
+        .where(
+            SquareTerminalCheckout.store_id == store.id,
+            SquareTerminalCheckout.table_id == table.id,
+            SquareTerminalCheckout.session_token == (table.session_token or ""),
+            SquareTerminalCheckout.status.in_(
+                ["CREATING", "UNKNOWN", "PENDING", "IN_PROGRESS", "CANCEL_REQUESTED"]
+            ),
+        )
+        .order_by(SquareTerminalCheckout.id.desc())
+        .limit(1)
+    )
+    active_checkout = active_checkout_result.scalar_one_or_none()
 
     # ── guest 방문 정보 조회 ──────────────────────────────────────────────────
     guest_info = None
@@ -257,6 +278,17 @@ async def get_table_detail(
         "items": items,
         "payment_options": store.payment_options,
         "guest_info": guest_info,
+        "square_terminal_available": bool(
+            payment_settings and payment_settings.square_terminal_device_id
+        ),
+        "square_terminal_checkout": (
+            {
+                "operation_id": active_checkout.id,
+                "status": active_checkout.status,
+                "amount": active_checkout.amount,
+            }
+            if active_checkout else None
+        ),
     }
 
 
@@ -285,11 +317,36 @@ async def complete_payment(
     3. 테이블 리셋 (READY, 새 QR 토큰)
     4. WebSocket 브로드캐스트
     """
-    table = await session.get(Table, table_id)
+    if body.payment_method.lower() == "square":
+        raise HTTPException(
+            status_code=409,
+            detail="Use the Square Terminal checkout endpoint for Square payments",
+        )
+
+    table_result = await session.execute(
+        select(Table).where(Table.id == table_id).with_for_update()
+    )
+    table = table_result.scalar_one_or_none()
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
     if table.store_id != auth_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
+
+    active_terminal_result = await session.execute(
+        select(SquareTerminalCheckout.id).where(
+            SquareTerminalCheckout.store_id == auth_store.id,
+            SquareTerminalCheckout.table_id == table.id,
+            SquareTerminalCheckout.session_token == (table.session_token or ""),
+            SquareTerminalCheckout.status.in_(
+                ["CREATING", "UNKNOWN", "PENDING", "IN_PROGRESS", "CANCEL_REQUESTED"]
+            ),
+        )
+    )
+    if active_terminal_result.first() is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Square Terminal payment is already in progress",
+        )
 
     store = await session.get(Store, table.store_id)
     if not store:
@@ -388,6 +445,216 @@ async def complete_payment(
         "payment_method": body.payment_method,
         "new_qr_token": table.qr_token,
     }
+
+
+def _terminal_operation_response(operation: SquareTerminalCheckout) -> dict:
+    return {
+        "operation_id": operation.id,
+        "square_checkout_id": operation.square_checkout_id,
+        "status": operation.status,
+        "amount": operation.amount,
+        "error": operation.error_message,
+    }
+
+
+@router.post("/table/{table_id}/square-terminal-checkout")
+async def start_square_terminal_checkout(
+    table_id: int,
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
+):
+    table_result = await session.execute(
+        select(Table).where(Table.id == table_id).with_for_update()
+    )
+    table = table_result.scalar_one_or_none()
+    if not table:
+        raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not table.session_token:
+        raise HTTPException(status_code=409, detail="Table session is not active")
+
+    settings_result = await session.execute(
+        select(PaymentSettings).where(PaymentSettings.store_id == auth_store.id)
+    )
+    settings = settings_result.scalar_one_or_none()
+    if not settings or not settings.square_access_token:
+        raise HTTPException(status_code=409, detail="Square account is not connected")
+    if not settings.square_terminal_device_id:
+        raise HTTPException(status_code=409, detail="Square Terminal is not paired")
+
+    existing_result = await session.execute(
+        select(SquareTerminalCheckout)
+        .where(
+            SquareTerminalCheckout.store_id == auth_store.id,
+            SquareTerminalCheckout.table_id == table.id,
+            SquareTerminalCheckout.session_token == table.session_token,
+            SquareTerminalCheckout.status.in_(
+                ["CREATING", "UNKNOWN", "PENDING", "IN_PROGRESS", "CANCEL_REQUESTED"]
+            ),
+        )
+        .order_by(SquareTerminalCheckout.id.desc())
+        .limit(1)
+    )
+    operation = existing_result.scalar_one_or_none()
+
+    if operation is None:
+        order_result = await session.execute(
+            select(Order)
+            .where(
+                Order.store_id == auth_store.id,
+                Order.table_number == table.table_number,
+                Order.session_token == table.session_token,
+                Order.order_type == "eat_in",
+                Order.payment_status == "unpaid",
+            )
+            .with_for_update()
+        )
+        orders = order_result.scalars().all()
+        course_result = await session.execute(
+            select(TabehoudaiSession)
+            .where(
+                TabehoudaiSession.table_id == table.id,
+                TabehoudaiSession.status.in_(["active", "expired"]),
+            )
+            .with_for_update()
+        )
+        courses = course_result.scalars().all()
+        if not orders and not courses:
+            raise HTTPException(status_code=400, detail="No unpaid orders for this table")
+
+        amount = sum(float(order.total_amount) for order in orders)
+        for course in courses:
+            group = await session.get(MenuGroup, course.group_id)
+            if group:
+                amount += float(group.price_per_person * course.num_people)
+        if amount <= 0 or not float(amount).is_integer():
+            raise HTTPException(
+                status_code=409,
+                detail="Square Terminal requires a positive integer JPY amount",
+            )
+
+        operation = SquareTerminalCheckout(
+            store_id=auth_store.id,
+            table_id=table.id,
+            session_token=table.session_token,
+            idempotency_key=f"terminal-{uuid.uuid4().hex}",
+            device_id=settings.square_terminal_device_id,
+            amount=int(amount),
+            order_ids_json=json.dumps([order.id for order in orders]),
+            course_session_ids_json=json.dumps([course.id for course in courses]),
+        )
+        session.add(operation)
+        await session.commit()
+        await session.refresh(operation)
+    elif operation.square_checkout_id and operation.status not in ("CREATING", "UNKNOWN"):
+        return _terminal_operation_response(operation)
+
+    store_result = await session.execute(
+        select(Store)
+        .options(selectinload(Store.payment_settings))
+        .where(Store.id == auth_store.id)
+    )
+    store = store_result.scalar_one()
+    from utils.square_client import create_square_terminal_checkout
+    from utils.square_terminal import apply_terminal_checkout_update, terminal_checkout_payload
+
+    checkout_payload = terminal_checkout_payload(
+        amount=operation.amount,
+        device_id=operation.device_id,
+        reference_id=f"qraku-terminal-{operation.id}",
+        note=f"QRaku table {table.table_number}",
+    )
+    result = await create_square_terminal_checkout(
+        store,
+        idempotency_key=operation.idempotency_key,
+        checkout=checkout_payload,
+        session=session,
+    )
+    if result.get("status") != "ok":
+        operation.status = (
+            "UNKNOWN"
+            if result.get("transport_error") or (result.get("http_status") or 0) >= 500
+            else "FAILED"
+        )
+        operation.error_message = result.get("message")
+        operation.updated_at = now_utc_naive()
+        session.add(operation)
+        await session.commit()
+        raise HTTPException(status_code=502, detail=operation.error_message)
+
+    completed_now = await apply_terminal_checkout_update(
+        session, operation, result["checkout"]
+    )
+    await session.commit()
+    if completed_now:
+        from utils.events import emit, emit_table_update
+        completed_table = await session.get(Table, operation.table_id)
+        await emit(session, auth_store.id, "PAYMENT_COMPLETE", {
+            "table_id": operation.table_id,
+            "payment_method": "SQUARE_TERMINAL",
+            "total_amount": operation.amount,
+        })
+        if completed_table:
+            await emit_table_update(session, auth_store.id, completed_table)
+    return _terminal_operation_response(operation)
+
+
+@router.get("/square-terminal-checkout/{operation_id}")
+async def get_square_terminal_checkout_status(
+    operation_id: int,
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
+):
+    operation = await session.get(SquareTerminalCheckout, operation_id)
+    if not operation:
+        raise HTTPException(status_code=404, detail="Terminal checkout not found")
+    if operation.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if operation.status == "COMPLETED":
+        return _terminal_operation_response(operation)
+    if not operation.square_checkout_id:
+        return _terminal_operation_response(operation)
+
+    settings_result = await session.execute(
+        select(PaymentSettings).where(PaymentSettings.store_id == auth_store.id)
+    )
+    settings = settings_result.scalar_one_or_none()
+    if not settings:
+        raise HTTPException(status_code=409, detail="Payment settings not found")
+    store_result = await session.execute(
+        select(Store)
+        .options(selectinload(Store.payment_settings))
+        .where(Store.id == auth_store.id)
+    )
+    store = store_result.scalar_one()
+
+    from utils.square_client import get_square_terminal_checkout
+    from utils.square_terminal import apply_terminal_checkout_update
+
+    result = await get_square_terminal_checkout(
+        store,
+        operation.square_checkout_id,
+        session=session,
+    )
+    if result.get("status") != "ok":
+        raise HTTPException(status_code=502, detail=result.get("message"))
+    completed_now = await apply_terminal_checkout_update(
+        session, operation, result["checkout"]
+    )
+    await session.commit()
+
+    if completed_now:
+        from utils.events import emit, emit_table_update
+        table = await session.get(Table, operation.table_id)
+        await emit(session, auth_store.id, "PAYMENT_COMPLETE", {
+            "table_id": operation.table_id,
+            "payment_method": "SQUARE_TERMINAL",
+            "total_amount": operation.amount,
+        })
+        if table:
+            await emit_table_update(session, auth_store.id, table)
+    return _terminal_operation_response(operation)
 
 
 # ── 4. 오늘 매출 요약 ──────────────────────────────────────────────────────────

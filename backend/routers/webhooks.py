@@ -7,7 +7,10 @@ import logging
 import os
 import stripe
 from database import get_session
-from models import Menu, Order, OrderItem, PendingPayPayOrder, Store, Table, WebhookEvent
+from models import (
+    Menu, Order, OrderItem, PendingPayPayOrder, SquareTerminalCheckout,
+    Store, Table, WebhookEvent,
+)
 from utils.time_helpers import now_utc_naive
 from utils.pickup_code import next_pickup_code
 
@@ -17,6 +20,11 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 endpoint_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+square_webhook_signature_key = os.getenv("SQUARE_WEBHOOK_SIGNATURE_KEY", "")
+square_webhook_notification_url = os.getenv(
+    "SQUARE_WEBHOOK_NOTIFICATION_URL",
+    "https://qraku.com/api/webhooks/square",
+)
 
 @router.post("/stripe")
 async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_session)):
@@ -106,6 +114,114 @@ async def fulfill_checkout(session_obj, db_session: AsyncSession):
             "order_id": order_id,
             "table_number": table_number_str,
         })
+
+
+@router.post("/square")
+async def square_webhook(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    raw = await request.body()
+    signature = request.headers.get("x-square-hmacsha256-signature")
+
+    from utils.square_terminal import (
+        apply_terminal_checkout_update,
+        verify_square_webhook_signature,
+    )
+
+    if not square_webhook_signature_key:
+        raise HTTPException(
+            status_code=503,
+            detail="SQUARE_WEBHOOK_SIGNATURE_KEY is not configured",
+        )
+    if not verify_square_webhook_signature(
+        raw,
+        signature,
+        square_webhook_signature_key,
+        square_webhook_notification_url,
+    ):
+        raise HTTPException(status_code=401, detail="invalid Square signature")
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+
+    event_id = payload.get("event_id")
+    if not event_id:
+        raise HTTPException(status_code=400, detail="event_id missing")
+
+    event = WebhookEvent(
+        provider="square",
+        event_id=f"square:{event_id}",
+        signature_valid=True,
+        payload_raw=raw.decode("utf-8"),
+    )
+    session.add(event)
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        return {"status": "duplicate"}
+
+    if payload.get("type") != "terminal.checkout.updated":
+        event.processed = True
+        await session.commit()
+        return {"status": "ignored"}
+
+    checkout = (
+        payload.get("data", {})
+        .get("object", {})
+        .get("checkout", {})
+    )
+    checkout_id = checkout.get("id")
+    reference_id = str(checkout.get("reference_id") or "")
+    operation = None
+    if checkout_id:
+        operation_result = await session.execute(
+            select(SquareTerminalCheckout)
+            .where(SquareTerminalCheckout.square_checkout_id == checkout_id)
+            .with_for_update()
+        )
+        operation = operation_result.scalar_one_or_none()
+    if operation is None and reference_id.startswith("qraku-terminal-"):
+        try:
+            operation_id = int(reference_id.removeprefix("qraku-terminal-"))
+        except ValueError:
+            operation_id = None
+        if operation_id:
+            operation_result = await session.execute(
+                select(SquareTerminalCheckout)
+                .where(SquareTerminalCheckout.id == operation_id)
+                .with_for_update()
+            )
+            operation = operation_result.scalar_one_or_none()
+
+    if operation is None:
+        event.processed = False
+        await session.commit()
+        logger.error(
+            "Square Terminal checkout has no local operation: checkout_id=%s reference=%s",
+            checkout_id,
+            reference_id,
+        )
+        return {"status": "operation_missing"}
+
+    completed_now = await apply_terminal_checkout_update(session, operation, checkout)
+    event.processed = True
+    await session.commit()
+
+    if completed_now:
+        from utils.events import emit, emit_table_update
+        table = await session.get(Table, operation.table_id)
+        await emit(session, operation.store_id, "PAYMENT_COMPLETE", {
+            "table_id": operation.table_id,
+            "payment_method": "SQUARE_TERMINAL",
+            "total_amount": operation.amount,
+        })
+        if table:
+            await emit_table_update(session, operation.store_id, table)
+    return {"status": "ok"}
 
 
 async def _auto_create_order_from_pending(

@@ -14,11 +14,18 @@ import logging
 import httpx
 import hmac
 import hashlib
+import secrets
+import time
+import uuid
+from datetime import datetime
+from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from sqlmodel import select
 from database import get_session
-from models import Store
+from models import POSType, PaymentMethodType, Store
 from utils.jwt import require_admin
 
 logger = logging.getLogger(__name__)
@@ -46,30 +53,51 @@ def get_square_token_url():
 SECRET_KEY = os.getenv("SECRET_KEY", "fallback-secret-key-change-in-production")
 
 def generate_signed_state(shop_id: str) -> str:
-    """shop_id 조작을 방지하기 위해 HMAC 서명을 포함한 state 생성"""
-    signature = hmac.new(SECRET_KEY.encode(), shop_id.encode(), hashlib.sha256).hexdigest()
-    return f"{shop_id}:{signature}"
+    """Create a signed, short-lived OAuth state."""
+    issued_at = str(int(time.time()))
+    nonce = secrets.token_urlsafe(16)
+    message = f"{shop_id}:{issued_at}:{nonce}"
+    signature = hmac.new(
+        SECRET_KEY.encode(), message.encode(), hashlib.sha256
+    ).hexdigest()
+    return f"{message}:{signature}"
 
 def verify_signed_state(state: str) -> str:
-    """state에 포함된 서명을 검증하고 안전한 shop_id 반환, 실패 시 None"""
-    parts = state.split(":", 1)
-    if len(parts) != 2:
+    """Validate signature and reject states older than 10 minutes."""
+    parts = state.split(":")
+    if len(parts) != 4:
         return None
-    shop_id, signature = parts
-    expected = hmac.new(SECRET_KEY.encode(), shop_id.encode(), hashlib.sha256).hexdigest()
+    shop_id, issued_at, nonce, signature = parts
+    try:
+        age = int(time.time()) - int(issued_at)
+    except ValueError:
+        return None
+    if age < 0 or age > 600:
+        return None
+    message = f"{shop_id}:{issued_at}:{nonce}"
+    expected = hmac.new(
+        SECRET_KEY.encode(), message.encode(), hashlib.sha256
+    ).hexdigest()
     if hmac.compare_digest(signature, expected):
         return shop_id
     return None
 
 
 @router.get("/authorize")
-async def authorize_square(shop_id: str):
-    """Square 앱 승인 페이지로 리다이렉트합니다."""
+async def authorize_square(
+    shop_id: str,
+    admin_store: Store = Depends(require_admin),
+):
+    """Return the Square authorization URL after admin ownership validation."""
     if not SQUARE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="SQUARE_CLIENT_ID 환경변수가 설정되지 않았습니다.")
-    
-    # scope: ORDERS_WRITE, PAYMENTS_WRITE, MERCHANT_PROFILE_READ (필요에 따라 추가/수정)
-    scope = "ORDERS_WRITE PAYMENTS_WRITE MERCHANT_PROFILE_READ"
+    if shop_id not in (str(admin_store.id), admin_store.slug):
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
+
+    scope = (
+        "ORDERS_WRITE PAYMENTS_WRITE PAYMENTS_READ "
+        "MERCHANT_PROFILE_READ DEVICE_CREDENTIAL_MANAGEMENT"
+    )
     
     # 보안: shop_id를 암호화 서명한 상태 변수(state)로 전달하여 CSRF 위변조 공격 차단
     safe_state = generate_signed_state(str(shop_id))
@@ -81,10 +109,9 @@ async def authorize_square(shop_id: str):
     }
     
     # URL 쿼리 스트링 조합
-    query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+    query_string = urlencode(params)
     redirect_url = f"{get_square_oauth_url()}?{query_string}"
-    
-    return RedirectResponse(redirect_url)
+    return {"authorization_url": redirect_url}
 
 
 @router.get("/callback")
@@ -163,6 +190,8 @@ async def square_callback(request: Request, session: AsyncSession = Depends(get_
     payment_settings.square_access_token = encrypt_secret(access_token) or access_token
     payment_settings.square_refresh_token = encrypt_secret(refresh_token) or refresh_token
     payment_settings.square_merchant_id = merchant_id
+    payment_settings.payment_method_type = PaymentMethodType.SQUARE_INTEGRATED
+    payment_settings.pos_type = POSType.SQUARE
     
     # 기존 레거시 호환 및 Store 기본 설정 업데이트
     store.square_connected = True
@@ -202,7 +231,156 @@ async def square_callback(request: Request, session: AsyncSession = Depends(get_
     await session.commit()
     
     # 성공적으로 연동되었으면 관리자 페이지로 리다이렉트
-    return RedirectResponse(f"{FRONTEND_BASE_URL}/{shop_id}/admin?square_connected=success")
+    return RedirectResponse(
+        f"{FRONTEND_BASE_URL}/{shop_id}/admin/payment?square_connected=success"
+    )
+
+
+def _verify_store_access(shop_id: str, admin_store: Store) -> None:
+    if shop_id not in (str(admin_store.id), admin_store.slug):
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
+
+
+@router.post("/terminal/device-code/{shop_id}")
+async def create_terminal_device_code(
+    shop_id: str,
+    admin_store: Store = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    _verify_store_access(shop_id, admin_store)
+
+    from models import PaymentSettings
+    from sqlmodel import select
+    from utils.square_client import create_square_terminal_device_code
+
+    result = await session.execute(
+        select(PaymentSettings).where(PaymentSettings.store_id == admin_store.id)
+    )
+    settings = result.scalar_one_or_none()
+    if not settings or not settings.square_access_token or not settings.square_location_id:
+        raise HTTPException(status_code=409, detail="Square account is not connected")
+
+    store_result = await session.execute(
+        select(Store)
+        .options(selectinload(Store.payment_settings))
+        .where(Store.id == admin_store.id)
+    )
+    store = store_result.scalar_one()
+    response = await create_square_terminal_device_code(
+        store,
+        name=f"QRaku Counter {admin_store.id}",
+        idempotency_key=str(uuid.uuid4()),
+        session=session,
+    )
+    if response.get("status") != "ok":
+        raise HTTPException(status_code=502, detail=response.get("message"))
+
+    device_code = response["device_code"]
+    settings.square_terminal_device_code_id = device_code.get("id")
+    settings.square_terminal_device_code = device_code.get("code")
+    settings.square_terminal_device_name = device_code.get("name")
+    settings.square_terminal_pairing_status = device_code.get("status")
+    pair_by = device_code.get("pair_by")
+    if pair_by:
+        settings.square_terminal_pair_by = datetime.fromisoformat(
+            pair_by.replace("Z", "+00:00")
+        ).replace(tzinfo=None)
+    settings.square_terminal_device_id = None
+    settings.square_terminal_paired_at = None
+    session.add(settings)
+    await session.commit()
+    return {
+        "code": settings.square_terminal_device_code,
+        "status": settings.square_terminal_pairing_status,
+        "pair_by": pair_by,
+        "device_name": settings.square_terminal_device_name,
+    }
+
+
+@router.get("/terminal/device-code/{shop_id}")
+async def get_terminal_device_code_status(
+    shop_id: str,
+    admin_store: Store = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    _verify_store_access(shop_id, admin_store)
+
+    from models import PaymentSettings
+    from sqlmodel import select
+    from utils.square_client import get_square_terminal_device_code
+
+    result = await session.execute(
+        select(PaymentSettings).where(PaymentSettings.store_id == admin_store.id)
+    )
+    settings = result.scalar_one_or_none()
+    if not settings:
+        raise HTTPException(status_code=404, detail="Payment settings not found")
+    if settings.square_terminal_device_id:
+        return {
+            "status": "PAIRED",
+            "device_id": settings.square_terminal_device_id,
+            "device_name": settings.square_terminal_device_name,
+        }
+    if not settings.square_terminal_device_code_id:
+        return {"status": "NOT_PAIRED"}
+
+    store_result = await session.execute(
+        select(Store)
+        .options(selectinload(Store.payment_settings))
+        .where(Store.id == admin_store.id)
+    )
+    store = store_result.scalar_one()
+    response = await get_square_terminal_device_code(
+        store,
+        settings.square_terminal_device_code_id,
+        session=session,
+    )
+    if response.get("status") != "ok":
+        raise HTTPException(status_code=502, detail=response.get("message"))
+
+    device_code = response["device_code"]
+    settings.square_terminal_pairing_status = device_code.get("status")
+    if device_code.get("device_id"):
+        settings.square_terminal_device_id = device_code["device_id"]
+        settings.square_terminal_paired_at = datetime.utcnow()
+        settings.square_terminal_device_code = None
+    session.add(settings)
+    await session.commit()
+    return {
+        "status": settings.square_terminal_pairing_status,
+        "code": settings.square_terminal_device_code,
+        "pair_by": device_code.get("pair_by"),
+        "device_id": settings.square_terminal_device_id,
+        "device_name": settings.square_terminal_device_name,
+    }
+
+
+@router.delete("/terminal/device/{shop_id}")
+async def forget_terminal_device(
+    shop_id: str,
+    admin_store: Store = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    _verify_store_access(shop_id, admin_store)
+    from models import PaymentSettings
+    from sqlmodel import select
+
+    result = await session.execute(
+        select(PaymentSettings).where(PaymentSettings.store_id == admin_store.id)
+    )
+    settings = result.scalar_one_or_none()
+    if settings:
+        settings.square_terminal_device_id = None
+        settings.square_terminal_device_name = None
+        settings.square_terminal_device_code_id = None
+        settings.square_terminal_device_code = None
+        settings.square_terminal_pairing_status = None
+        settings.square_terminal_pair_by = None
+        settings.square_terminal_paired_at = None
+        session.add(settings)
+        await session.commit()
+    return {"status": "ok"}
+
 
 @router.delete("/disconnect/{shop_id}")
 async def disconnect_square(shop_id: str, admin_store: Store = Depends(require_admin), session: AsyncSession = Depends(get_session)):
@@ -233,6 +411,14 @@ async def disconnect_square(shop_id: str, admin_store: Store = Depends(require_a
         payment_settings.square_refresh_token = None
         payment_settings.square_merchant_id = None
         payment_settings.square_location_id = None
+        payment_settings.square_terminal_device_id = None
+        payment_settings.square_terminal_device_name = None
+        payment_settings.square_terminal_device_code_id = None
+        payment_settings.square_terminal_device_code = None
+        payment_settings.square_terminal_pairing_status = None
+        payment_settings.square_terminal_pair_by = None
+        payment_settings.square_terminal_paired_at = None
+        payment_settings.pos_type = POSType.NONE
         session.add(payment_settings)
         
     # 기존 레거시

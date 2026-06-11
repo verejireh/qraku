@@ -13,6 +13,7 @@ import os
 import httpx
 import uuid
 from typing import Optional, List, Dict
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from utils.crypto import decrypt_secret
 
@@ -52,6 +53,189 @@ def _auth_headers(access_token: str) -> dict:
         "Content-Type": "application/json",
         "Square-Version": "2024-02-21",
     }
+
+
+async def _square_request(
+    store,
+    method: str,
+    path: str,
+    *,
+    json_body: Optional[dict] = None,
+    timeout: float = 15.0,
+    session: Optional[AsyncSession] = None,
+) -> dict:
+    access_token = _resolve_square_token(store)
+    if not access_token:
+        return {"status": "error", "message": "square access token not configured"}
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.request(
+                method,
+                f"{get_square_api_base()}{path}",
+                headers=_auth_headers(access_token),
+                json=json_body,
+            )
+            if response.status_code == 401 and session is not None:
+                refreshed = await _refresh_square_access_token(store, session, client)
+                if refreshed:
+                    response = await client.request(
+                        method,
+                        f"{get_square_api_base()}{path}",
+                        headers=_auth_headers(refreshed),
+                        json=json_body,
+                    )
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+        if response.status_code in (200, 201):
+            return {"status": "ok", "data": data}
+        errors = data.get("errors", [])
+        message = errors[0].get("detail") if errors else response.text
+        return {
+            "status": "error",
+            "message": message or f"Square HTTP {response.status_code}",
+            "http_status": response.status_code,
+        }
+    except Exception as exc:
+        return {"status": "error", "message": str(exc), "transport_error": True}
+
+
+async def _refresh_square_access_token(
+    store,
+    session: AsyncSession,
+    client: httpx.AsyncClient,
+) -> Optional[str]:
+    ps = getattr(store, "payment_settings", None)
+    refresh_token = decrypt_secret(
+        getattr(ps, "square_refresh_token", None) if ps else None
+    )
+    client_id = os.getenv("SQUARE_CLIENT_ID", "")
+    client_secret = os.getenv("SQUARE_CLIENT_SECRET", "")
+    if not ps or not refresh_token or not client_id or not client_secret:
+        return None
+    response = await client.post(
+        f"{get_square_api_base()}/oauth2/token",
+        json={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        },
+    )
+    if response.status_code != 200:
+        return None
+    data = response.json()
+    access_token = data.get("access_token")
+    if not access_token:
+        return None
+    from utils.crypto import encrypt_secret
+
+    ps.square_access_token = encrypt_secret(access_token) or access_token
+    if data.get("refresh_token"):
+        ps.square_refresh_token = (
+            encrypt_secret(data["refresh_token"]) or data["refresh_token"]
+        )
+    session.add(ps)
+    await session.flush()
+    return access_token
+
+
+async def create_square_terminal_device_code(
+    store,
+    *,
+    name: str,
+    idempotency_key: str,
+    session: Optional[AsyncSession] = None,
+) -> dict:
+    location_id = _resolve_square_location(store)
+    if not location_id:
+        return {"status": "error", "message": "square_location_id not configured"}
+    result = await _square_request(
+        store,
+        "POST",
+        "/v2/devices/codes",
+        json_body={
+            "idempotency_key": idempotency_key,
+            "device_code": {
+                "name": name[:128],
+                "location_id": location_id,
+                "product_type": "TERMINAL_API",
+            },
+        },
+        session=session,
+    )
+    if result.get("status") != "ok":
+        return result
+    device_code = result["data"].get("device_code")
+    if not device_code:
+        return {"status": "error", "message": "Square did not return a device code"}
+    return {"status": "ok", "device_code": device_code}
+
+
+async def get_square_terminal_device_code(
+    store,
+    device_code_id: str,
+    *,
+    session: Optional[AsyncSession] = None,
+) -> dict:
+    result = await _square_request(
+        store,
+        "GET",
+        f"/v2/devices/codes/{device_code_id}",
+        session=session,
+    )
+    if result.get("status") != "ok":
+        return result
+    device_code = result["data"].get("device_code")
+    if not device_code:
+        return {"status": "error", "message": "Square did not return device status"}
+    return {"status": "ok", "device_code": device_code}
+
+
+async def create_square_terminal_checkout(
+    store,
+    *,
+    idempotency_key: str,
+    checkout: dict,
+    session: Optional[AsyncSession] = None,
+) -> dict:
+    result = await _square_request(
+        store,
+        "POST",
+        "/v2/terminals/checkouts",
+        json_body={
+            "idempotency_key": idempotency_key[:64],
+            "checkout": checkout,
+        },
+        session=session,
+    )
+    if result.get("status") != "ok":
+        return result
+    terminal_checkout = result["data"].get("checkout")
+    if not terminal_checkout:
+        return {"status": "error", "message": "Square did not return a terminal checkout"}
+    return {"status": "ok", "checkout": terminal_checkout}
+
+
+async def get_square_terminal_checkout(
+    store,
+    checkout_id: str,
+    *,
+    session: Optional[AsyncSession] = None,
+) -> dict:
+    result = await _square_request(
+        store,
+        "GET",
+        f"/v2/terminals/checkouts/{checkout_id}",
+        session=session,
+    )
+    if result.get("status") != "ok":
+        return result
+    terminal_checkout = result["data"].get("checkout")
+    if not terminal_checkout:
+        return {"status": "error", "message": "Square did not return terminal checkout status"}
+    return {"status": "ok", "checkout": terminal_checkout}
 
 
 async def create_square_order(store, order, line_items: List[Dict]) -> dict:

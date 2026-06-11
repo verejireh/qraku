@@ -1,7 +1,7 @@
 from typing import Dict, Any, List
 from models import Store, Order, PaymentSettings
 from ..base import BasePaymentAdapter, BasePOSAdapter
-from utils.square_client import process_square_payment, create_square_order
+from utils.square_client import process_square_payment, create_square_order, refund_square_payment
 
 class SquareAdapter(BasePaymentAdapter, BasePOSAdapter):
     def __init__(self, store: Store, settings: PaymentSettings):
@@ -16,9 +16,12 @@ class SquareAdapter(BasePaymentAdapter, BasePOSAdapter):
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    async def refund_payment(self, payment_id: str, amount: float = None) -> dict:
-        # Square API refund implementation placeholder
-        return {"status": "error", "message": "Not implemented"}
+    async def refund_payment(self, payment_id: str, amount: float = None, idempotency_key: str = None) -> dict:
+        """Square /v2/refunds 환불. amount 필수, idempotency_key 로 재시도 중복환불 방지."""
+        if amount is None:
+            return {"status": "error", "message": "Square 환불은 금액 지정이 필요합니다"}
+        key = idempotency_key or f"sq-refund:{payment_id}"
+        return await refund_square_payment(self.store, payment_id, int(amount), key)
 
     async def send_order_to_pos(self, order: Order, line_items: List[Dict[str, Any]]) -> dict:
         """Square POS로 주문 동기화"""

@@ -470,11 +470,11 @@ async def get_takeout_orders(
     # [2026-05-22] PG-DT-DG-04 — date_only equality → UTC range (인덱스 활용)
     today_start, today_end = jst_day_range_as_utc_naive()
 
-    # 픽업 완료(served)된 주문은 픽업 큐에서 제외
+    # 픽업 완료(served)·취소(cancelled) 주문은 픽업 큐에서 제외
     stmt = select(Order).where(
         Order.store_id == store.id,
         Order.order_type == "take_out",
-        Order.status != "served",
+        Order.status.notin_(["served", "cancelled"]),
         (
             (Order.payment_status == "unpaid") |
             ((Order.created_at >= today_start) & (Order.created_at < today_end))
@@ -582,18 +582,27 @@ async def cancel_refund_takeout(
         if order.status == "cancelled" or order.payment_status in ("refunded", "partial_refund"):
             return {"order_id": order.id, "status": order.status,
                     "payment_status": order.payment_status, "refunded": False, "noop": True}
+        # 이미 수령 완료 → 거부 (점포 미이행 환불 대상 아님)
+        if order.status == "served":
+            raise HTTPException(status_code=409, detail="受け渡し済みの注文は返金できません")
 
         reason = "店舗都合によるキャンセル（テイクアウト未提供）"
         refunded = False
 
         if order.payment_status == "paid":
+            # 온라인 결제 ID 없는 결제(현금/카운터)는 자동환불 대상 아님 → 거부(수동 처리)
+            if not getattr(order, "square_payment_id", None):
+                raise HTTPException(status_code=409,
+                                    detail="オンライン決済がないため自動返金できません（現金返金は手動で処理してください）")
             store_full = await session.get(
                 Store, auth_store.id, options=[selectinload(Store.payment_settings)],
             )
+            # 이중환불 방지: perform_refund 가 성공 RefundLog 로 영속 멱등 + 주문기준 고정 idempotency_key
             result = await perform_refund(
                 session, store_full or auth_store, order,
                 amount=order.total_amount, reason=reason,
                 admin_user_id=str(auth_store.id),
+                idempotency_key=f"takeout-refund:{order.id}",
             )
             if result["status"] != "ok":
                 raise HTTPException(status_code=502, detail="返金処理に失敗しました")
@@ -602,14 +611,17 @@ async def cancel_refund_takeout(
 
         order.status = "cancelled"
         session.add(order)
-        await session.commit()
 
+        # 감사 로그를 주문 상태와 같은 commit 에 포함 (log_event 는 add 만 — 유실 방지)
         await log_event(
             session, store_id=auth_store.id, actor_type="staff",
             actor_id=str(auth_store.id), action="takeout.cancel_refund",
             target_type="order", target_id=order.id,
             payload={"amount": order.total_amount, "refunded": refunded, "reason": reason},
         )
+        await session.commit()
+
+        # 손님 통지 (스태프 + 손님 채널)
         try:
             await emit_order_cancelled(session, auth_store.id, order, reason=reason)
         except Exception:

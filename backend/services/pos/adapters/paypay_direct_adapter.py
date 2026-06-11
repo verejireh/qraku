@@ -165,10 +165,15 @@ class PayPayDirectAdapter(BasePaymentAdapter):
                 "message": f"PayPay 決済が完了していません (status: {result['payment_status']})",
             }
 
-    async def refund_payment(self, payment_id: str, amount: float = None) -> dict:
-        """PayPay 返金処理"""
+    async def refund_payment(self, payment_id: str, amount: float = None, idempotency_key: str = None) -> dict:
+        """PayPay 返金処理. merchantRefundId 는 주문 기준 고정값(재시도 이중환불 방지)."""
         path = "/v1/refunds"
-        refund_id = f"refund_{uuid.uuid4().hex[:12]}"
+        if idempotency_key:
+            # PayPay merchantRefundId: 영숫자/_/- 만 허용, 최대 64자 → sanitize
+            import re as _re
+            refund_id = _re.sub(r"[^A-Za-z0-9_-]", "_", idempotency_key)[:64]
+        else:
+            refund_id = f"refund_{uuid.uuid4().hex[:12]}"
         payload = {
             "merchantRefundId": refund_id,
             "paymentId": payment_id,

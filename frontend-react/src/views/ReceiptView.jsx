@@ -74,9 +74,12 @@ export default function ReceiptView() {
         if (orderId) fetchOrderAndStore()
     }, [orderId])
 
-    // Poll for pickup status on takeout orders
+    const isCancelled = order?.status === 'cancelled'
+    const isRefunded = order?.payment_status === 'refunded'
+
+    // Poll for pickup status on takeout orders (취소되면 중단)
     useEffect(() => {
-        if (!order?.pickup_code || isPickupReady) {
+        if (!order?.pickup_code || isPickupReady || isCancelled) {
             clearInterval(pollRef.current)
             return
         }
@@ -87,7 +90,7 @@ export default function ReceiptView() {
             } catch { }
         }, 5000)
         return () => clearInterval(pollRef.current)
-    }, [orderId, order?.pickup_code, isPickupReady])
+    }, [orderId, order?.pickup_code, isPickupReady, isCancelled])
 
     // Vibrate + alert when status flips to ready
     useEffect(() => {
@@ -111,6 +114,36 @@ export default function ReceiptView() {
             </button>
         </div>
     )
+
+    // 取消・返金された注文 — 테마 위임 전에 한 곳에서 인터셉트(전 테마 공통)
+    if (isCancelled) {
+        return (
+            <div className="min-h-screen bg-charcoal flex flex-col items-center justify-center p-8 text-center font-sans"
+                style={{ fontFamily: "'Plus Jakarta Sans', 'Noto Sans JP', sans-serif" }}>
+                <div className="w-20 h-20 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mb-6">
+                    <span className="material-symbols-outlined text-red-400 !text-4xl">cancel</span>
+                </div>
+                <h2 className="text-white font-black text-2xl mb-2">この注文はキャンセルされました</h2>
+                <p className="text-slate-400 text-sm leading-relaxed max-w-xs mb-2">
+                    店舗都合により、ご注文（#{order.id}）をご提供できませんでした。ご迷惑をおかけして申し訳ございません。
+                </p>
+                {isRefunded ? (
+                    <div className="mt-2 inline-flex items-center gap-2 text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-4 py-2 rounded-full">
+                        <CheckCircle size={16} />
+                        <span className="font-bold text-sm">¥{(order.total_amount || 0).toLocaleString()} を全額返金しました</span>
+                    </div>
+                ) : (
+                    <div className="mt-2 inline-flex items-center gap-2 text-amber-300 bg-amber-500/10 border border-amber-500/30 px-4 py-2 rounded-full">
+                        <Clock size={16} />
+                        <span className="font-bold text-sm">返金については店舗にお問い合わせください</span>
+                    </div>
+                )}
+                <button onClick={() => navigate(-1)} className="mt-8 text-slate-300 flex items-center gap-2 hover:text-white">
+                    <ArrowLeft size={18} /> 戻る
+                </button>
+            </div>
+        )
+    }
 
     if (store?.theme === 'sakura') {
         return <SakuraReceiptView store={store} order={order} onClose={handleClose} />

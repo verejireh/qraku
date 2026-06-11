@@ -17,9 +17,9 @@ class BasePaymentAdapter(ABC):
         pass
 
     @abstractmethod
-    async def refund_payment(self, payment_id: str, amount: float = None) -> dict:
+    async def refund_payment(self, payment_id: str, amount: float = None, idempotency_key: str = None) -> dict:
         """
-        환불을 처리합니다.
+        환불을 처리합니다. idempotency_key 는 주문 기준 고정값(재시도 이중환불 방지).
         """
         pass
 

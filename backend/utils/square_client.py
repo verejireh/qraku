@@ -192,3 +192,38 @@ async def process_square_payment(
     except Exception as e:
         print(f"[Square] HTTP exception in process_square_payment: {e}")
         return {"status": "error", "message": str(e)}
+
+
+async def refund_square_payment(store, payment_id: str, amount: int, idempotency_key: str, reason: str = "") -> dict:
+    """Square 결제 환불 (POST /v2/refunds).
+
+    idempotency_key 는 **주문 기준 고정값**이어야 한다 — 같은 키로 재호출하면 Square 가
+    중복을 무시하므로 재시도 시 이중환불이 발생하지 않는다.
+    Returns: {"status":"ok"|"error", "refund_id": str|None, "message": str|None}
+    """
+    access_token = _resolve_square_token(store)
+    if not access_token:
+        return {"status": "error", "message": "square access token not configured"}
+    payload = {
+        "idempotency_key": idempotency_key[:45],  # Square 제한 45자
+        "payment_id": payment_id,
+        "amount_money": {"amount": int(amount), "currency": "JPY"},
+    }
+    if reason:
+        payload["reason"] = reason[:191]
+    url = f"{get_square_api_base()}/v2/refunds"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            res = await client.post(url, headers=_auth_headers(access_token), json=payload)
+            data = res.json()
+        if res.status_code in (200, 201) and data.get("refund"):
+            rf = data["refund"]
+            # PENDING / COMPLETED 모두 환불 접수 성공으로 간주 (비동기 완료)
+            return {"status": "ok", "refund_id": rf.get("id"), "square_status": rf.get("status")}
+        errors = data.get("errors", [{}])
+        msg = errors[0].get("detail", res.text) if errors else res.text
+        print(f"[Square] Refund failed. Status: {res.status_code}, msg: {msg}")
+        return {"status": "error", "message": msg}
+    except Exception as e:
+        print(f"[Square] HTTP exception in refund_square_payment: {e}")
+        return {"status": "error", "message": str(e)}

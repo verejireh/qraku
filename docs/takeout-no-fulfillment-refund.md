@@ -41,3 +41,22 @@
 
 ## 제외 (후속)
 시간초과 자동환불 워커, 부분환불, 주문 시점 닫힌 가게 차단.
+
+---
+
+## GPT-5.5 코드리뷰 반영 (2026-06-11)
+
+1차 구현이 "기존 perform_refund 재사용 = 안전" 가정 위에 있었으나, 리뷰에서 **Square 환불 레일 자체가 미구현**임이 드러남. 11개 지적을 반영:
+
+- **Crit1 — Square 환불 구현**: `square_client.refund_square_payment`(`POST /v2/refunds`, 주문기준 고정 idempotency_key) 신설 + `SquareAdapter.refund_payment` 실제 구현(기존 "Not implemented" 제거).
+- **Crit2/Imp6 — 영속 멱등(이중환불 차단)**: `perform_refund`가 **성공 RefundLog 존재 시 외부 API 재호출 금지**(권위 가드). 외부환불 성공 후 주문 commit 실패해도 재시도가 상태만 복구. PG별 idempotency_key를 주문기준 고정(Square idem-key / PayPay merchantRefundId 안정화). Redis 락은 보조.
+- **Imp3 — 원 결제수단 어댑터**: `_adapter_for_order`가 현재 설정이 아니라 `order.payment_method` 기준으로 Square/PayPay 어댑터 선택. (잔여 한계: 자격증명 스냅샷 미보존 — 결제망 완전 교체 시 수동.)
+- **Imp4 — 결제ID 없는 자동환불 차단**: 엔드포인트가 `paid` 인데 `square_payment_id` 없으면 409(현금 수동 환불 유도).
+- **Imp5/Imp8 — 상태 정책**: `served` 거부(409), `cancelled`/`refunded`/`partial_refund` 멱등 no-op.
+- **Imp9 — 손님 통지**: ReceiptView가 테이크아웃을 5초 폴링 → DB `cancelled`/`refunded` 자동 수신. 테마 위임 **전에** 취소·환불 화면 인터셉트(전 테마 공통), 취소 시 폴링 중단.
+- **Min10 — 감사 로그 commit**: `log_event` 를 주문 상태와 **같은 commit** 에 포함(유실 방지).
+- **Min11 — 프론트**: 요청 중 버튼 잠금(`処理中…`) + 409 메시지 분기. 테이크아웃 목록에서 `cancelled` 제외.
+
+**권한(Imp7) — 의도적 유지**: `require_staff_or_admin`. 점포 미이행 환불은 **카운터 스태프가 현장에서** 처리해야 하는 동작이라 admin 전용은 기능 목적을 훼손. 대신 확인 다이얼로그 + 감사 로그 + 멱등으로 완화. (운영 정책상 admin 전용 원하면 1줄 변경.)
+
+**검증 한계**: Square `/v2/refunds` 는 sandbox 자격증명이 없어 **실결제 환불 E2E 미검증**. 단위검증(어댑터 선택 3테스트)·import·pyflakes·build 통과. **배포 전 Square/PayPay sandbox E2E 필수.**

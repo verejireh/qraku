@@ -44,6 +44,7 @@ export default function RegisterView() {
     const [registerTables, setRegisterTables] = useState([])
     const [todaySales, setTodaySales] = useState(null)
     const [takeoutOrders, setTakeoutOrders] = useState([])
+    const [cancelingId, setCancelingId] = useState(null)
     const [timeQueries, setTimeQueries] = useState([])
     const [storeInfo, setStoreInfo] = useState(null)
     const [loading, setLoading] = useState(true)
@@ -173,17 +174,27 @@ export default function RegisterView() {
 
     /* ── テイクアウト 店舗都合キャンセル + 全額返金 ─────────── */
     const handleTakeoutCancelRefund = async (order) => {
+        if (cancelingId) return  // 다른 요청 진행 중
         const paid = order.payment_status === 'paid'
         const msg = paid
             ? `この注文(#${order.order_id} ¥${(order.total_amount || 0).toLocaleString()})を全額返金してキャンセルします。よろしいですか？`
             : `この注文(#${order.order_id})をキャンセルします。よろしいですか？`
         if (!window.confirm(msg)) return
+        setCancelingId(order.order_id)
         try {
             const res = await staffApi.post(`/api/register/takeout/${order.order_id}/cancel-refund`)
             if (res.data?.refunded) alert('全額返金してキャンセルしました')
-            fetchAll()
+            await fetchAll()
         } catch (e) {
-            alert(e?.response?.status === 502 ? '返金処理に失敗しました。決済設定を確認してください' : 'キャンセル処理に失敗しました')
+            const st = e?.response?.status
+            const detail = e?.response?.data?.detail
+            alert(
+                st === 502 ? '返金処理に失敗しました。決済設定を確認してください'
+                : st === 409 ? (detail || 'この注文は返金できません')
+                : 'キャンセル処理に失敗しました'
+            )
+        } finally {
+            setCancelingId(null)
         }
     }
 
@@ -409,9 +420,10 @@ export default function RegisterView() {
                                                     </div>
                                                     <div className="flex items-center gap-1.5">
                                                         <button onClick={() => handleTakeoutCancelRefund(order)}
+                                                            disabled={cancelingId === order.order_id}
                                                             title="店舗都合で提供できない場合（全額返金してキャンセル）"
-                                                            className="text-[10px] font-bold uppercase px-2 py-1 rounded text-stone-400 hover:text-[#93000a] hover:bg-[#ffdad6]">
-                                                            準備不可
+                                                            className="text-[10px] font-bold uppercase px-2 py-1 rounded text-stone-400 hover:text-[#93000a] hover:bg-[#ffdad6] disabled:opacity-40 disabled:cursor-not-allowed">
+                                                            {cancelingId === order.order_id ? '処理中…' : '準備不可'}
                                                         </button>
                                                         {isPaid ? (
                                                             <button onClick={() => handleTakeoutComplete(order.order_id)}

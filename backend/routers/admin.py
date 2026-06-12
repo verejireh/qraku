@@ -429,10 +429,11 @@ class PaymentSettingsUpdate(PydanticBaseModel):
 
 
 @router.get("/store/{store_id}/payment-settings")
-async def get_payment_settings(store_id: int, admin_store: Store = Depends(require_admin), session: AsyncSession = Depends(get_session)):
-    _verify_admin_access(admin_store, str(store_id))
+async def get_payment_settings(store_id: str, admin_store: Store = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+    # store_id 는 slug 또는 숫자 — 인증된 admin_store(본인 매장) 로 해석
+    _verify_admin_access(admin_store, store_id)
     result = await session.execute(
-        select(PaymentSettings).where(PaymentSettings.store_id == store_id)
+        select(PaymentSettings).where(PaymentSettings.store_id == admin_store.id)
     )
     ps = result.scalar_one_or_none()
     if not ps:
@@ -465,22 +466,23 @@ async def get_payment_settings(store_id: int, admin_store: Store = Depends(requi
 
 @router.patch("/store/{store_id}/payment-settings")
 async def update_payment_settings(
-    store_id: int,
+    store_id: str,
     body: PaymentSettingsUpdate,
     admin_store: Store = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    _verify_admin_access(admin_store, str(store_id))
-    store = await session.get(Store, store_id)
+    # store_id 는 slug 또는 숫자 — 인증된 admin_store(본인 매장) 로 해석
+    _verify_admin_access(admin_store, store_id)
+    store = await session.get(Store, admin_store.id)
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
 
     result = await session.execute(
-        select(PaymentSettings).where(PaymentSettings.store_id == store_id)
+        select(PaymentSettings).where(PaymentSettings.store_id == admin_store.id)
     )
     ps = result.scalar_one_or_none()
     if not ps:
-        ps = PaymentSettings(store_id=store_id)
+        ps = PaymentSettings(store_id=admin_store.id)
         session.add(ps)
         await session.commit()
         await session.refresh(ps)

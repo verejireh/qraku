@@ -110,7 +110,7 @@ async def _refresh_square_access_token(
     refresh_token = decrypt_secret(
         getattr(ps, "square_refresh_token", None) if ps else None
     )
-    client_id = os.getenv("SQUARE_CLIENT_ID", "")
+    client_id = os.getenv("SQUARE_CLIENT_ID") or os.getenv("SQUARE_APPLICATION_ID", "")
     client_secret = os.getenv("SQUARE_CLIENT_SECRET", "")
     if not ps or not refresh_token or not client_id or not client_secret:
         return None

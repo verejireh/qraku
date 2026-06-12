@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/square", tags=["square-oauth"])
 
-SQUARE_CLIENT_ID = os.getenv("SQUARE_CLIENT_ID", "")
+SQUARE_CLIENT_ID = os.getenv("SQUARE_CLIENT_ID") or os.getenv("SQUARE_APPLICATION_ID", "")
 SQUARE_CLIENT_SECRET = os.getenv("SQUARE_CLIENT_SECRET", "")
 SQUARE_ENVIRONMENT = os.getenv("SQUARE_ENVIRONMENT", "sandbox") # "sandbox" or "production"
 

@@ -238,6 +238,24 @@ async def get_square_terminal_checkout(
     return {"status": "ok", "checkout": terminal_checkout}
 
 
+async def cancel_square_terminal_checkout(
+    store,
+    checkout_id: str,
+    *,
+    session: Optional[AsyncSession] = None,
+) -> dict:
+    """진행 중인 Terminal checkout 취소(단말기 프롬프트 닫기). POST /cancel."""
+    result = await _square_request(
+        store,
+        "POST",
+        f"/v2/terminals/checkouts/{checkout_id}/cancel",
+        session=session,
+    )
+    if result.get("status") != "ok":
+        return result
+    return {"status": "ok", "checkout": result["data"].get("checkout")}
+
+
 async def create_square_order(store, order, line_items: List[Dict]) -> dict:
     """
     Square POS / Kitchen Printer 에 주문 데이터를 전송합니다.

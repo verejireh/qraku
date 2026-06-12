@@ -227,6 +227,22 @@ export default function RegisterView() {
         }
     }
 
+    /* ── Square端末決済 取消/復旧 (UNKNOWN 등 막힌 결제 해소) ── */
+    const handleTerminalCancel = async () => {
+        if (!terminalOperation?.operation_id) return
+        if (!window.confirm('この端末決済を取消（復旧）します。\n※端末で既に支払い済みの場合は取消できません（返金で対応）。よろしいですか？')) return
+        setPaying(true)
+        try {
+            const res = await staffApi.post(`/api/register/square-terminal-checkout/${terminalOperation.operation_id}/cancel`)
+            setTerminalOperation(res.data)
+            await fetchAll()
+        } catch (e) {
+            alert(e.response?.data?.detail || '取消に失敗しました')
+        } finally {
+            setPaying(false)
+        }
+    }
+
     /* ── テイクアウト完了 ─────────────────────────────── */
     const handleTakeoutComplete = async (id) => {
         try { await staffApi.post(`/api/register/takeout/${id}/complete`); fetchAll() } catch (e) { alert('処理失敗') }
@@ -642,13 +658,18 @@ export default function RegisterView() {
 
                             {terminalOperation && !['COMPLETED', 'CANCELED', 'FAILED'].includes(terminalOperation.status) && (
                                 <div className="rounded-2xl border-2 border-blue-200 bg-blue-50 p-4 flex items-center gap-3">
-                                    <div className="w-6 h-6 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
-                                    <div>
+                                    <div className="w-6 h-6 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin shrink-0" />
+                                    <div className="flex-1 min-w-0">
                                         <p className="font-bold text-blue-800">Square Terminalで決済待ち</p>
                                         <p className="text-xs text-blue-600 mt-0.5">
                                             端末に表示された ¥{(terminalOperation.amount || 0).toLocaleString()} をお客様にお支払いいただいてください。
                                         </p>
                                     </div>
+                                    <button onClick={handleTerminalCancel} disabled={paying}
+                                        title="端末決済を取消して復旧（支払い済みの場合は不可）"
+                                        className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-lg border border-blue-300 text-blue-700 hover:bg-blue-100 disabled:opacity-50">
+                                        取消/復旧
+                                    </button>
                                 </div>
                             )}
 

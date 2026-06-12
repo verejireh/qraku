@@ -657,6 +657,87 @@ async def get_square_terminal_checkout_status(
     return _terminal_operation_response(operation)
 
 
+@router.post("/square-terminal-checkout/{operation_id}/cancel")
+async def cancel_square_terminal_checkout_op(
+    operation_id: int,
+    session: AsyncSession = Depends(get_session),
+    auth_store: Store = Depends(require_staff_or_admin),
+):
+    """막힌(UNKNOWN 등) Terminal 결제를 복구/취소 — 데드락(테이블 잠금+수동결제 409) 해소.
+
+    Square 真상태를 먼저 확인해 **이미 완료면 정산 후 취소 거부**(환불로 대응),
+    미완료면 Square 측 취소 후 operation 을 CANCELED 로 마킹(수동결제·재시도 가능).
+    """
+    locked = await session.execute(
+        select(SquareTerminalCheckout)
+        .where(SquareTerminalCheckout.id == operation_id)
+        .with_for_update()
+    )
+    operation = locked.scalar_one_or_none()
+    if not operation:
+        raise HTTPException(status_code=404, detail="Terminal checkout not found")
+    if operation.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if operation.completed_at is not None or operation.status == "COMPLETED":
+        raise HTTPException(status_code=409, detail="既に支払いが完了しています。返金で対応してください。")
+
+    store_result = await session.execute(
+        select(Store).options(selectinload(Store.payment_settings)).where(Store.id == auth_store.id)
+    )
+    store = store_result.scalar_one()
+
+    from utils.square_client import (
+        get_square_terminal_checkout,
+        create_square_terminal_checkout,
+        cancel_square_terminal_checkout as sq_cancel_checkout,
+    )
+    from utils.square_terminal import apply_terminal_checkout_update, terminal_checkout_payload
+
+    # Square 真상태 확인: checkout_id 있으면 조회, 없으면(UNKNOWN) 멱등 재생성으로 발견
+    checkout = None
+    if operation.square_checkout_id:
+        g = await get_square_terminal_checkout(store, operation.square_checkout_id, session=session)
+        if g.get("status") == "ok":
+            checkout = g["checkout"]
+    else:
+        payload = terminal_checkout_payload(
+            amount=operation.amount, device_id=operation.device_id,
+            reference_id=f"qraku-terminal-{operation.id}", note="QRaku recovery",
+        )
+        rc = await create_square_terminal_checkout(
+            store, idempotency_key=operation.idempotency_key, checkout=payload, session=session,
+        )
+        if rc.get("status") == "ok":
+            checkout = rc["checkout"]
+
+    sq_status = str((checkout or {}).get("status") or "").upper()
+
+    # 이미 완료 → 정산 reconcile 후 취소 거부
+    if checkout and sq_status == "COMPLETED":
+        await apply_terminal_checkout_update(session, operation, checkout)
+        await session.commit()
+        raise HTTPException(status_code=409, detail="端末で支払いが完了しています。返金で対応してください。")
+
+    # 활성 checkout 이면 Square 측 취소(단말기 프롬프트 닫기)
+    if checkout and checkout.get("id") and sq_status in (
+        "PENDING", "IN_PROGRESS", "CREATING", "UNKNOWN", "CANCEL_REQUESTED"
+    ):
+        operation.square_checkout_id = checkout["id"]
+        await sq_cancel_checkout(store, checkout["id"], session=session)
+
+    operation.status = "CANCELED"
+    operation.updated_at = now_utc_naive()
+    operation.error_message = "Canceled by staff (recovery)"
+    session.add(operation)
+    await session.commit()
+
+    from utils.events import emit_table_update
+    table = await session.get(Table, operation.table_id)
+    if table:
+        await emit_table_update(session, auth_store.id, table)
+    return _terminal_operation_response(operation)
+
+
 # ── 4. 오늘 매출 요약 ──────────────────────────────────────────────────────────
 
 @router.get("/today-sales")

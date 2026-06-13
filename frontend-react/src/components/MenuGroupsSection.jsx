@@ -10,6 +10,13 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import adminApi from '../hooks/useAdminApi'
 
+// 숫자 입력 파싱 — 빈 값/비숫자만 fallback 으로, 유효한 0 은 그대로 둔다
+// (`parseInt(v) || fallback` 은 0 을 fallback 으로 잘못 바꿈).
+const parseIntOr = (v, fallback) => {
+    const n = parseInt(v, 10)
+    return Number.isNaN(n) ? fallback : n
+}
+
 const WEEKDAYS = [
     { key: 'mon', label: '月' },
     { key: 'tue', label: '火' },
@@ -125,6 +132,17 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
         if (!editingGroup.name.trim()) {
             alert('グループ名を入力してください。')
             return
+        }
+        // COURSE 관계 검증 — 서버 422 가 영어 원문으로 노출되기 전에 친화적 안내
+        if (editingGroup.group_type === 'COURSE') {
+            if (editingGroup.duration_minutes < 1) {
+                alert('制限時間は1分以上で入力してください。')
+                return
+            }
+            if (editingGroup.last_order_minutes >= editingGroup.duration_minutes) {
+                alert('ラストオーダーは制限時間より短く設定してください。')
+                return
+            }
         }
         setSaving(true)
         try {
@@ -440,19 +458,19 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
                                                 <div>
                                                     <label className="text-xs font-bold text-slate-500 block mb-1">1人あたり料金 (円)</label>
                                                     <input type="number" min="0" value={editingGroup.price_per_person}
-                                                        onChange={e => setEditingGroup(prev => ({ ...prev, price_per_person: parseInt(e.target.value) || 0 }))}
+                                                        onChange={e => setEditingGroup(prev => ({ ...prev, price_per_person: parseIntOr(e.target.value, 0) }))}
                                                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white" />
                                                 </div>
                                                 <div>
                                                     <label className="text-xs font-bold text-slate-500 block mb-1">制限時間 (分)</label>
                                                     <input type="number" min="10" value={editingGroup.duration_minutes}
-                                                        onChange={e => setEditingGroup(prev => ({ ...prev, duration_minutes: parseInt(e.target.value) || 90 }))}
+                                                        onChange={e => setEditingGroup(prev => ({ ...prev, duration_minutes: parseIntOr(e.target.value, 90) }))}
                                                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white" />
                                                 </div>
                                                 <div>
                                                     <label className="text-xs font-bold text-slate-500 block mb-1">ラストオーダー (終了何分前)</label>
                                                     <input type="number" min="0" value={editingGroup.last_order_minutes}
-                                                        onChange={e => setEditingGroup(prev => ({ ...prev, last_order_minutes: parseInt(e.target.value) || 10 }))}
+                                                        onChange={e => setEditingGroup(prev => ({ ...prev, last_order_minutes: parseIntOr(e.target.value, 0) }))}
                                                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white" />
                                                 </div>
                                                 <div>

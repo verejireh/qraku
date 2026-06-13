@@ -15,9 +15,10 @@ from utils.time_helpers import now_utc_naive
 from database import get_session
 from models import (
     TabehoudaiSession, MenuGroup, MenuGroupItem, MenuGroupType,
-    Store, Table, SquareTerminalCheckout,
+    Store, Table, TableStatus, SquareTerminalCheckout,
 )
 from utils.jwt import require_staff_or_admin
+from utils.square_terminal import TERMINAL_ACTIVE_STATUSES
 
 router = APIRouter(prefix="/tabehoudai", tags=["tabehoudai"])
 
@@ -186,9 +187,7 @@ async def start_session(
         select(SquareTerminalCheckout.id).where(
             SquareTerminalCheckout.table_id == body.table_id,
             SquareTerminalCheckout.session_token == table.session_token,
-            SquareTerminalCheckout.status.in_(
-                ["CREATING", "UNKNOWN", "PENDING", "IN_PROGRESS", "CANCEL_REQUESTED"]
-            ),
+            SquareTerminalCheckout.status.in_(TERMINAL_ACTIVE_STATUSES),
         )
     )
     if terminal_in_progress.first() is not None:
@@ -298,16 +297,16 @@ async def list_active_sessions(
     if store.id != admin_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # 매장 소속 테이블 ID들
-    tables_res = await session.execute(select(Table.id).where(Table.store_id == store.id))
-    table_ids = [r[0] for r in tables_res.all()]
-    if not table_ids:
-        return []
-
+    # 현재 착석 중(OCCUPIED + 토큰 일치)인 active 세션만 — 과거 회차의 고아 세션이
+    # 스태프 대시보드에 현재 코스처럼 표시되지 않도록 Table 과 조인해 강제.
     result = await session.execute(
-        select(TabehoudaiSession).where(
-            TabehoudaiSession.table_id.in_(table_ids),
+        select(TabehoudaiSession)
+        .join(Table, Table.id == TabehoudaiSession.table_id)
+        .where(
+            Table.store_id == store.id,
+            Table.status == TableStatus.OCCUPIED,
             TabehoudaiSession.status == "active",
+            TabehoudaiSession.session_token == Table.session_token,
         )
     )
     sessions_list = result.scalars().all()

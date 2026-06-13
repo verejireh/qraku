@@ -61,10 +61,37 @@ async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, ses
 
 @router.post("/staff/tables/{table_id}/close")
 async def close_table(table_id: int, session: AsyncSession = Depends(get_session)):
+    from models import Order, TabehoudaiSession
+
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
-        
+
+    # 미정산 코스/주문이 있으면 close 금지 — 그냥 닫으면 코스 세션이 고아가 되어
+    # 재오픈 시 active unique 제약에 막히고 코스 요금도 누락된다. 레지 정산으로 유도.
+    if table.session_token:
+        course_res = await session.execute(
+            select(TabehoudaiSession.id).where(
+                TabehoudaiSession.table_id == table.id,
+                TabehoudaiSession.status.in_(["active", "expired"]),
+                TabehoudaiSession.session_token == table.session_token,
+            )
+        )
+        order_res = await session.execute(
+            select(Order.id).where(
+                Order.store_id == table.store_id,
+                Order.table_number == table.table_number,
+                Order.session_token == table.session_token,
+                Order.order_type == "eat_in",
+                Order.payment_status == "unpaid",
+            )
+        )
+        if course_res.first() is not None or order_res.first() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="未精算の注文またはコースがあります。先にレジで精算してください",
+            )
+
     table.status = TableStatus.READY
     table.session_token = None
     table.guest_count = None
@@ -117,28 +144,79 @@ async def renew_qr_timer(table_id: int, session: AsyncSession = Depends(get_sess
 
 @router.post("/staff/tables/{table_id}/transfer")
 async def transfer_table(table_id: int, body: TableTransferRequest, session: AsyncSession = Depends(get_session)):
-    """Move all unpaid orders from source table to target table."""
-    from models import Order
+    """Move all unpaid orders AND the active 食べ放題 course session from source to target."""
+    from models import Order, TabehoudaiSession, SquareTerminalCheckout
+    from utils.square_terminal import TERMINAL_ACTIVE_STATUSES
 
-    source = await session.get(Table, table_id)
-    target = await session.get(Table, body.target_table_id)
+    if table_id == body.target_table_id:
+        raise HTTPException(status_code=400, detail="Source and target must differ")
+
+    # 두 테이블을 id 오름차순으로 한 번에 잠근다 (동시 이동 데드락 방지).
+    rows = await session.execute(
+        select(Table)
+        .where(Table.id.in_([table_id, body.target_table_id]))
+        .with_for_update()
+        .order_by(Table.id)
+    )
+    tables = {t.id: t for t in rows.scalars().all()}
+    source = tables.get(table_id)
+    target = tables.get(body.target_table_id)
     if not source or not target:
         raise HTTPException(status_code=404, detail="Table not found")
     if source.store_id != target.store_id:
         raise HTTPException(status_code=400, detail="Tables must belong to the same store")
 
+    # Square 결제 진행 중이면 이동 금지 — operation 의 order_ids/course_ids 스냅샷이 깨진다.
+    for t in (source, target):
+        if not t.session_token:
+            continue
+        inprog = await session.execute(
+            select(SquareTerminalCheckout.id).where(
+                SquareTerminalCheckout.table_id == t.id,
+                SquareTerminalCheckout.session_token == t.session_token,
+                SquareTerminalCheckout.status.in_(TERMINAL_ACTIVE_STATUSES),
+            )
+        )
+        if inprog.first() is not None:
+            raise HTTPException(status_code=409, detail="決済処理中のため移動できません")
+
+    source_token = source.session_token
+
     # Open target table if empty
     if target.status == TableStatus.READY:
         target.status = TableStatus.OCCUPIED
-        target.session_token = source.session_token or str(uuid.uuid4())
+        target.session_token = source_token or str(uuid.uuid4())
         target.guest_count = source.guest_count
+
+    # 코스 세션 이전 — target 에 이미 진행 중 코스가 있으면 병합 불가(active 유일 제약).
+    course_result = await session.execute(
+        select(TabehoudaiSession).where(
+            TabehoudaiSession.table_id == source.id,
+            TabehoudaiSession.status.in_(["active", "expired"]),
+            TabehoudaiSession.session_token == source_token,
+        )
+    )
+    src_courses = list(course_result.scalars().all())
+    if any(c.status == "active" for c in src_courses):
+        tgt_active = await session.execute(
+            select(TabehoudaiSession.id).where(
+                TabehoudaiSession.table_id == target.id,
+                TabehoudaiSession.status == "active",
+            )
+        )
+        if tgt_active.first() is not None:
+            raise HTTPException(status_code=409, detail="移動先に進行中のコースがあります")
+    for course in src_courses:
+        course.table_id = target.id
+        course.session_token = target.session_token
+        session.add(course)
 
     # Move unpaid orders — 정규 store_id 로 단일 조회
     orders_result = await session.execute(
         select(Order).where(
             Order.table_number == source.table_number,
             Order.store_id == source.store_id,
-            Order.session_token == source.session_token,
+            Order.session_token == source_token,
             Order.payment_status == "unpaid"
         )
     )

@@ -155,3 +155,87 @@ async def test_partial_unique_index_blocks_second_active(db):
     ))
     with pytest.raises(sqlalchemy.exc.IntegrityError):
         await db.commit()
+
+
+async def test_close_table_blocked_with_active_course(db, monkeypatch):
+    """진행 중 코스가 있으면 테이블 close 거부(409) — 고아 세션 방지 (tables.py #1)."""
+    import routers.tables as tables_mod
+    from routers.tables import close_table
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(tables_mod, "emit_table_update", _noop, raising=False)
+
+    store, table = await _seed_store_table(db)
+    group = await _seed_course(db, store)
+    await _seed_session(db, table, group, token="tok1")
+
+    with pytest.raises(HTTPException) as exc:
+        await close_table(table.id, db)
+    assert exc.value.status_code == 409
+    await db.refresh(table)
+    assert table.status == TableStatus.OCCUPIED        # 닫히지 않음
+
+
+async def test_transfer_moves_course_session(db, monkeypatch):
+    """테이블 이동 시 코스 세션도 target 으로 따라간다 (tables.py #2)."""
+    import routers.tables as tables_mod
+    from routers.tables import transfer_table, TableTransferRequest
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(tables_mod, "emit_table_update", _noop, raising=False)
+
+    store, source = await _seed_store_table(db, table_token="tok1")
+    target = Table(store_id=store.id, table_number="B2", status=TableStatus.READY)
+    db.add(target)
+    await db.commit()
+    await db.refresh(target)
+    group = await _seed_course(db, store)
+    course = await _seed_session(db, source, group, token="tok1")
+
+    await transfer_table(source.id, TableTransferRequest(target_table_id=target.id), db)
+
+    await db.refresh(course)
+    await db.refresh(source)
+    await db.refresh(target)
+    assert course.table_id == target.id                 # 코스가 target 으로 이동
+    assert course.session_token == target.session_token
+    assert source.status == TableStatus.READY           # source 는 닫힘
+    assert target.status == TableStatus.OCCUPIED
+
+
+async def test_square_completion_settles_course_and_closes_table(db):
+    """Square 단말기 COMPLETED 시 코스 settle + 테이블 종료 (square_terminal #1 정합성)."""
+    import json
+    from models import SquareTerminalCheckout
+    from utils.square_terminal import apply_terminal_checkout_update
+
+    store, table = await _seed_store_table(db)
+    group = await _seed_course(db, store, price=1500)
+    sess = await _seed_session(db, table, group, token="tok1", num_people=2)
+    order = await _seed_order(db, store, table, total=800, token="tok1")
+
+    op = SquareTerminalCheckout(
+        store_id=store.id, table_id=table.id, session_token="tok1",
+        idempotency_key="idem-1", device_id="dev-1", amount=3800,
+        order_ids_json=json.dumps([order.id]),
+        course_session_ids_json=json.dumps([sess.id]),
+        status="PENDING",
+    )
+    db.add(op)
+    await db.commit()
+    await db.refresh(op)
+
+    completed = await apply_terminal_checkout_update(
+        db, op, {"status": "COMPLETED", "id": "chk-1", "payment_ids": ["pay-1"]}
+    )
+    await db.commit()
+
+    assert completed is True
+    await db.refresh(order)
+    await db.refresh(sess)
+    await db.refresh(table)
+    assert order.payment_status == "paid"
+    assert sess.status == "settled"
+    assert table.status == TableStatus.READY            # 잔여 없음 → 종료

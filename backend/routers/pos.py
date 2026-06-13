@@ -74,84 +74,13 @@ async def request_checkout(
     await session.commit()
     return {"message": "Checkout requested", "status": table.status}
 
-@router.post("/pay/{table_id}")
-async def complete_payment(
-    table_id: int,
-    session: AsyncSession = Depends(get_session),
-    auth_store: Store = Depends(require_staff_or_admin),
-):
-    table = await session.get(Table, table_id)
-    if not table:
-        raise HTTPException(status_code=404, detail="Table not found")
-    if table.store_id != auth_store.id:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    # 1. Mark all unpaid orders as PAID
-    statement = select(Order).where(Order.table_id == table_id, Order.payment_status == "unpaid")
-    results = await session.execute(statement)
-    orders = results.scalars().all()
-    
-    total_amount = sum(o.total_price for o in orders)
-    customer_id = orders[0].customer_id if orders else None
-    
-    for order in orders:
-        order.payment_status = "paid"
-        order.status = "served" 
-        session.add(order)
-    
-    # 2. Automated Point Accrual (based on amount & policy)
-    from models import Store, CustomerPoint, PointHistory, PointTransactionType, PointAccrualType
-    from datetime import datetime
-    
-    store = await session.get(Store, table.store_id)
-    if store.points_enabled and customer_id and orders:
-        points_to_award = 0
-        order_sum = sum(o.final_price for o in orders)
-        
-        if store.point_accrual_type == PointAccrualType.PERCENT:
-            points_to_award = int((order_sum / 100) * store.point_rate)
-        elif store.point_accrual_type == PointAccrualType.FIXED:
-            points_to_award = store.point_fixed_amount
-            
-        if points_to_award > 0:
-            # Update/Create Balance
-            pt_stmt = select(CustomerPoint).where(CustomerPoint.customer_id == customer_id, CustomerPoint.store_id == table.store_id)
-            res = await session.execute(pt_stmt)
-            pt_record = res.scalar_one_or_none()
-            if not pt_record:
-                pt_record = CustomerPoint(customer_id=customer_id, store_id=table.store_id, balance=0)
-            
-            pt_record.balance += points_to_award
-            pt_record.updated_at = now_utc_naive()
-            session.add(pt_record)
-            
-            # Log History
-            history = PointHistory(
-                customer_id=customer_id,
-                store_id=table.store_id,
-                amount=points_to_award,
-                tx_type=PointTransactionType.EARNED,
-                description=f"Purchase for Table {table.table_number}. Total: ¥{order_sum}",
-                related_order_id=orders[0].id
-            )
-            session.add(history)
-
-    # 3. Reset Table: close after payment
-    if orders:
-        table.last_order_id = orders[0].id
-
-    table.qr_token = str(uuid.uuid4())
-    table.status = TableStatus.READY
-    table.session_token = None
-    table.guest_count = None
-
-    session.add(table)
-    await session.commit()
-
-    from utils.events import emit_payment_completed, emit_table_update
-    order = orders[0] if orders else None
-    if order:
-        await emit_payment_completed(session, table.store_id, order)
-    await emit_table_update(session, table.store_id, table, extra={"status": "READY", "guest_count": None})
-
-    return {"message": "Payment completed and table closed", "new_token": table.qr_token}
+@router.post("/pay/{table_id}", deprecated=True)
+async def complete_payment(table_id: int):
+    """[DEPRECATED 2026-06-13] 레거시 EatIn 정산 경로. 食べ放題 코스요금을
+    청구하지 않고 TabehoudaiSession 을 settle 하지 않아 매출 누락을 일으킨다.
+    SPA 는 이미 register.py 공통 정산(`/api/register/table/{id}/pay`)을 사용하므로
+    외부 오호출 시 매출 사고를 막기 위해 410 Gone 으로 폐기한다."""
+    raise HTTPException(
+        status_code=410,
+        detail="This endpoint is deprecated. Use POST /api/register/table/{table_id}/pay",
+    )

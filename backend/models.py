@@ -603,6 +603,9 @@ class TabehoudaiSession(SQLModel, table=True):
     expires_at: datetime
     status: str = Field(default="active")  # active | expired | settled
     settled_at: Optional[datetime] = None
+    # 세션을 착석 회차(Table.session_token)에 귀속 — 회전 후 이전 코스가 새 손님에게
+    # 적용/청구되지 않도록 주문·정산 시 현재 토큰으로 필터링한다.
+    session_token: Optional[str] = Field(default=None, max_length=255, index=True)
 
 class PaymentSettings(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

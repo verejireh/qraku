@@ -185,9 +185,12 @@ async def create_order(
             select(TabehoudaiSession).where(
                 TabehoudaiSession.table_id == table.id,
                 TabehoudaiSession.status == "active",
+                # 현재 착석 회차에 귀속된 세션만 — 이전 손님의 코스가 새 주문에
+                # 0원으로 적용되지 않도록 토큰 일치 필수
+                TabehoudaiSession.session_token == table.session_token,
             )
         )
-        active_session = sess_res.scalar_one_or_none()
+        active_session = sess_res.scalars().first()
         if active_session and active_session.expires_at >= now_utc_naive():
             tabehoudai_session_id = active_session.id
             items_res = await session.execute(
@@ -235,10 +238,10 @@ async def create_order(
             except Exception as e:
                 logger.warning("Option parse error for menu_id=%s: %s", menu_id_int, e)
 
-        # 食べ放題 대상 메뉴: unit_price = 0
+        # 食べ放題 대상 메뉴: 기본 메뉴가는 면제, 유료 옵션 추가금은 별도 청구
         is_tabehoudai_item = menu_id_int in tabehoudai_menu_ids
         if is_tabehoudai_item:
-            unit_price = 0.0
+            unit_price = extra_price
         else:
             unit_price = float(menu.price) + extra_price
         total_amount += unit_price * item_in.quantity

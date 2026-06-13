@@ -6,6 +6,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime, timedelta
@@ -16,7 +17,7 @@ from models import (
     TabehoudaiSession, MenuGroup, MenuGroupItem, MenuGroupType,
     Store, Table,
 )
-from utils.jwt import require_admin
+from utils.jwt import require_staff_or_admin
 
 router = APIRouter(prefix="/tabehoudai", tags=["tabehoudai"])
 
@@ -102,7 +103,7 @@ async def _build_session_read(s: TabehoudaiSession, session: AsyncSession) -> Se
 @router.get("/courses/{store_id}", response_model=List[CourseGroupRead])
 async def list_courses(
     store_id: str,
-    admin_store: Store = Depends(require_admin),
+    admin_store: Store = Depends(require_staff_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """매장의 모든 COURSE 그룹 (食べ放題/飲み放題)"""
@@ -137,15 +138,19 @@ async def list_courses(
 async def start_session(
     store_id: str,
     body: SessionStartRequest,
-    admin_store: Store = Depends(require_admin),
+    admin_store: Store = Depends(require_staff_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     store = await _resolve_store(store_id, session)
     if store.id != admin_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # 검증
-    table = await session.get(Table, body.table_id)
+    # 검증 — 테이블 행을 잠가(FOR UPDATE) 동시 정산(READY/token=NULL 리셋)과의
+    # 경쟁으로 이미 종료된 착석 토큰에 세션이 귀속되는 것을 막는다.
+    table_res = await session.execute(
+        select(Table).where(Table.id == body.table_id).with_for_update()
+    )
+    table = table_res.scalar_one_or_none()
     if not table or table.store_id != store.id:
         raise HTTPException(status_code=404, detail="Table not found")
     group = await session.get(MenuGroup, body.group_id)
@@ -156,15 +161,24 @@ async def start_session(
     if body.num_people > 50:
         raise HTTPException(status_code=400, detail="num_people must be <= 50")
 
-    # 같은 테이블에 활성 세션이 있으면 거부
+    # 빈 테이블에는 코스 시작 불가 — 착석 회차(session_token)에 귀속해야
+    # 회전 후 이전 코스가 새 손님에게 적용/청구되는 사고를 막을 수 있다.
+    table_status_val = table.status.value if hasattr(table.status, "value") else table.status
+    if table_status_val != "OCCUPIED" or not table.session_token:
+        raise HTTPException(
+            status_code=409,
+            detail="お客様の着席(QRセッション)後にコースを開始してください",
+        )
+
+    # 같은 테이블에 활성 세션이 있으면 거부 (DB partial unique index 가 최종 방어)
     existing = await session.execute(
         select(TabehoudaiSession).where(
             TabehoudaiSession.table_id == body.table_id,
             TabehoudaiSession.status == "active",
         )
     )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="既にアクティブなコースがあります")
+    if existing.scalars().first():
+        raise HTTPException(status_code=409, detail="既にアクティブなコースがあります")
 
     now = now_utc_naive()
     new_session = TabehoudaiSession(
@@ -174,21 +188,30 @@ async def start_session(
         started_at=now,
         expires_at=now + timedelta(minutes=group.duration_minutes),
         status="active",
+        session_token=table.session_token,
     )
     session.add(new_session)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # 동시 요청 경쟁 — uq_tabehoudai_active_table 위반
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="既にアクティブなコースがあります")
     await session.refresh(new_session)
     return await _build_session_read(new_session, session)
 
 
-# ── 세션 종료/정산 (스태프) ──────────────────────────────────────────
+# ── 세션 종료 (스태프) ────────────────────────────────────────────────
 @router.post("/sessions/{store_id}/{session_id}/end", response_model=SessionRead)
 async def end_session(
     store_id: str,
     session_id: int,
-    admin_store: Store = Depends(require_admin),
+    admin_store: Store = Depends(require_staff_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
+    """코스 타이머를 수동 종료. 'expired' 로만 전환하고 'settled'(청구 완료)
+    전환은 결제 정산(register/pos)에서만 일어난다 — 종료가 곧 무료 처리가
+    되어 코스 요금이 누락되는 사고를 막는다."""
     store = await _resolve_store(store_id, session)
     if store.id != admin_store.id:
         raise HTTPException(status_code=403, detail="Access denied")
@@ -201,11 +224,11 @@ async def end_session(
     if not table or table.store_id != store.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    s.status = "settled"
-    s.settled_at = now_utc_naive()
-    session.add(s)
-    await session.commit()
-    await session.refresh(s)
+    if s.status == "active":
+        s.status = "expired"
+        session.add(s)
+        await session.commit()
+        await session.refresh(s)
     return await _build_session_read(s, session)
 
 
@@ -245,7 +268,7 @@ async def get_active_by_table(
 @router.get("/sessions/active/{store_id}", response_model=List[SessionRead])
 async def list_active_sessions(
     store_id: str,
-    admin_store: Store = Depends(require_admin),
+    admin_store: Store = Depends(require_staff_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     store = await _resolve_store(store_id, session)

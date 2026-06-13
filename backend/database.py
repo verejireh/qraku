@@ -311,6 +311,18 @@ async def init_db():
         # (미완료 테이크아웃 주문만 인덱싱 — /nearby backlog COUNT 가속, Redis 미스/장애 대비)
         'CREATE INDEX IF NOT EXISTS idx_order_takeout_backlog ON "order"(store_id) '
         "WHERE order_type = 'take_out' AND payment_status = 'paid' AND needs_serving = TRUE",
+        # [2026-06-13] 食べ放題: 세션을 착석 회차(session_token)에 귀속 — 회전 후
+        # 이전 코스가 새 손님에게 적용/청구되지 않도록 주문·정산 필터링에 사용
+        "ALTER TABLE tabehoudaisession ADD COLUMN IF NOT EXISTS session_token VARCHAR(255) NULL",
+        "CREATE INDEX IF NOT EXISTS idx_tabehoudaisession_token ON tabehoudaisession(session_token)",
+        # [2026-06-13] 食べ放題: 한 테이블에 active 세션 최대 1개 보장 (경쟁 상태 차단).
+        # 기존 중복 active 가 있으면 아래 unique index 생성이 실패→스킵되어 방어가
+        # 무력화되므로, 인덱스 생성 직전에 테이블당 최신 1건만 active 로 정리한다.
+        "UPDATE tabehoudaisession SET status = 'expired' "
+        "WHERE status = 'active' AND id NOT IN "
+        "(SELECT max(id) FROM tabehoudaisession WHERE status = 'active' GROUP BY table_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_tabehoudai_active_table "
+        "ON tabehoudaisession(table_id) WHERE status = 'active'",
     ]
 
     # 무시할 PG 에러 (컬럼/인덱스 이미 존재)

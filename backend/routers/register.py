@@ -203,12 +203,15 @@ async def get_table_detail(
     items_subtotal = sum(o.total_amount for o in orders)
 
     # ── 食べ放題: 미결제 세션(active or expired) 정산 라인 추가 ─────────────────
+    # 현재 착석 회차(session_token)에 귀속된 세션만 — 이전 손님의 코스를 새 손님에게
+    # 청구하지 않도록 토큰 일치 필수
     tabehoudai_lines: list[dict] = []
     tabehoudai_total = 0
     sess_res = await session.execute(
         select(TabehoudaiSession).where(
             TabehoudaiSession.table_id == table.id,
             TabehoudaiSession.status.in_(["active", "expired"]),
+            TabehoudaiSession.session_token == table.session_token,
         )
     )
     pending_sessions = sess_res.scalars().all()
@@ -354,11 +357,12 @@ async def complete_payment(
 
     orders = await _get_unpaid_orders_for_table(store, table, session)
 
-    # 食べ放題 미결제 세션 합산 + settle 마킹
+    # 食べ放題 미결제 세션 합산 + settle 마킹 (현재 착석 회차만)
     sess_res = await session.execute(
         select(TabehoudaiSession).where(
             TabehoudaiSession.table_id == table.id,
             TabehoudaiSession.status.in_(["active", "expired"]),
+            TabehoudaiSession.session_token == table.session_token,
         )
     )
     pending_sessions = sess_res.scalars().all()
@@ -419,7 +423,10 @@ async def complete_payment(
             session.add(history)
 
     # 3. 테이블 리셋
-    table.last_order_id = orders[0].id
+    # 코스 세션만 있고 앱 주문이 0건인 경우(예: 飲み放題만 구두 주문) orders 가 비어
+    # 있으므로 last_order_id 갱신은 주문이 있을 때만 수행 (IndexError 방지)
+    if orders:
+        table.last_order_id = orders[-1].id
     table.qr_token = str(uuid.uuid4())
     table.status = TableStatus.READY
     table.session_token = None
@@ -516,6 +523,7 @@ async def start_square_terminal_checkout(
             .where(
                 TabehoudaiSession.table_id == table.id,
                 TabehoudaiSession.status.in_(["active", "expired"]),
+                TabehoudaiSession.session_token == table.session_token,
             )
             .with_for_update()
         )

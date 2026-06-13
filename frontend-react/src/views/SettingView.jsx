@@ -10,6 +10,7 @@ import axios from 'axios'
 import { Users, Clock, ShoppingBag, Timer, Plus } from 'lucide-react'
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav'
 import adminApi from '../hooks/useAdminApi'
+import staffApi from '../hooks/useStaffApi'
 
 function Icon({ name, className = '' }) {
     return <span className={`material-symbols-outlined ${className}`} style={{ fontFamily: 'Material Symbols Outlined' }}>{name}</span>
@@ -308,14 +309,23 @@ function TabehoudaiTab({ shop_id }) {
 
     const fetchAll = async () => {
         try {
+            // 운영 API 는 마스터PIN 스태프(staffToken)도 호출 가능해야 하므로 staffApi 사용.
             const [tablesRes, coursesRes, sessionsRes] = await Promise.all([
                 axios.get(`/api/stores/${shop_id}/tables`).catch(() => ({ data: [] })),
-                adminApi.get(`/api/tabehoudai/courses/${shop_id}`).catch(() => ({ data: [] })),
-                adminApi.get(`/api/tabehoudai/sessions/active/${shop_id}`).catch(() => ({ data: [] })),
+                staffApi.get(`/api/tabehoudai/courses/${shop_id}`).catch(() => ({ data: [] })),
+                staffApi.get(`/api/tabehoudai/sessions/active/${shop_id}`).catch(() => ({ data: [] })),
             ])
             setTables(Array.isArray(tablesRes.data) ? tablesRes.data : [])
             setCourses(Array.isArray(coursesRes.data) ? coursesRes.data : [])
-            setActiveSessions(Array.isArray(sessionsRes.data) ? sessionsRes.data : [])
+            // 서버 seconds_remaining 으로 로컬 deadline 동기화 (naive UTC 파싱 오차 회피).
+            const sessions = Array.isArray(sessionsRes.data) ? sessionsRes.data : []
+            const synced = sessions.map(s => ({
+                ...s,
+                _deadline: typeof s.seconds_remaining === 'number'
+                    ? Date.now() + s.seconds_remaining * 1000
+                    : null,
+            }))
+            setActiveSessions(synced)
         } catch (e) {
             console.error(e)
         }
@@ -348,7 +358,7 @@ function TabehoudaiTab({ shop_id }) {
         if (!startModal || !selectedCourseId) return
         setBusy(true)
         try {
-            await adminApi.post(`/api/tabehoudai/sessions/${shop_id}`, {
+            await staffApi.post(`/api/tabehoudai/sessions/${shop_id}`, {
                 table_id: startModal.table.id,
                 group_id: selectedCourseId,
                 num_people: numPeople,
@@ -364,7 +374,7 @@ function TabehoudaiTab({ shop_id }) {
     const endSession = async (s) => {
         if (!confirm(`テーブル ${s.table_id} のコースを終了しますか?`)) return
         try {
-            await adminApi.post(`/api/tabehoudai/sessions/${shop_id}/${s.id}/end`)
+            await staffApi.post(`/api/tabehoudai/sessions/${shop_id}/${s.id}/end`)
             await fetchAll()
         } catch {
             alert('終了に失敗しました')
@@ -398,8 +408,9 @@ function TabehoudaiTab({ shop_id }) {
                 {tables.map(t => {
                     const s = sessionByTable[t.id]
                     if (s) {
-                        const expires = new Date(s.expires_at).getTime()
-                        const remaining = Math.max(0, Math.floor((expires - now) / 1000))
+                        const remaining = s._deadline != null
+                            ? Math.max(0, Math.floor((s._deadline - now) / 1000))
+                            : 0
                         const isLastOrder = remaining > 0 && remaining <= s.last_order_minutes * 60
                         return (
                             <div key={t.id} className={`p-4 rounded-xl border-2 ${isLastOrder ? 'bg-amber-50 border-amber-300' : 'bg-rose-50 border-rose-200'}`}>

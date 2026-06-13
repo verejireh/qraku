@@ -8,8 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime, time
+
+_VALID_COURSE_TYPES = {"food", "drink", "both"}
 
 from database import get_session
 from models import MenuGroup, MenuGroupItem, MenuGroupType, Store, Menu
@@ -20,18 +22,32 @@ router = APIRouter(prefix="/menu-groups", tags=["menu-groups"])
 
 
 # ── Schemas ──────────────────────────────────────────────────────────
+def _validate_course_type(v: Optional[str]) -> Optional[str]:
+    if v is not None and v not in _VALID_COURSE_TYPES:
+        raise ValueError("course_type must be one of food|drink|both")
+    return v
+
+
 class MenuGroupCreate(BaseModel):
     name: str
     group_type: MenuGroupType = MenuGroupType.TIME_WINDOW
     active_from: Optional[str] = None
     active_to: Optional[str] = None
     weekdays: Optional[str] = None
-    price_per_person: int = 0
-    duration_minutes: int = 90
-    last_order_minutes: int = 10
+    price_per_person: int = Field(default=0, ge=0, le=1_000_000)
+    duration_minutes: int = Field(default=90, ge=1, le=1440)
+    last_order_minutes: int = Field(default=10, ge=0, le=1440)
     course_type: Optional[str] = None
     is_active: bool = True
     sort_order: int = 0
+
+    _ck_course = field_validator("course_type")(_validate_course_type)
+
+    @model_validator(mode="after")
+    def _ck_last_order(self):
+        if self.last_order_minutes >= self.duration_minutes:
+            raise ValueError("last_order_minutes must be < duration_minutes")
+        return self
 
 
 class MenuGroupUpdate(BaseModel):
@@ -39,12 +55,25 @@ class MenuGroupUpdate(BaseModel):
     active_from: Optional[str] = None
     active_to: Optional[str] = None
     weekdays: Optional[str] = None
-    price_per_person: Optional[int] = None
-    duration_minutes: Optional[int] = None
-    last_order_minutes: Optional[int] = None
+    price_per_person: Optional[int] = Field(default=None, ge=0, le=1_000_000)
+    duration_minutes: Optional[int] = Field(default=None, ge=1, le=1440)
+    last_order_minutes: Optional[int] = Field(default=None, ge=0, le=1440)
     course_type: Optional[str] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
+
+    _ck_course = field_validator("course_type")(_validate_course_type)
+
+    @model_validator(mode="after")
+    def _ck_last_order(self):
+        # 같은 PATCH 에 둘 다 들어온 경우에만 교차 검증 (부분 업데이트 한계)
+        if (
+            self.last_order_minutes is not None
+            and self.duration_minutes is not None
+            and self.last_order_minutes >= self.duration_minutes
+        ):
+            raise ValueError("last_order_minutes must be < duration_minutes")
+        return self
 
 
 class MenuGroupRead(BaseModel):

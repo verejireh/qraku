@@ -3,7 +3,7 @@
  * 손님용: 활성 식다파다이 세션의 잔여시간 + 코스명 + ラストオーダー 안내.
  * session prop을 부모(OrderView)에서 fetch & 폴링하여 전달받음.
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 function fmt(seconds) {
     if (seconds <= 0) return '00:00'
@@ -14,6 +14,19 @@ function fmt(seconds) {
 
 export default function TabehoudaiBanner({ session }) {
     const [now, setNow] = useState(Date.now())
+    // 서버가 계산한 seconds_remaining 으로 로컬 deadline 을 동기화.
+    // expires_at(naive UTC)을 new Date()로 직접 파싱하면 브라우저 로컬 TZ(JST 등)로
+    // 오해석되어 카운트다운이 최대 9시간 어긋나므로 서버 값을 신뢰원으로 사용.
+    const deadlineRef = useRef(null)
+
+    useEffect(() => {
+        if (session && typeof session.seconds_remaining === 'number') {
+            deadlineRef.current = Date.now() + session.seconds_remaining * 1000
+        } else {
+            deadlineRef.current = null
+        }
+        setNow(Date.now())
+    }, [session])
 
     useEffect(() => {
         if (!session || session.status !== 'active') return
@@ -23,8 +36,9 @@ export default function TabehoudaiBanner({ session }) {
 
     if (!session) return null
 
-    const expires = new Date(session.expires_at).getTime()
-    const remaining = Math.max(0, Math.floor((expires - now) / 1000))
+    const remaining = deadlineRef.current != null
+        ? Math.max(0, Math.floor((deadlineRef.current - now) / 1000))
+        : 0
     const isLastOrder = remaining > 0 && remaining <= session.last_order_minutes * 60
     const isExpired = session.status === 'expired' || remaining <= 0
 

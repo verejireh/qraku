@@ -372,17 +372,27 @@ export default function OrderView({ orderType: propOrderType } = {}) {
             return
         }
         let cancelled = false
+        let deadlineTimer = null
         const fetchSession = async () => {
             try {
                 const res = await axios.get(`/api/tabehoudai/sessions/active/by-table/${tableData.id}`)
-                if (!cancelled) setTabehoudaiSession(res.data || null)
+                if (cancelled) return
+                const data = res.data || null
+                setTabehoudaiSession(data)
+                // 만료 시점에 1회 재조회 — 30초 폴링 간격 동안 이미 만료된 코스가
+                // 계속 대상 메뉴(기본가 면제)처럼 표시되는 창을 닫는다.
+                if (deadlineTimer) { clearTimeout(deadlineTimer); deadlineTimer = null }
+                if (data && data.status === 'active'
+                        && typeof data.seconds_remaining === 'number' && data.seconds_remaining > 0) {
+                    deadlineTimer = setTimeout(fetchSession, data.seconds_remaining * 1000 + 500)
+                }
             } catch {
                 if (!cancelled) setTabehoudaiSession(null)
             }
         }
         fetchSession()
         const interval = setInterval(fetchSession, 30000)
-        return () => { cancelled = true; clearInterval(interval) }
+        return () => { cancelled = true; clearInterval(interval); if (deadlineTimer) clearTimeout(deadlineTimer) }
     }, [tableData?.id, isTakeOut])
 
     // 손님 WebSocket 연결 (요리완료 알림 수신용) — audioUnlocked 이후에만 연결

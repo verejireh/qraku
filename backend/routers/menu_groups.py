@@ -216,6 +216,13 @@ async def update_group(
 
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(group, key, value)
+    # 부분 수정이라도 병합 후 값으로 교차검증 — 한쪽만 바꿔 last_order >= duration
+    # 상태가 되는 것을 막는다 (스키마 검증은 같은 PATCH 에 둘 다 온 경우만 커버).
+    if group.last_order_minutes >= group.duration_minutes:
+        raise HTTPException(
+            status_code=422,
+            detail="last_order_minutes must be < duration_minutes",
+        )
     session.add(group)
     await session.commit()
     await session.refresh(group)

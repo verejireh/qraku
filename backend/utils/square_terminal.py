@@ -202,6 +202,9 @@ async def apply_terminal_checkout_update(
             select(TabehoudaiSession.id).where(
                 TabehoudaiSession.table_id == table.id,
                 TabehoudaiSession.status.in_(["active", "expired"]),
+                # 위 remaining(주문)과 동일하게 현재 착석 회차로 스코프 — 이전/NULL 토큰
+                # 고아 세션이 테이블 종료를 영구히 막지 않도록.
+                TabehoudaiSession.session_token == operation.session_token,
             )
         )
         if remaining.first() is None and remaining_courses.first() is None:

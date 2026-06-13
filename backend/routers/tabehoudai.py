@@ -15,7 +15,7 @@ from utils.time_helpers import now_utc_naive
 from database import get_session
 from models import (
     TabehoudaiSession, MenuGroup, MenuGroupItem, MenuGroupType,
-    Store, Table,
+    Store, Table, SquareTerminalCheckout,
 )
 from utils.jwt import require_staff_or_admin
 
@@ -180,6 +180,23 @@ async def start_session(
     if existing.scalars().first():
         raise HTTPException(status_code=409, detail="既にアクティブなコースがあります")
 
+    # 진행 중인 Square 단말기 결제가 있으면 코스 시작 거부 — 결제 금액 스냅샷
+    # 이후 시작된 코스는 청구에서 누락되고 테이블이 종료되지 않는 사고를 막는다.
+    terminal_in_progress = await session.execute(
+        select(SquareTerminalCheckout.id).where(
+            SquareTerminalCheckout.table_id == body.table_id,
+            SquareTerminalCheckout.session_token == table.session_token,
+            SquareTerminalCheckout.status.in_(
+                ["CREATING", "UNKNOWN", "PENDING", "IN_PROGRESS", "CANCEL_REQUESTED"]
+            ),
+        )
+    )
+    if terminal_in_progress.first() is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="決済処理中のためコースを開始できません",
+        )
+
     now = now_utc_naive()
     new_session = TabehoudaiSession(
         table_id=body.table_id,
@@ -242,10 +259,16 @@ async def get_active_by_table(
     해당 테이블의 현재 활성 세션 반환. 없으면 null.
     손님 페이지에서도 호출되므로 인증 없음.
     """
+    # 현재 착석 회차(table.session_token)에 귀속된 세션만 노출 — 이전 회차의 세션이
+    # 새 손님 UI에 보이면서 주문 API(토큰 불일치로 정가 청구)와 어긋나는 것을 막는다.
+    table = await session.get(Table, table_id)
+    if not table or not table.session_token:
+        return None
     result = await session.execute(
         select(TabehoudaiSession).where(
             TabehoudaiSession.table_id == table_id,
             TabehoudaiSession.status == "active",
+            TabehoudaiSession.session_token == table.session_token,
         )
     )
     s = result.scalar_one_or_none()

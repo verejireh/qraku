@@ -36,3 +36,15 @@ dependencies = [
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+# 테스트 전용 의존성. aiosqlite 는 정산·세션 로직 통합테스트용 async SQLite 드라이버
+# (실 운영은 PostgreSQL — 진정한 동시성/FOR UPDATE 검증은 PG 테스트 DB 필요).
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "aiosqlite",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

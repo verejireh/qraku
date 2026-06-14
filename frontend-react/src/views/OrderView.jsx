@@ -219,7 +219,9 @@ export default function OrderView({ orderType: propOrderType } = {}) {
 
             // No valid saved session — attempt to Join (requires join_window_end not expired)
             try {
-                const joinRes = await axios.post(`/api/customer/tables/${table.id}/join`)
+                const joinRes = await axios.post(`/api/customer/tables/${table.id}/join`, {
+                    qr_token: qrToken,
+                })
                 const newToken = joinRes.data.session_token
 
                 // 세션 복구용: localStorage에 즉시 저장

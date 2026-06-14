@@ -9,6 +9,7 @@ from datetime import datetime
 from utils.time_helpers import now_utc_naive
 import uuid
 from utils.jwt import require_admin
+from utils.auth import get_password_hash, verify_pin
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -222,9 +223,9 @@ async def update_master_pin(store_id: str, body: MasterPinUpdate, admin_store: S
     if store.master_pin:
         if not body.current_pin:
             raise HTTPException(status_code=400, detail="現在のPINを入力してください。")
-        if body.current_pin != store.master_pin:
+        if not verify_pin(body.current_pin, store.master_pin):
             raise HTTPException(status_code=403, detail="現在のPINが正しくありません。")
-    store.master_pin = body.master_pin
+    store.master_pin = get_password_hash(body.master_pin)
     session.add(store)
     await session.commit()
     return {"status": "ok"}
@@ -234,8 +235,7 @@ async def get_master_pin(store_id: str, admin_store: Store = Depends(require_adm
     _verify_admin_access(admin_store, store_id)
     store = await _resolve_store(store_id, session)
     has_pin = bool(store.master_pin)
-    masked = "*" * len(store.master_pin) if store.master_pin else None
-    return {"has_pin": has_pin, "masked_pin": masked, "pin_length": len(store.master_pin) if store.master_pin else 0}
+    return {"has_pin": has_pin, "masked_pin": "******" if has_pin else None, "pin_length": 6 if has_pin else 0}
 
 
 class StaffMemberCreate(BaseModel):
@@ -258,7 +258,7 @@ async def list_staff_members(store_id: str, admin_store: Store = Depends(require
     )
     members = result.scalars().all()
     return [
-        {"id": m.id, "name": m.name, "pin": m.pin, "is_on_duty": m.is_on_duty, "clock_in_at": str(m.clock_in_at) if m.clock_in_at else None}
+        {"id": m.id, "name": m.name, "has_pin": bool(m.pin), "is_on_duty": m.is_on_duty, "clock_in_at": str(m.clock_in_at) if m.clock_in_at else None}
         for m in members
     ]
 
@@ -270,11 +270,11 @@ async def create_staff_member(store_id: str, body: StaffMemberCreate, admin_stor
         raise HTTPException(status_code=400, detail="スタッフPINは4桁の数字で入力してください。")
     if not body.name.strip():
         raise HTTPException(status_code=400, detail="名前を入力してください。")
-    member = StaffMember(store_id=store.id, name=body.name.strip(), pin=body.pin)
+    member = StaffMember(store_id=store.id, name=body.name.strip(), pin=get_password_hash(body.pin))
     session.add(member)
     await session.commit()
     await session.refresh(member)
-    return {"id": member.id, "name": member.name, "pin": member.pin, "is_on_duty": member.is_on_duty}
+    return {"id": member.id, "name": member.name, "has_pin": True, "is_on_duty": member.is_on_duty}
 
 @router.patch("/stores/{store_id}/staff-members/{member_id}")
 async def update_staff_member(store_id: str, member_id: int, body: StaffMemberUpdate, admin_store: Store = Depends(require_admin), session: AsyncSession = Depends(get_session)):
@@ -288,7 +288,7 @@ async def update_staff_member(store_id: str, member_id: int, body: StaffMemberUp
     if body.pin is not None:
         if len(body.pin) != 4 or not body.pin.isdigit():
             raise HTTPException(status_code=400, detail="スタッフPINは4桁の数字で入力してください。")
-        member.pin = body.pin
+        member.pin = get_password_hash(body.pin)
     if body.is_active is not None:
         member.is_active = body.is_active
         if not body.is_active:

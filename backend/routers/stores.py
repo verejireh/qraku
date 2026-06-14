@@ -16,7 +16,7 @@ from database import get_session
 from models import Store, Table, PhotoReview, RewardCoupon
 from sqlalchemy.orm import selectinload
 from utils.auth import get_password_hash
-from utils.jwt import create_admin_token, require_admin, require_staff_or_admin
+from utils.jwt import create_admin_token, require_admin, require_staff_or_admin, require_super_admin
 
 logger = logging.getLogger(__name__)
 
@@ -109,13 +109,15 @@ def _validate_password(password: str):
     """관리자 로그인 패스워드 정책: 8자 이상, 대문자 1개, 특수문자 1개."""
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="パスワードは8文字以上で入力してください")
+    if len(password.encode("utf-8")) > 72:
+        raise HTTPException(status_code=400, detail="Password must be at most 72 UTF-8 bytes")
     if not re.search(r"[A-Z]", password):
         raise HTTPException(status_code=400, detail="パスワードに大文字を1文字以上含めてください")
     if not re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>/?~`]", password):
         raise HTTPException(status_code=400, detail="パスワードに特殊文字を1文字以上含めてください（例: !@#$%）")
 
 @router.post("/", response_model=Store)
-async def create_store(store: Store, session: AsyncSession = Depends(get_session)):
+async def create_store(store: Store, _: dict = Depends(require_super_admin), session: AsyncSession = Depends(get_session)):
     # Auto-grant 60-day Free Trial
     now = now_utc_naive()
     store.subscription_status = "TRIAL"
@@ -220,7 +222,11 @@ async def read_store(store_id: str, session: AsyncSession = Depends(get_session)
 
     # ── Credential 은 제거, 안전한 정보만 프론트엔드에 전달 ──
     # Store 레벨 credential 제거
-    for secret_key in ["square_access_token", "square_refresh_token", "master_pin"]:
+    for secret_key in [
+        "password_hash", "google_id", "line_id",
+        "square_access_token", "square_refresh_token", "master_pin",
+        "stripe_customer_id", "stripe_subscription_id",
+    ]:
         data.pop(secret_key, None)
     # PaymentSettings 레벨 credential 제거
     ps = data.get("payment_settings")
@@ -263,6 +269,16 @@ class StorePublic(BaseModel):
         from_attributes = True
 
 
+class TablePublic(BaseModel):
+    id: int
+    store_id: int
+    table_number: str
+    status: str
+
+    class Config:
+        from_attributes = True
+
+
 @router.get("/", response_model=List[StorePublic])
 async def read_stores(session: AsyncSession = Depends(get_session)):
     """공개 디렉터리용 — 공개 게재 동의한 매장만, 민감 필드 제외"""
@@ -272,14 +288,16 @@ async def read_stores(session: AsyncSession = Depends(get_session)):
     return result.scalars().all()
 
 @router.post("/{store_id}/tables", response_model=Table)
-async def create_table(store_id: int, table: Table, session: AsyncSession = Depends(get_session)):
+async def create_table(store_id: int, table: Table, admin_store: Store = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+    if store_id != admin_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
     table.store_id = store_id
     session.add(table)
     await session.commit()
     await session.refresh(table)
     return table
 
-@router.get("/{store_id}/tables", response_model=List[Table])
+@router.get("/{store_id}/tables", response_model=List[TablePublic])
 async def read_tables(store_id: str, session: AsyncSession = Depends(get_session)):
     if store_id.isdigit():
         target_id = int(store_id)
@@ -323,6 +341,20 @@ async def update_store(store_id: str, store_update: dict, admin_store: Store = D
         
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
+
+    protected_fields = {
+        "id", "owner_id", "password_hash", "google_id", "line_id",
+        "subscription_type", "subscription_status", "subscription_expires_at",
+        "trial_start_date", "stripe_customer_id", "stripe_subscription_id",
+        "square_access_token", "square_refresh_token", "square_merchant_id",
+        "square_location_id", "square_connected", "master_pin",
+    }
+    rejected = protected_fields.intersection(store_update)
+    if rejected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Protected fields cannot be updated here: {', '.join(sorted(rejected))}",
+        )
     
     for key, value in store_update.items():
         if hasattr(store, key):

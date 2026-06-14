@@ -192,7 +192,9 @@ async def init_db():
         # OrderItem: takeout flag for eat-in table orders
         "ALTER TABLE orderitem ADD COLUMN IF NOT EXISTS is_takeout_item BOOLEAN DEFAULT FALSE",
         # Staff auth: master PIN on store
-        "ALTER TABLE store ADD COLUMN IF NOT EXISTS master_pin VARCHAR(20) NULL",
+        "ALTER TABLE store ADD COLUMN IF NOT EXISTS master_pin VARCHAR(255) NULL",
+        "ALTER TABLE store ALTER COLUMN master_pin TYPE VARCHAR(255)",
+        "ALTER TABLE staffmember ALTER COLUMN pin TYPE VARCHAR(255)",
         # StaffMember: clock_in tracking
         "ALTER TABLE staffmember ADD COLUMN IF NOT EXISTS clock_in_at TIMESTAMP NULL",
         # Store: basic info fields

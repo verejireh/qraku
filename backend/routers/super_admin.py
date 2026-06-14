@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlmodel import select, func, col
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,7 @@ from utils.auth import verify_password
 from utils.jwt import create_super_admin_token, require_super_admin
 from utils.db_compat import date_only
 from utils.time_helpers import days_ago_jst_as_utc_naive, now_utc_naive
+from utils.security import auth_limit_key, clear_auth_failures, ensure_auth_allowed, record_auth_failure
 
 router = APIRouter(prefix="/super-admin", tags=["super-admin"])
 
@@ -25,7 +26,9 @@ class SuperAdminLoginRequest(BaseModel):
 
 
 @router.post("/login")
-async def super_admin_login(body: SuperAdminLoginRequest):
+async def super_admin_login(body: SuperAdminLoginRequest, request: Request):
+    limit_key = auth_limit_key("super-admin", "global", request)
+    await ensure_auth_allowed(limit_key)
     """Super Admin 로그인. SUPER_ADMIN_PASSWORD_HASH 환경변수와 비교 후 JWT 발급."""
     expected_hash = os.getenv("SUPER_ADMIN_PASSWORD_HASH", "")
     if not expected_hash:
@@ -34,7 +37,9 @@ async def super_admin_login(body: SuperAdminLoginRequest):
             detail="SUPER_ADMIN_PASSWORD_HASH not configured. Set it in backend/.env"
         )
     if not verify_password(body.password, expected_hash):
+        await record_auth_failure(limit_key)
         raise HTTPException(status_code=401, detail="Invalid password")
+    await clear_auth_failures(limit_key)
     return {"token": create_super_admin_token()}
 
 

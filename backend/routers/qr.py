@@ -5,11 +5,16 @@ import qrcode
 from io import BytesIO
 from database import get_session
 from models import Table, Store, DeviceSession, SystemConfig
+from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
 import os
 from utils.jwt import require_admin
 
 router = APIRouter(prefix="/qr", tags=["qr"])
+
+
+class TokenRequest(BaseModel):
+    session_token: str
 
 
 # ── Ownership helpers (SEC-01 follow-up: IDOR defense) ──────────────────────
@@ -230,11 +235,13 @@ async def refresh_table_token(table_id: int, admin_store: Store = Depends(requir
     return {"message": "Token refreshed", "new_token": table.qr_token}
 
 @router.post("/checkout/{table_id}")
-async def checkout_table(table_id: int, session: AsyncSession = Depends(get_session)):
+async def checkout_table(table_id: int, req: TokenRequest, session: AsyncSession = Depends(get_session)):
     from models import TableStatus
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.session_token != req.session_token:
+        raise HTTPException(status_code=403, detail="Invalid session token")
     
     # 1. Invalidate Token (Prevent further orders from old QR)
     table.qr_token = str(uuid.uuid4())
@@ -285,7 +292,6 @@ async def reset_table(table_id: int, refresh_token: bool = False, admin_store: S
     
     return {"message": "Table reset to READY", "new_token": table.qr_token}
 
-from pydantic import BaseModel
 from typing import List, Optional
 import zipfile
 

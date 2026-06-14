@@ -171,7 +171,7 @@ async def test_close_table_blocked_with_active_course(db, monkeypatch):
     await _seed_session(db, table, group, token="tok1")
 
     with pytest.raises(HTTPException) as exc:
-        await close_table(table.id, db)
+        await close_table(table.id, db, auth_store=store)
     assert exc.value.status_code == 409
     await db.refresh(table)
     assert table.status == TableStatus.OCCUPIED        # 닫히지 않음
@@ -194,7 +194,7 @@ async def test_transfer_moves_course_session(db, monkeypatch):
     group = await _seed_course(db, store)
     course = await _seed_session(db, source, group, token="tok1")
 
-    await transfer_table(source.id, TableTransferRequest(target_table_id=target.id), db)
+    await transfer_table(source.id, TableTransferRequest(target_table_id=target.id), db, auth_store=store)
 
     await db.refresh(course)
     await db.refresh(source)

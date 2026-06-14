@@ -4,6 +4,7 @@ from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
 from models import Table, TableStatus, Store
+from utils.jwt import require_staff_or_admin
 from datetime import datetime, timedelta
 from utils.time_helpers import now_utc_naive
 import uuid
@@ -28,6 +29,9 @@ FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
 class TokenRequest(BaseModel):
     session_token: str
 
+class JoinRequest(BaseModel):
+    qr_token: str
+
 class OpenTableRequest(BaseModel):
     guest_count: int = 1
 
@@ -37,12 +41,21 @@ class GuestCountRequest(BaseModel):
 class TableTransferRequest(BaseModel):
     target_table_id: int
 
+
+async def _owned_table(table_id: int, auth_store: Store, session: AsyncSession) -> Table:
+    table = await session.get(Table, table_id)
+    if not table:
+        raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
+    return table
+
 # -----------------
 # Staff APIs
 # -----------------
 
 @router.post("/staff/tables/{table_id}/open")
-async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, session: AsyncSession = Depends(get_session)):
+async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     # 테이블 행을 잠그고 READY 상태에서만 연다 — 이미 OCCUPIED 인 테이블을 다시 열어
     # session_token 을 덮으면 진행 중 세션/코스가 고아가 된다.
     result = await session.execute(
@@ -51,6 +64,8 @@ async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, ses
     table = result.scalar_one_or_none()
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
     if table.status != TableStatus.READY:
         raise HTTPException(status_code=409, detail="テーブルは既に使用中です")
 
@@ -67,7 +82,7 @@ async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, ses
     return table
 
 @router.post("/staff/tables/{table_id}/close")
-async def close_table(table_id: int, session: AsyncSession = Depends(get_session)):
+async def close_table(table_id: int, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     from models import Order, TabehoudaiSession
 
     # 테이블 행을 잠가 검사~리셋을 원자화 (동시 주문/정산과의 경합 방지).
@@ -77,6 +92,8 @@ async def close_table(table_id: int, session: AsyncSession = Depends(get_session
     table = result.scalar_one_or_none()
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
 
     # 미정산 코스/주문이 있으면 close 금지 — 그냥 닫으면 코스 세션이 고아가 되어
     # 재오픈 시 active unique 제약에 막히고 코스 요금도 누락된다. 레지 정산으로 유도.
@@ -115,10 +132,8 @@ async def close_table(table_id: int, session: AsyncSession = Depends(get_session
     return table
 
 @router.post("/staff/tables/{table_id}/extend")
-async def extend_table(table_id: int, session: AsyncSession = Depends(get_session)):
-    table = await session.get(Table, table_id)
-    if not table:
-        raise HTTPException(status_code=404, detail="Table not found")
+async def extend_table(table_id: int, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
+    table = await _owned_table(table_id, auth_store, session)
 
     if table.status != TableStatus.OCCUPIED:
         raise HTTPException(status_code=400, detail="Only occupied tables can be extended")
@@ -132,11 +147,9 @@ async def extend_table(table_id: int, session: AsyncSession = Depends(get_sessio
 
 
 @router.post("/staff/tables/{table_id}/renew-qr")
-async def renew_qr_timer(table_id: int, session: AsyncSession = Depends(get_session)):
+async def renew_qr_timer(table_id: int, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     """QR 유효 시간을 현재 시간 기준 5분으로 갱신 (extend와 동일하지만 테이블 상태 무관)"""
-    table = await session.get(Table, table_id)
-    if not table:
-        raise HTTPException(status_code=404, detail="Table not found")
+    table = await _owned_table(table_id, auth_store, session)
 
     # 테이블이 READY 상태면 자동으로 열어줌
     if table.status == TableStatus.READY:
@@ -154,7 +167,7 @@ async def renew_qr_timer(table_id: int, session: AsyncSession = Depends(get_sess
     return table
 
 @router.post("/staff/tables/{table_id}/transfer")
-async def transfer_table(table_id: int, body: TableTransferRequest, session: AsyncSession = Depends(get_session)):
+async def transfer_table(table_id: int, body: TableTransferRequest, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     """Move all unpaid orders AND the active 食べ放題 course session from source to target."""
     from models import Order, TabehoudaiSession, SquareTerminalCheckout
     from utils.square_terminal import TERMINAL_ACTIVE_STATUSES
@@ -174,6 +187,8 @@ async def transfer_table(table_id: int, body: TableTransferRequest, session: Asy
     target = tables.get(body.target_table_id)
     if not source or not target:
         raise HTTPException(status_code=404, detail="Table not found")
+    if source.store_id != auth_store.id or target.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
     if source.store_id != target.store_id:
         raise HTTPException(status_code=400, detail="Tables must belong to the same store")
     # 이동 원본은 착석(OCCUPIED + 토큰) 상태여야 한다 — 빈 테이블 이동은 무의미하며
@@ -258,10 +273,8 @@ async def transfer_table(table_id: int, body: TableTransferRequest, session: Asy
     return {"message": f"Transferred {moved_count} orders from table {source.table_number} to {target.table_number}"}
 
 @router.post("/staff/tables/{table_id}/guest-count")
-async def update_guest_count(table_id: int, body: GuestCountRequest, session: AsyncSession = Depends(get_session)):
-    table = await session.get(Table, table_id)
-    if not table:
-        raise HTTPException(status_code=404, detail="Table not found")
+async def update_guest_count(table_id: int, body: GuestCountRequest, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
+    table = await _owned_table(table_id, auth_store, session)
 
     table.guest_count = body.guest_count
     session.add(table)
@@ -273,12 +286,10 @@ async def update_guest_count(table_id: int, body: GuestCountRequest, session: As
     return table
 
 @router.post("/staff/tables/{table_id}/mark-served")
-async def mark_served(table_id: int, session: AsyncSession = Depends(get_session)):
+async def mark_served(table_id: int, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     """Mark all unserved orders for this table as served."""
     from models import Order
-    table = await session.get(Table, table_id)
-    if not table:
-        raise HTTPException(status_code=404, detail="Table not found")
+    table = await _owned_table(table_id, auth_store, session)
 
     store = await session.get(Store, table.store_id)
     if not store:
@@ -306,11 +317,9 @@ async def mark_served(table_id: int, session: AsyncSession = Depends(get_session
 
 
 @router.post("/staff/tables/{table_id}/acknowledge-call")
-async def acknowledge_call(table_id: int, session: AsyncSession = Depends(get_session)):
+async def acknowledge_call(table_id: int, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     """Staff acknowledges customer call — clear the call_staff flag."""
-    table = await session.get(Table, table_id)
-    if not table:
-        raise HTTPException(status_code=404, detail="Table not found")
+    table = await _owned_table(table_id, auth_store, session)
 
     table.call_staff = False
     session.add(table)
@@ -341,7 +350,7 @@ async def call_staff(table_id: int, session: AsyncSession = Depends(get_session)
 
 
 @router.get("/staff/shops/{shop_id}/qr-pdf")
-async def generate_table_qr_pdf(shop_id: str, session: AsyncSession = Depends(get_session)):
+async def generate_table_qr_pdf(shop_id: str, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     # 1. Verify Store
     store_result = await session.execute(select(Store).where(Store.slug == shop_id))
     store = store_result.scalar_one_or_none()
@@ -351,6 +360,8 @@ async def generate_table_qr_pdf(shop_id: str, session: AsyncSession = Depends(ge
         
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
+    if store.id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
 
     # 2. Get Tables
     table_result = await session.execute(select(Table).where(Table.store_id == store.id).order_by(Table.table_number))
@@ -425,13 +436,15 @@ async def generate_table_qr_pdf(shop_id: str, session: AsyncSession = Depends(ge
     )
 
 @router.get("/staff/shops/{shop_id}/register-tables")
-async def get_register_tables(shop_id: str, session: AsyncSession = Depends(get_session)):
+async def get_register_tables(shop_id: str, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     store_result = await session.execute(select(Store).where(Store.slug == shop_id))
     store = store_result.scalar_one_or_none()
     if not store and shop_id.isdigit():
         store = await session.get(Store, int(shop_id))
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
+    if store.id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied: store mismatch")
 
     table_result = await session.execute(select(Table).where(Table.store_id == store.id).order_by(Table.table_number))
     tables = table_result.scalars().all()
@@ -511,17 +524,21 @@ async def request_checkout(table_id: int, req: TokenRequest, session: AsyncSessi
     return {"status": "success", "table_status": table.status.value}
 
 @router.post("/customer/tables/{table_id}/join")
-async def join_table(table_id: int, session: AsyncSession = Depends(get_session)):
+async def join_table(table_id: int, req: JoinRequest, session: AsyncSession = Depends(get_session)):
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
-        
+
+    # 물리적 QR 소지 증명 — qr_token 일치하지 않으면 session_token 발급 거부 (토큰 탈취 차단)
+    if not req.qr_token or table.qr_token != req.qr_token:
+        raise HTTPException(status_code=403, detail="Invalid QR code. Please re-scan the table QR.")
+
     if table.status != TableStatus.OCCUPIED:
         raise HTTPException(status_code=403, detail="Table is not open. Please ask staff to open the table.")
-        
+
     if not table.join_window_end or now_utc_naive() > table.join_window_end:
         raise HTTPException(status_code=403, detail="Join window has expired. Please ask staff to extend the time.")
-        
+
     return {"session_token": table.session_token}
 
 @router.post("/customer/tables/{table_id}/verify-session")

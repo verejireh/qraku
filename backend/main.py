@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from models import Store
 import os
+import html
 
 app = FastAPI(title="QR Order System API", version="0.1.0")
 
@@ -193,8 +194,11 @@ async def serve_spa(full_path: str, session: AsyncSession = Depends(get_session)
         store = result.scalar_one_or_none()
         
         if store and store.allow_public_listing:
-            desc = (store.specialty or f"{store.name}のモバイルオーダー").replace('"', '&quot;')
-            title = f"{store.name} - QRaku"
+            desc = html.escape(
+                store.specialty or f"{store.name}のモバイルオーダー",
+                quote=True,
+            )
+            title = html.escape(f"{store.name} - QRaku", quote=True)
             
             meta_tags = f"""
             <title>{title}</title>
@@ -213,7 +217,8 @@ async def serve_spa(full_path: str, session: AsyncSession = Depends(get_session)
                 except: pass
             
             if image_url:
-                meta_tags += f'<meta property="og:image" content="{image_url}" />\n'
+                safe_image_url = html.escape(str(image_url), quote=True)
+                meta_tags += f'<meta property="og:image" content="{safe_image_url}" />\n'
                 
             # <title>QRaku</title> 태그를 찾아서 치환
             html_content = html_content.replace("<title>QRaku</title>", meta_tags)

@@ -116,8 +116,11 @@ export default function CheckoutView() {
             const table = tablesRes.data.find(t => String(t.table_number) === String(tableNumber))
 
             if (table) {
-                // 2. Call backend checkout endpoint (Invalidates token)
-                await axios.post(`/api/qr/checkout/${table.id}`)
+                const sessionToken = localStorage.getItem(`tableSessionToken_${shop_id}_${tableNumber}`)
+                if (!sessionToken) throw new Error('Missing table session token')
+                await axios.post(`/api/customer/tables/${table.id}/checkout-request`, {
+                    session_token: sessionToken,
+                })
                 setIsComplete(true)
             }
         } catch (e) {

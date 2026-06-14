@@ -3,7 +3,7 @@
 """
 
 import random
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from utils.auth import verify_password, get_password_hash
 from utils.jwt import create_admin_token, decode_admin_token, security
 from utils.email import send_email
+from utils.security import auth_limit_key, clear_auth_failures, ensure_auth_allowed, record_auth_failure
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -44,24 +45,30 @@ class AdminLoginResponse(BaseModel):
 
 
 @router.post("/admin/login", response_model=AdminLoginResponse)
-async def admin_login(body: AdminLoginRequest, session: AsyncSession = Depends(get_session)):
+async def admin_login(body: AdminLoginRequest, request: Request, session: AsyncSession = Depends(get_session)):
+    limit_key = auth_limit_key("admin", body.email, request)
+    await ensure_auth_allowed(limit_key)
     result = await session.execute(
         select(Store).where(Store.owner_id == body.email)
     )
     store = result.scalar_one_or_none()
 
     if not store:
+        await record_auth_failure(limit_key)
         raise HTTPException(status_code=401, detail="メールアドレスまたはパスワードが正しくありません。")
 
     if not store.password_hash:
+        await record_auth_failure(limit_key)
         raise HTTPException(
             status_code=401,
             detail="パスワードが設定されていません。Google/LINEログインをお試しください。"
         )
 
     if not verify_password(body.password, store.password_hash):
+        await record_auth_failure(limit_key)
         raise HTTPException(status_code=401, detail="メールアドレスまたはパスワードが正しくありません。")
 
+    await clear_auth_failures(limit_key)
     token = create_admin_token(store.id, store.owner_id, store.slug or "")
     return AdminLoginResponse(
         token=token,
@@ -117,7 +124,7 @@ async def forgot_master_pin(body: ForgotPinRequest, session: AsyncSession = Depe
         )
 
     temp_pin = str(random.randint(100000, 999999))
-    store.master_pin = temp_pin
+    store.master_pin = get_password_hash(temp_pin)
     session.add(store)
     await session.commit()
 

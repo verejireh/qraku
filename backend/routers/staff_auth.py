@@ -3,13 +3,15 @@ Staff Authentication Router
 - 마스터 PIN: register/staff/kitchen/setting 4페이지 전체 접근
 - 개인 Staff 로그인: staff 페이지만 접근
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from database import get_session
 from models import Store, StaffMember
+from utils.auth import get_password_hash, is_password_hash, verify_pin
+from utils.security import auth_limit_key, clear_auth_failures, ensure_auth_allowed, record_auth_failure
 
 router = APIRouter(prefix="/staff-auth", tags=["staff-auth"])
 
@@ -30,7 +32,9 @@ def _resolve_store_query(shop_id: str):
 
 
 @router.post("/master/{shop_id}")
-async def login_master_pin(shop_id: str, body: MasterPinLogin, session: AsyncSession = Depends(get_session)):
+async def login_master_pin(shop_id: str, body: MasterPinLogin, request: Request, session: AsyncSession = Depends(get_session)):
+    limit_key = auth_limit_key("master-pin", shop_id, request)
+    await ensure_auth_allowed(limit_key)
     """마스터 PIN으로 로그인 → register/staff/kitchen/setting 전체 접근"""
     result = await session.execute(_resolve_store_query(shop_id))
     store = result.scalar_one_or_none()
@@ -40,8 +44,15 @@ async def login_master_pin(shop_id: str, body: MasterPinLogin, session: AsyncSes
     if not store.master_pin:
         raise HTTPException(status_code=403, detail="マスターPINが設定されていません。Admin画面で設定してください。")
 
-    if body.pin != store.master_pin:
+    if not verify_pin(body.pin, store.master_pin):
+        await record_auth_failure(limit_key)
         raise HTTPException(status_code=401, detail="PINが正しくありません。")
+
+    await clear_auth_failures(limit_key)
+    if not is_password_hash(store.master_pin):
+        store.master_pin = get_password_hash(body.pin)
+        session.add(store)
+        await session.commit()
 
     from utils.jwt import create_staff_token
     token = create_staff_token(store_id=store.id, shop_id=shop_id)
@@ -49,7 +60,9 @@ async def login_master_pin(shop_id: str, body: MasterPinLogin, session: AsyncSes
 
 
 @router.post("/staff/{shop_id}")
-async def login_staff(shop_id: str, body: StaffLogin, session: AsyncSession = Depends(get_session)):
+async def login_staff(shop_id: str, body: StaffLogin, request: Request, session: AsyncSession = Depends(get_session)):
+    limit_key = auth_limit_key("staff-pin", f"{shop_id}:{body.staff_id}", request)
+    await ensure_auth_allowed(limit_key)
     """개인 Staff 로그인 → staff 페이지만 접근"""
     staff = await session.get(StaffMember, body.staff_id)
     if not staff:
@@ -67,8 +80,15 @@ async def login_staff(shop_id: str, body: StaffLogin, session: AsyncSession = De
     if not staff.is_on_duty:
         raise HTTPException(status_code=403, detail="勤務中ではありません。Setting画面で出勤処理をしてください。")
 
-    if body.pin != staff.pin:
+    if not verify_pin(body.pin, staff.pin):
+        await record_auth_failure(limit_key)
         raise HTTPException(status_code=401, detail="PINが正しくありません。")
+
+    await clear_auth_failures(limit_key)
+    if not is_password_hash(staff.pin):
+        staff.pin = get_password_hash(body.pin)
+        session.add(staff)
+        await session.commit()
 
     return {"role": "staff", "staff_id": staff.id, "staff_name": staff.name, "shop_id": shop_id}
 

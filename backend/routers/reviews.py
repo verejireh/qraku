@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
-from models import GlobalReview, ReviewCreate, Customer, Store, CustomerPoint, PointHistory, PointTransactionType
+from models import GlobalReview, ReviewCreate, Customer, Store, CustomerPoint, PointHistory, PointTransactionType, Order
 import json
 from datetime import datetime
 from utils.time_helpers import now_utc_naive
@@ -15,6 +15,27 @@ async def create_review(review_in: ReviewCreate, session: AsyncSession = Depends
     store = await session.get(Store, review_in.store_id)
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
+
+    order_result = await session.execute(
+        select(Order).where(Order.id == review_in.order_id).with_for_update()
+    )
+    order = order_result.scalar_one_or_none()
+    if (
+        not order
+        or order.store_id != review_in.store_id
+        or order.guest_uuid != review_in.customer_id
+        or order.payment_status != "paid"
+    ):
+        raise HTTPException(status_code=403, detail="Review is not authorized for this order")
+
+    existing = await session.execute(
+        select(GlobalReview.id).where(GlobalReview.order_id == review_in.order_id)
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="Review already submitted for this order")
+
+    if not 1 <= review_in.rating <= 5:
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
 
     # 2. Create GlobalReview
     db_review = GlobalReview(

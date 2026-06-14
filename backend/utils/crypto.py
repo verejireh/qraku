@@ -48,13 +48,13 @@ def encrypt_secret(plaintext: Optional[str]) -> Optional[str]:
         return plaintext  # 이미 암호화됨
     f = _get_fernet()
     if f is None:
-        return plaintext
+        raise RuntimeError("ENCRYPTION_KEY is required before storing secrets")
     try:
         token = f.encrypt(plaintext.encode("utf-8")).decode("utf-8")
         return ENC_PREFIX + token
     except Exception as e:
         logger.error("encrypt_secret 실패: %s", e)
-        return plaintext
+        raise RuntimeError("Secret encryption failed") from e
 
 
 def decrypt_secret(value: Optional[str]) -> Optional[str]:

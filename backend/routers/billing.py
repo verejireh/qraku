@@ -11,7 +11,7 @@ from utils.time_helpers import now_utc_naive
 
 from database import get_session
 from models import Store, SubscriptionType, SubscriptionStatus
-from utils.jwt import require_admin_billing as require_admin
+from utils.jwt import require_admin_billing as require_admin, require_super_admin
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
@@ -267,10 +267,10 @@ async def stripe_webhook(
 async def admin_extend_subscription(
     store_id: int,
     days: int = 30,
-    admin_store: Store = Depends(require_admin),
+    _super: dict = Depends(require_super_admin),
     session: AsyncSession = Depends(get_session)
 ):
-    """개발/운영자 전용: 수동으로 구독 기간 연장"""
+    """슈퍼어드민 전용: 수동으로 구독 기간 연장 (매장 업주는 무료 자가연장 불가)"""
     store = await session.get(Store, store_id)
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")

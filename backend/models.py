@@ -144,7 +144,7 @@ class Store(SQLModel, table=True):
     line_friend_url: Optional[str] = Field(default=None, max_length=500)
 
     # Staff Auth — 마스터 PIN (6자리+ 숫자, register/staff/kitchen/setting 전체 접근)
-    master_pin: Optional[str] = Field(default=None, max_length=20)
+    master_pin: Optional[str] = Field(default=None, max_length=255)
 
     # Business Hours (JSON string: {"mon":{"open":"11:00","close":"22:00"},...})
     business_hours: Optional[str] = Field(default=None, max_length=2000)
@@ -500,7 +500,7 @@ class StaffMember(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     store_id: int = Field(foreign_key="store.id", index=True)
     name: str = Field(max_length=50)
-    pin: str = Field(max_length=10)          # 4자리 숫자
+    pin: str = Field(max_length=255)         # bcrypt hash
     is_active: bool = Field(default=True)    # admin에서 등록/삭제 관리
     is_on_duty: bool = Field(default=False)  # setting에서 출근/퇴근
     clock_in_at: Optional[datetime] = None   # 최근 출근 시각

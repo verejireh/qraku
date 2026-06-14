@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from typing import Optional
 import pytz
 from utils.events import emit_table_update, emit_staff_call
+from utils.jwt import require_staff_or_admin
 
 router = APIRouter(tags=["tables"])
 
@@ -42,7 +43,7 @@ class TableTransferRequest(BaseModel):
 # -----------------
 
 @router.post("/staff/tables/{table_id}/open")
-async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, session: AsyncSession = Depends(get_session)):
+async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     # 테이블 행을 잠그고 READY 상태에서만 연다 — 이미 OCCUPIED 인 테이블을 다시 열어
     # session_token 을 덮으면 진행 중 세션/코스가 고아가 된다.
     result = await session.execute(
@@ -51,6 +52,8 @@ async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, ses
     table = result.scalar_one_or_none()
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     if table.status != TableStatus.READY:
         raise HTTPException(status_code=409, detail="テーブルは既に使用中です")
 
@@ -67,7 +70,7 @@ async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, ses
     return table
 
 @router.post("/staff/tables/{table_id}/close")
-async def close_table(table_id: int, session: AsyncSession = Depends(get_session)):
+async def close_table(table_id: int, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     from models import Order, TabehoudaiSession
 
     # 테이블 행을 잠가 검사~리셋을 원자화 (동시 주문/정산과의 경합 방지).
@@ -77,6 +80,8 @@ async def close_table(table_id: int, session: AsyncSession = Depends(get_session
     table = result.scalar_one_or_none()
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # 미정산 코스/주문이 있으면 close 금지 — 그냥 닫으면 코스 세션이 고아가 되어
     # 재오픈 시 active unique 제약에 막히고 코스 요금도 누락된다. 레지 정산으로 유도.
@@ -115,10 +120,12 @@ async def close_table(table_id: int, session: AsyncSession = Depends(get_session
     return table
 
 @router.post("/staff/tables/{table_id}/extend")
-async def extend_table(table_id: int, session: AsyncSession = Depends(get_session)):
+async def extend_table(table_id: int, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     if table.status != TableStatus.OCCUPIED:
         raise HTTPException(status_code=400, detail="Only occupied tables can be extended")
@@ -132,11 +139,13 @@ async def extend_table(table_id: int, session: AsyncSession = Depends(get_sessio
 
 
 @router.post("/staff/tables/{table_id}/renew-qr")
-async def renew_qr_timer(table_id: int, session: AsyncSession = Depends(get_session)):
+async def renew_qr_timer(table_id: int, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     """QR 유효 시간을 현재 시간 기준 5분으로 갱신 (extend와 동일하지만 테이블 상태 무관)"""
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # 테이블이 READY 상태면 자동으로 열어줌
     if table.status == TableStatus.READY:
@@ -154,7 +163,7 @@ async def renew_qr_timer(table_id: int, session: AsyncSession = Depends(get_sess
     return table
 
 @router.post("/staff/tables/{table_id}/transfer")
-async def transfer_table(table_id: int, body: TableTransferRequest, session: AsyncSession = Depends(get_session)):
+async def transfer_table(table_id: int, body: TableTransferRequest, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     """Move all unpaid orders AND the active 食べ放題 course session from source to target."""
     from models import Order, TabehoudaiSession, SquareTerminalCheckout
     from utils.square_terminal import TERMINAL_ACTIVE_STATUSES
@@ -174,6 +183,8 @@ async def transfer_table(table_id: int, body: TableTransferRequest, session: Asy
     target = tables.get(body.target_table_id)
     if not source or not target:
         raise HTTPException(status_code=404, detail="Table not found")
+    if source.store_id != auth_store.id or target.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     if source.store_id != target.store_id:
         raise HTTPException(status_code=400, detail="Tables must belong to the same store")
     # 이동 원본은 착석(OCCUPIED + 토큰) 상태여야 한다 — 빈 테이블 이동은 무의미하며
@@ -258,10 +269,12 @@ async def transfer_table(table_id: int, body: TableTransferRequest, session: Asy
     return {"message": f"Transferred {moved_count} orders from table {source.table_number} to {target.table_number}"}
 
 @router.post("/staff/tables/{table_id}/guest-count")
-async def update_guest_count(table_id: int, body: GuestCountRequest, session: AsyncSession = Depends(get_session)):
+async def update_guest_count(table_id: int, body: GuestCountRequest, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     table.guest_count = body.guest_count
     session.add(table)
@@ -273,12 +286,14 @@ async def update_guest_count(table_id: int, body: GuestCountRequest, session: As
     return table
 
 @router.post("/staff/tables/{table_id}/mark-served")
-async def mark_served(table_id: int, session: AsyncSession = Depends(get_session)):
+async def mark_served(table_id: int, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     """Mark all unserved orders for this table as served."""
     from models import Order
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     store = await session.get(Store, table.store_id)
     if not store:
@@ -306,11 +321,13 @@ async def mark_served(table_id: int, session: AsyncSession = Depends(get_session
 
 
 @router.post("/staff/tables/{table_id}/acknowledge-call")
-async def acknowledge_call(table_id: int, session: AsyncSession = Depends(get_session)):
+async def acknowledge_call(table_id: int, session: AsyncSession = Depends(get_session), auth_store: Store = Depends(require_staff_or_admin)):
     """Staff acknowledges customer call — clear the call_staff flag."""
     table = await session.get(Table, table_id)
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.store_id != auth_store.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     table.call_staff = False
     session.add(table)

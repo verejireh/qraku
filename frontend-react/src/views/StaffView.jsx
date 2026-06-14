@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
+import staffApi from '../hooks/useStaffApi'
 import { useDisplayGuard } from '../hooks/useDisplayGuard'
 import { useStaffAuth } from '../components/StaffLoginGate'
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav'
@@ -18,6 +19,8 @@ export default function StaffView() {
     const [menus, setMenus] = useState({})
     const [storeData, setStoreData] = useState(null)
     const [loading, setLoading] = useState(true)
+    // 데모 모드 (?demo=1 + demo_tmp_ 슬러그) — 실 mutation API 호출을 막아 401 방지
+    const [demoMode, setDemoMode] = useState(false)
 
     // 테이크아웃 조리시간 문의 목록
     const [timeQueries, setTimeQueries] = useState([])
@@ -63,6 +66,7 @@ export default function StaffView() {
             const storeSlug = store.slug || shop_id
             const isTempDemoStore = typeof storeSlug === 'string' && storeSlug.startsWith('demo_tmp_')
             const isDemoMode = new URLSearchParams(window.location.search).get('demo') === '1' && isTempDemoStore
+            setDemoMode(isDemoMode)
             let rawOrders = []
             let rawTables = []
             if (isDemoMode) {
@@ -212,8 +216,14 @@ export default function StaffView() {
 
     const confirmOpenTable = async () => {
         if (!guestModal) return
+        // 데모 모드: 실 mutation 미수행 (토큰 없음 → 401 방지)
+        if (demoMode) {
+            alert('デモモードではテーブル操作はできません')
+            setGuestModal(null)
+            return
+        }
         try {
-            await axios.post(`/api/staff/tables/${guestModal.tableId}/open`, { guest_count: guestCount })
+            await staffApi.post(`/api/staff/tables/${guestModal.tableId}/open`, { guest_count: guestCount })
             fetchAll()
         } catch (e) {
             alert('テーブルを開けませんでした')
@@ -223,8 +233,9 @@ export default function StaffView() {
     }
 
     const handleRenewQr = async (tableId) => {
+        if (demoMode) { alert('デモモードではテーブル操作はできません'); return }
         try {
-            await axios.post(`/api/staff/tables/${tableId}/renew-qr`)
+            await staffApi.post(`/api/staff/tables/${tableId}/renew-qr`)
             fetchAll()
         } catch (e) {
             alert('QR時間の更新に失敗しました')
@@ -232,9 +243,10 @@ export default function StaffView() {
     }
 
     const handleCloseTable = async (tableId) => {
+        if (demoMode) { alert('デモモードではテーブル操作はできません'); return }
         if (!window.confirm('このテーブルを閉じますか？')) return
         try {
-            await axios.post(`/api/staff/tables/${tableId}/close`)
+            await staffApi.post(`/api/staff/tables/${tableId}/close`)
             fetchAll()
         } catch (e) {
             alert('テーブルを閉じられませんでした')
@@ -243,8 +255,13 @@ export default function StaffView() {
 
     const handleTransfer = async (targetTableId) => {
         if (!transferModal) return
+        if (demoMode) {
+            alert('デモモードではテーブル操作はできません')
+            setTransferModal(null)
+            return
+        }
         try {
-            await axios.post(`/api/staff/tables/${transferModal.sourceTable.id}/transfer`, {
+            await staffApi.post(`/api/staff/tables/${transferModal.sourceTable.id}/transfer`, {
                 target_table_id: targetTableId
             })
             fetchAll()
@@ -292,8 +309,9 @@ export default function StaffView() {
     }
 
     const handleAcknowledgeCall = async (tableId) => {
+        if (demoMode) { alert('デモモードではテーブル操作はできません'); return }
         try {
-            await axios.post(`/api/staff/tables/${tableId}/acknowledge-call`)
+            await staffApi.post(`/api/staff/tables/${tableId}/acknowledge-call`)
             fetchAll()
         } catch (e) {
             alert('コール確認に失敗しました')
@@ -313,14 +331,15 @@ export default function StaffView() {
     }
 
     const handlePayAndClose = async (table) => {
+        if (demoMode) { alert('デモモードでは決済・テーブル操作はできません'); return }
         if (!window.confirm(`テーブル ${table.table_number} の合計 ¥${(table.total_unpaid || 0).toLocaleString()} を決済し、テーブルを閉じますか？`)) return
         try {
             const orders = getTableOrders(table)
             const allItemIds = orders.flatMap(o => (o.items || []).map(i => i.id)).filter(Boolean)
             if (allItemIds.length > 0) {
-                await axios.patch(`/api/orders/items/bulk-served`, { item_ids: allItemIds })
+                await staffApi.patch(`/api/orders/items/bulk-served`, { item_ids: allItemIds })
             }
-            await axios.post(`/api/staff/tables/${table.id}/close`)
+            await staffApi.post(`/api/staff/tables/${table.id}/close`)
             fetchAll()
         } catch (e) {
             alert('処理に失敗しました')

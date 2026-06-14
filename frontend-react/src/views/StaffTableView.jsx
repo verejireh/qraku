@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import adminApi from '../hooks/useAdminApi'
 import { Clock, CheckCircle, Plus, XCircle, Printer } from 'lucide-react'
 import { useDisplayGuard, BlockedScreen } from '../hooks/useDisplayGuard'
 
@@ -163,7 +164,7 @@ export default function StaffTableView() {
     const confirmOpenTable = async () => {
         if (!guestModal) return
         try {
-            await axios.post(`/api/staff/tables/${guestModal.tableId}/open`, { guest_count: guestCount })
+            await adminApi.post(`/api/staff/tables/${guestModal.tableId}/open`, { guest_count: guestCount })
             fetchTables()
         } catch (e) {
             alert("Failed to open table")
@@ -175,7 +176,7 @@ export default function StaffTableView() {
     const handleCloseTable = async (tableId) => {
         if (!window.confirm("Are you sure you want to close this table? This will clear the session.")) return
         try {
-            await axios.post(`/api/staff/tables/${tableId}/close`)
+            await adminApi.post(`/api/staff/tables/${tableId}/close`)
             fetchTables()
         } catch (e) {
             alert("Failed to close table")
@@ -184,7 +185,7 @@ export default function StaffTableView() {
 
     const handleExtendTable = async (tableId) => {
         try {
-            await axios.post(`/api/staff/tables/${tableId}/extend`)
+            await adminApi.post(`/api/staff/tables/${tableId}/extend`)
             fetchTables()
         } catch (e) {
             alert("Failed to extend table time")
@@ -193,7 +194,7 @@ export default function StaffTableView() {
 
     const handleRenewQr = async (tableId) => {
         try {
-            await axios.post(`/api/staff/tables/${tableId}/renew-qr`)
+            await adminApi.post(`/api/staff/tables/${tableId}/renew-qr`)
             fetchTables()
         } catch (e) {
             alert("QR時間の更新に失敗しました")

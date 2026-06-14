@@ -239,3 +239,44 @@ async def test_square_completion_settles_course_and_closes_table(db):
     assert order.payment_status == "paid"
     assert sess.status == "settled"
     assert table.status == TableStatus.READY            # 잔여 없음 → 종료
+
+
+async def test_terminal_start_retry_branch_drives_to_completion(db, monkeypatch):
+    """기존 CREATING operation 재구동(retry 분기) — apply 전 commit(락 해제) 수정 경로가
+    정상 동작해 코스 settle + 테이블 종료까지 도달 (register lock-order 수정)."""
+    import json
+    from models import PaymentSettings, SquareTerminalCheckout
+    import utils.square_client as sq
+    from routers.register import start_square_terminal_checkout
+
+    store, table = await _seed_store_table(db)
+    db.add(PaymentSettings(
+        store_id=store.id, square_access_token="tok", square_terminal_device_id="dev-1",
+    ))
+    group = await _seed_course(db, store, price=1500)
+    sess = await _seed_session(db, table, group, token="tok1", num_people=2)
+    order = await _seed_order(db, store, table, total=800, token="tok1")
+    db.add(SquareTerminalCheckout(
+        store_id=store.id, table_id=table.id, session_token="tok1",
+        idempotency_key="idem-retry", device_id="dev-1", amount=3800,
+        order_ids_json=json.dumps([order.id]),
+        course_session_ids_json=json.dumps([sess.id]),
+        status="CREATING",
+    ))
+    await db.commit()
+
+    async def _fake_checkout(*a, **k):
+        return {"status": "ok", "checkout": {
+            "status": "COMPLETED", "id": "chk-retry", "payment_ids": ["pay-1"],
+        }}
+    monkeypatch.setattr(sq, "create_square_terminal_checkout", _fake_checkout)
+
+    result = await start_square_terminal_checkout(table.id, db, store)
+
+    assert result["status"] == "COMPLETED"
+    await db.refresh(order)
+    await db.refresh(sess)
+    await db.refresh(table)
+    assert order.payment_status == "paid"
+    assert sess.status == "settled"
+    assert table.status == TableStatus.READY

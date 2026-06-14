@@ -558,6 +558,12 @@ async def start_square_terminal_checkout(
     elif operation.square_checkout_id and operation.status not in ("CREATING", "UNKNOWN"):
         return _terminal_operation_response(operation)
 
+    # 잠금 순서 통일(operation→Table): Square API 호출/apply 전에 커밋해 시작 시 잡은
+    # Table FOR UPDATE 를 반드시 해제한다. 재시도 분기는 위에서 commit 하지 않아 Table 락을
+    # 쥔 채 apply 가 operation→Table 을 잠가, webhook(operation→Table)과 순서가 역전되어
+    # 데드락이 났다. 여기서 해제하면 양 경로가 동일 순서(operation→Table)가 된다.
+    await session.commit()
+
     store_result = await session.execute(
         select(Store)
         .options(selectinload(Store.payment_settings))

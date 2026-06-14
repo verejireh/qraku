@@ -43,9 +43,16 @@ class TableTransferRequest(BaseModel):
 
 @router.post("/staff/tables/{table_id}/open")
 async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, session: AsyncSession = Depends(get_session)):
-    table = await session.get(Table, table_id)
+    # 테이블 행을 잠그고 READY 상태에서만 연다 — 이미 OCCUPIED 인 테이블을 다시 열어
+    # session_token 을 덮으면 진행 중 세션/코스가 고아가 된다.
+    result = await session.execute(
+        select(Table).where(Table.id == table_id).with_for_update()
+    )
+    table = result.scalar_one_or_none()
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
+    if table.status != TableStatus.READY:
+        raise HTTPException(status_code=409, detail="テーブルは既に使用中です")
 
     table.status = TableStatus.OCCUPIED
     table.session_token = str(uuid.uuid4())
@@ -63,7 +70,11 @@ async def open_table(table_id: int, body: Optional[OpenTableRequest] = None, ses
 async def close_table(table_id: int, session: AsyncSession = Depends(get_session)):
     from models import Order, TabehoudaiSession
 
-    table = await session.get(Table, table_id)
+    # 테이블 행을 잠가 검사~리셋을 원자화 (동시 주문/정산과의 경합 방지).
+    result = await session.execute(
+        select(Table).where(Table.id == table_id).with_for_update()
+    )
+    table = result.scalar_one_or_none()
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
 
@@ -165,6 +176,10 @@ async def transfer_table(table_id: int, body: TableTransferRequest, session: Asy
         raise HTTPException(status_code=404, detail="Table not found")
     if source.store_id != target.store_id:
         raise HTTPException(status_code=400, detail="Tables must belong to the same store")
+    # 이동 원본은 착석(OCCUPIED + 토큰) 상태여야 한다 — 빈 테이블 이동은 무의미하며
+    # source_token=None 으로 주문/코스 스코프가 어긋난다.
+    if source.status != TableStatus.OCCUPIED or not source.session_token:
+        raise HTTPException(status_code=409, detail="移動元テーブルが着席状態ではありません")
 
     # Square 결제 진행 중이면 이동 금지 — operation 의 order_ids/course_ids 스냅샷이 깨진다.
     for t in (source, target):

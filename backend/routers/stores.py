@@ -17,6 +17,10 @@ from models import Store, Table, PhotoReview, RewardCoupon
 from sqlalchemy.orm import selectinload
 from utils.auth import get_password_hash
 from utils.jwt import create_admin_token, require_admin, require_staff_or_admin
+from config.countries import (
+    normalize_country, default_tax, default_languages,
+    currency_of, decimals_of, symbol_of, allowed_methods,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +142,39 @@ class SignupRequest(BaseModel):
     address: str = ""
     phone: str = ""
     slug: str
+    country_code: str = "JP"
+
+
+def _currency_meta(country_code: str) -> dict:
+    """매장 국가코드 → 프론트 표시·필터용 통화/결제수단 메타 (country_code 에서 파생)."""
+    return {
+        "currency": currency_of(country_code),
+        "currency_decimals": decimals_of(country_code),
+        "currency_symbol": symbol_of(country_code),
+        "allowed_payment_methods": allowed_methods(country_code),
+    }
+
+
+def _build_store_from_signup_fields(*, name, owner_id, owner_name, password_hash,
+                                    category, slug, address, phone, country_code):
+    """가입 입력 → Store. 국가 기본값(세율/언어)을 시드한다 (이후 매장이 override).
+
+    country_code 는 normalize_country 로 검증 — 미지원/빈 코드는 ValueError (조용히
+    JP 로 변질되지 않게 입력 경계에서 거부).
+    """
+    code = normalize_country(country_code)
+    tax_rate, tax_included = default_tax(code)
+    now = now_utc_naive()
+    return Store(
+        name=name, owner_id=owner_id, owner_name=owner_name,
+        password_hash=password_hash, category=category, slug=slug,
+        address=address or None, phone=phone or None,
+        country_code=code,
+        tax_rate=tax_rate, tax_included=tax_included,
+        supported_languages=",".join(default_languages(code)),
+        subscription_status="TRIAL", subscription_type="FREE",
+        trial_start_date=now, subscription_expires_at=now + timedelta(days=60),
+    )
 
 @router.post("/signup")
 async def signup_with_password(body: SignupRequest, session: AsyncSession = Depends(get_session)):
@@ -158,21 +195,20 @@ async def signup_with_password(body: SignupRequest, session: AsyncSession = Depe
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="このメールアドレスは既に登録されています。")
 
-    now = now_utc_naive()
-    store = Store(
-        name=body.store_name,
-        owner_id=body.email,
-        owner_name=body.owner_name,
-        password_hash=get_password_hash(body.password),
-        category=body.category,
-        slug=slug_input,
-        address=body.address or None,
-        phone=body.phone or None,
-        subscription_status="TRIAL",
-        subscription_type="FREE",
-        trial_start_date=now,
-        subscription_expires_at=now + timedelta(days=60),
-    )
+    try:
+        store = _build_store_from_signup_fields(
+            name=body.store_name,
+            owner_id=body.email,
+            owner_name=body.owner_name,
+            password_hash=get_password_hash(body.password),
+            category=body.category,
+            slug=slug_input,
+            address=body.address,
+            phone=body.phone,
+            country_code=body.country_code,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     session.add(store)
     await session.commit()
     await session.refresh(store)
@@ -238,6 +274,9 @@ async def read_store(store_id: str, session: AsyncSession = Depends(get_session)
     from utils.takeout import can_accept_takeout_from_store, has_online_payment_from_store
     data["has_online_payment"] = has_online_payment_from_store(store)
     data["can_accept_takeout"] = can_accept_takeout_from_store(store)
+
+    # ── 통화/결제수단 메타 (country_code 에서 파생 — 프론트 표시·필터용) ──
+    data.update(_currency_meta(store.country_code))
 
     return JSONResponse(content=data)
 

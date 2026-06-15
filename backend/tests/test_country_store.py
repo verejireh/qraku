@@ -41,3 +41,49 @@ def test_normal_field_patch_not_rejected():
     from routers.stores import _PROTECTED_UPDATE_FIELDS
     update = {"name": "new", "tax_rate": 20.0, "supported_languages": "en"}
     assert _PROTECTED_UPDATE_FIELDS.intersection(update) == set()   # 정상 통과
+
+
+# ── signup 국가 시드 ───────────────────────────────────────────────────────
+
+def test_build_store_seeds_country_defaults():
+    from routers.stores import _build_store_from_signup_fields
+    store = _build_store_from_signup_fields(
+        name="UK Cafe", owner_id="uk@x.com", owner_name="O",
+        password_hash="h", category="cafe", slug="ukcafe",
+        address=None, phone=None, country_code="GB",
+    )
+    assert store.country_code == "GB"
+    assert store.tax_rate == 20.0          # 국가 기본 세율 시드
+    assert store.tax_included is True
+    assert store.supported_languages == "en"
+
+
+def test_build_store_normalizes_country_case():
+    from routers.stores import _build_store_from_signup_fields
+    store = _build_store_from_signup_fields(
+        name="x", owner_id="x", owner_name="x", password_hash="h",
+        category="c", slug="s", address=None, phone=None, country_code="gb",
+    )
+    assert store.country_code == "GB"
+
+
+def test_build_store_rejects_invalid_country():
+    from routers.stores import _build_store_from_signup_fields
+    with pytest.raises(ValueError):       # 쓰기 경계 — 미지원 코드 거부 (조용한 JP 변질 방지)
+        _build_store_from_signup_fields(
+            name="x", owner_id="x", owner_name="x", password_hash="h",
+            category="c", slug="s", address=None, phone=None, country_code="ZZ",
+        )
+
+
+# ── GET 통화 메타 ──────────────────────────────────────────────────────────
+
+def test_currency_meta_for_country():
+    from routers.stores import _currency_meta
+    assert _currency_meta("GB") == {
+        "currency": "GBP", "currency_decimals": 2, "currency_symbol": "£",
+        "allowed_payment_methods": ["SQUARE_INTEGRATED", "PAY_AT_COUNTER"],
+    }
+    jp = _currency_meta("JP")
+    assert jp["currency"] == "JPY" and jp["currency_decimals"] == 0
+    assert "PAYPAY_DIRECT" in jp["allowed_payment_methods"]

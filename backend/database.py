@@ -323,6 +323,8 @@ async def init_db():
         "(SELECT max(id) FROM tabehoudaisession WHERE status = 'active' GROUP BY table_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_tabehoudai_active_table "
         "ON tabehoudaisession(table_id) WHERE status = 'active'",
+        # [2026-06-15] 국가 레이어: Store.country_code (기존 전 매장 JP 백필)
+        "ALTER TABLE store ADD COLUMN IF NOT EXISTS country_code VARCHAR(2) NOT NULL DEFAULT 'JP'",
     ]
 
     # 무시할 PG 에러 (컬럼/인덱스 이미 존재)

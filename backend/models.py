@@ -114,6 +114,9 @@ class Store(SQLModel, table=True):
 
     # Language Settings
     supported_languages: str = Field(default="ja,en,ko,zh") # Comma separated: ja,en,ko,zh,vi,etc
+
+    # Country (가입 시 선택, 이후 잠김 — 통화·가능 결제사를 강제. config/countries.py 참조)
+    country_code: str = Field(default="JP", max_length=2, index=True)
     
     # Billing Settings
     payment_options: PaymentOptions = Field(default=PaymentOptions.CASH_ONLY)

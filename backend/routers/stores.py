@@ -307,6 +307,16 @@ async def delete_table(store_id: str, table_id: int, admin_store: Store = Depend
     await session.commit()
     return {"status": "ok"}
 
+# 일반 PATCH 로 변경 불가한 필드 (통화 재해석·인증·구독 무결성 보호).
+# country_code 가 가입 후 바뀌면 저장된 금액(최소단위)이 다른 통화로 재해석된다.
+_PROTECTED_UPDATE_FIELDS = {
+    "id", "owner_id", "slug", "country_code",
+    "password_hash", "master_pin", "stripe_customer_id",
+    "stripe_subscription_id", "subscription_status",
+    "subscription_type", "subscription_expires_at",
+}
+
+
 @router.patch("/{store_id}", response_model=Store)
 async def update_store(store_id: str, store_update: dict, admin_store: Store = Depends(require_admin), session: AsyncSession = Depends(get_session)):
     # 교차 매장 접근 방지
@@ -325,6 +335,8 @@ async def update_store(store_id: str, store_update: dict, admin_store: Store = D
         raise HTTPException(status_code=404, detail="Store not found")
     
     for key, value in store_update.items():
+        if key in _PROTECTED_UPDATE_FIELDS:
+            continue
         if hasattr(store, key):
             setattr(store, key, value)
             

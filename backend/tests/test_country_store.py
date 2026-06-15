@@ -22,6 +22,9 @@ def test_protected_fields_is_superset_of_security_fields():
         "trial_start_date", "stripe_customer_id", "stripe_subscription_id",
         "square_access_token", "square_refresh_token",
         "square_merchant_id", "square_location_id", "square_connected",
+        # 과금 상태·시스템 타임스탬프·관계 속성
+        "data_open_consent", "created_at",
+        "payment_settings", "display_settings", "tables", "menus", "staff_members",
     ]:
         assert field in _PROTECTED_UPDATE_FIELDS, field
 

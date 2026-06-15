@@ -324,7 +324,14 @@ _PROTECTED_UPDATE_FIELDS = {
     "square_merchant_id", "square_location_id", "square_connected",
     # 국가 (통화 재해석 방지 — 가입 후 잠김)
     "country_code",
+    # 과금 상태 (Stripe 웹훅이 설정) + 시스템 타임스탬프
+    "data_open_consent", "created_at",
+    # 관계 속성 (setattr 시 관계 손상/무결성 오류) — PATCH 로 건드리면 안 됨
+    "payment_settings", "display_settings", "tables", "menus", "staff_members",
 }
+# NOTE: 본 엔드포인트는 AdminView/AdminOperationView 가 동적 필드({[field]:value})로
+# 호출하므로 편집필드 화이트리스트를 정적으로 확정할 수 없다. 화이트리스트 전환은
+# 프론트 전수 감사가 필요한 별도 작업으로 분리(블랙리스트로 위험 필드 차단).
 
 
 @router.patch("/{store_id}", response_model=Store)

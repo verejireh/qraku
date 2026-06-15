@@ -86,3 +86,13 @@ def test_catalog_invariants():
         assert cfg.stripe_price_env_prefix       # prefix 비어있지 않음
         assert cfg.default_languages             # 언어 1개 이상
         assert cfg.allowed_payment_methods       # 결제수단 1개 이상
+
+
+def test_config_code_matches_key():
+    # code 필드와 딕셔너리 키 불일치(예: "GB": CountryConfig(code="JP")) 방지
+    assert all(key == cfg.code for key, cfg in COUNTRIES.items())
+
+
+def test_countries_mapping_is_immutable():
+    with pytest.raises(TypeError):
+        COUNTRIES["XX"] = COUNTRIES["JP"]       # MappingProxyType — 변조 불가

@@ -344,6 +344,33 @@ Insert before the closing `]`:
         "ALTER TABLE store ADD COLUMN IF NOT EXISTS country_code VARCHAR(2) NOT NULL DEFAULT 'JP'",
 ```
 
+**(GPT 2차 리뷰 #3) `country_code` 를 일반 PATCH 에서 보호** — `update_store`
+(`backend/routers/stores.py:327-329`) 는 `hasattr` 인 모든 필드를 setattr 한다.
+가입 후 country_code 가 바뀌면 통화가 재해석되므로(¥1,000 → £10.00) 차단한다.
+테스트 추가(test_country_store.py):
+```python
+@pytest.mark.asyncio
+async def test_update_store_cannot_change_country_code(db):
+    from routers.stores import _PROTECTED_UPDATE_FIELDS
+    assert "country_code" in _PROTECTED_UPDATE_FIELDS
+```
+구현 — stores.py 상단에 상수 추가 + 루프에서 스킵:
+```python
+_PROTECTED_UPDATE_FIELDS = {"id", "owner_id", "slug", "country_code",
+                            "password_hash", "master_pin", "stripe_customer_id",
+                            "stripe_subscription_id", "subscription_status",
+                            "subscription_type", "subscription_expires_at"}
+```
+```python
+    for key, value in store_update.items():
+        if key in _PROTECTED_UPDATE_FIELDS:
+            continue
+        if hasattr(store, key):
+            setattr(store, key, value)
+```
+> 주의: 이 변경은 기존 PATCH 의 자유로운 필드 쓰기를 좁힌다. 보호 목록은 통화·인증·구독
+> 관련 필드로 한정하고, 기존에 정상적으로 수정하던 운영 필드(tax_rate 등)는 제외한다.
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest backend/tests/test_country_store.py -v`
@@ -637,6 +664,78 @@ git commit -m "feat(admin): 국가별 결제수단 필터 + 가입 국가 선택
 ```
 
 **⏸ GPT 5.5 리뷰 체크포인트 — 최종.**
+
+---
+
+## Task 8: 결제수단 국가 강제 (백엔드 쓰기 경계) — `admin.py`
+
+> **(GPT 2차 리뷰 #2)** UI 숨김(Task 7)만으로는 강제가 아니다. 결제수단 저장
+> 엔드포인트가 매장 국가의 `allowed_methods` 를 실제로 검증해야 한다.
+> GB 매장이 API 로 직접 `PAYPAY_DIRECT` 를 설정하지 못하게 한다.
+
+**Files:**
+- Modify: `backend/routers/admin.py` (payment-settings PATCH, line 492-493)
+- Test: `backend/tests/test_payment_method_country.py`
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# backend/tests/test_payment_method_country.py
+import pytest
+from config.countries import allowed_methods
+
+
+def test_gb_disallows_paypay_in_catalog():
+    assert "PAYPAY_DIRECT" not in allowed_methods("GB")
+
+
+def test_validate_method_helper_rejects_disallowed():
+    from routers.admin import _assert_method_allowed  # Task 8 에서 추가
+    # GB 에서 PAYPAY_DIRECT → 거부
+    with pytest.raises(Exception):
+        _assert_method_allowed("PAYPAY_DIRECT", "GB")
+    # GB 에서 SQUARE_INTEGRATED → 통과 (예외 없음)
+    _assert_method_allowed("SQUARE_INTEGRATED", "GB")
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `uv run pytest backend/tests/test_payment_method_country.py -v`
+Expected: FAIL — `ImportError: cannot import name '_assert_method_allowed'`
+
+- [ ] **Step 3: Write minimal implementation**
+
+In `backend/routers/admin.py`, add helper + import:
+```python
+from config.countries import allowed_methods
+
+def _assert_method_allowed(method_value: str, country_code: str) -> None:
+    if method_value not in allowed_methods(country_code):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{method_value} is not available in {country_code}",
+        )
+```
+Update the payment-method write (line 492-493) to validate against the store's country:
+```python
+    if body.payment_method_type:
+        _assert_method_allowed(body.payment_method_type, admin_store.country_code)
+        ps.payment_method_type = PaymentMethodType(body.payment_method_type)
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `uv run pytest backend/tests/test_payment_method_country.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/routers/admin.py backend/tests/test_payment_method_country.py
+git commit -m "feat(payment): 결제수단 국가 강제 (백엔드 쓰기 경계, Task 8)"
+```
+
+**⏸ GPT 5.5 리뷰 체크포인트.**
 
 ---
 

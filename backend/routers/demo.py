@@ -116,6 +116,7 @@ async def start_showcase(session: AsyncSession = Depends(get_session)):
             pos_mode=template_store.pos_mode,
             supported_languages=template_store.supported_languages,
             payment_options=template_store.payment_options,
+            country_code=template_store.country_code,  # 템플릿 국가 승계 (GB 템플릿이 JP 데모 되는 것 방지)
         )
         session.add(temp_store)
         await session.flush()

@@ -307,13 +307,23 @@ async def delete_table(store_id: str, table_id: int, admin_store: Store = Depend
     await session.commit()
     return {"status": "ok"}
 
-# 일반 PATCH 로 변경 불가한 필드 (통화 재해석·인증·구독 무결성 보호).
-# country_code 가 가입 후 바뀌면 저장된 금액(최소단위)이 다른 통화로 재해석된다.
+# 일반 PATCH 로 변경 불가한 필드.
+# 기존 update_store 는 모든 hasattr 필드를 setattr 하던 무방비 상태였다(잠재 취약점) →
+# 통화 무결성(country_code) + 인증/소셜로그인 + 구독/결제 + Square 자격증명을 보호한다.
+# 보호 필드가 요청에 하나라도 있으면 '요청 전체'를 400 으로 거부(부분 적용으로 인한
+# 클라이언트 오인 방지). 가입 후 country_code 변경·slug 변경은 전용 절차로만.
 _PROTECTED_UPDATE_FIELDS = {
-    "id", "owner_id", "slug", "country_code",
-    "password_hash", "master_pin", "stripe_customer_id",
-    "stripe_subscription_id", "subscription_status",
-    "subscription_type", "subscription_expires_at",
+    # 식별/인증
+    "id", "owner_id", "slug", "password_hash", "master_pin",
+    "google_id", "line_id",
+    # 구독/결제
+    "subscription_type", "subscription_status", "subscription_expires_at",
+    "trial_start_date", "stripe_customer_id", "stripe_subscription_id",
+    # Square 자격증명 (OAuth 플로우로만 설정)
+    "square_access_token", "square_refresh_token",
+    "square_merchant_id", "square_location_id", "square_connected",
+    # 국가 (통화 재해석 방지 — 가입 후 잠김)
+    "country_code",
 }
 
 
@@ -334,9 +344,15 @@ async def update_store(store_id: str, store_update: dict, admin_store: Store = D
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
     
+    # 보호 필드가 하나라도 있으면 요청 전체 거부 (원자적 — 부분 적용 오인 방지)
+    rejected = _PROTECTED_UPDATE_FIELDS.intersection(store_update)
+    if rejected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fields not editable via this endpoint: {', '.join(sorted(rejected))}",
+        )
+
     for key, value in store_update.items():
-        if key in _PROTECTED_UPDATE_FIELDS:
-            continue
         if hasattr(store, key):
             setattr(store, key, value)
             

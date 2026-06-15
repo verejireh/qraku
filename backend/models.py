@@ -116,7 +116,9 @@ class Store(SQLModel, table=True):
     supported_languages: str = Field(default="ja,en,ko,zh") # Comma separated: ja,en,ko,zh,vi,etc
 
     # Country (가입 시 선택, 이후 잠김 — 통화·가능 결제사를 강제. config/countries.py 참조)
-    country_code: str = Field(default="JP", max_length=2, index=True)
+    # index 미설정: 매장은 id/slug 로 조회 후 country_code 참조 → 단독 인덱스 불필요.
+    # 국가별 배치 조회가 생기면 그때 명시적 인덱스 마이그레이션 추가.
+    country_code: str = Field(default="JP", max_length=2)
     
     # Billing Settings
     payment_options: PaymentOptions = Field(default=PaymentOptions.CASH_ONLY)

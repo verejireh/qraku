@@ -1,9 +1,14 @@
 import pytest
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN, localcontext
 from utils.currency import (
-    normalize_currency, decimals_for, symbol_for,
-    to_minor_units, round_to_currency, from_minor_units, format_amount,
+    CURRENCIES, normalize_currency, decimals_for, symbol_for,
+    to_minor_units, round_to_minor_units, from_minor_units, format_amount,
 )
+
+
+def test_currency_table_has_complete_metadata():
+    for code, meta in CURRENCIES.items():
+        assert "decimals" in meta and "symbol" in meta   # 키 불일치 클래스 차단
 
 
 def test_normalize_currency():
@@ -37,6 +42,14 @@ def test_to_minor_units_exact():
     assert to_minor_units("10.00", "GBP") == 1000    # 파운드: 펜스
     assert to_minor_units(10, "GBP") == 1000          # int 입력
     assert to_minor_units(Decimal("10.50"), "GBP") == 1050
+    assert to_minor_units("-10.50", "GBP") == -1050   # 음수 정확 변환
+
+
+def test_to_minor_units_context_independent():
+    # ambient context 정밀도가 낮아도 정상 금액이 변조되면 안 됨 (정수 연산)
+    with localcontext() as ctx:
+        ctx.prec = 6
+        assert to_minor_units("123456.78", "GBP") == 12345678
 
 
 def test_to_minor_units_rejects_excess_precision():
@@ -46,22 +59,28 @@ def test_to_minor_units_rejects_excess_precision():
         to_minor_units("10.5", "JPY")     # JPY 는 소수 불가
 
 
-def test_to_minor_units_rejects_float_and_bool():
+def test_to_minor_units_rejects_bad_input():
     with pytest.raises(TypeError):
         to_minor_units(10.0, "GBP")       # float 거부 (부동소수 오차)
     with pytest.raises(TypeError):
         to_minor_units(True, "GBP")       # bool 거부
+    with pytest.raises(ValueError):
+        to_minor_units("NaN", "GBP")      # 비유한 거부
+    with pytest.raises(ValueError):
+        to_minor_units(Decimal("Infinity"), "GBP")
 
 
-def test_round_to_currency():
-    assert round_to_currency("10.005", "GBP") == 1001                   # HALF_UP 기본
-    assert round_to_currency("10.005", "GBP", rounding=ROUND_DOWN) == 1000  # 정책 교체
-    assert round_to_currency(Decimal("100.4"), "JPY") == 100
+def test_round_to_minor_units():
+    assert round_to_minor_units("10.005", "GBP") == 1001                      # HALF_UP 기본
+    assert round_to_minor_units("10.005", "GBP", rounding=ROUND_DOWN) == 1000  # 정책 교체
+    assert round_to_minor_units(Decimal("100.4"), "JPY") == 100
 
 
 def test_from_minor_units():
     assert from_minor_units(1000, "GBP") == Decimal("10.00")
     assert from_minor_units(1000, "JPY") == Decimal("1000")
+    assert from_minor_units(5, "GBP") == Decimal("0.05")
+    assert from_minor_units(-1000, "GBP") == Decimal("-10.00")
 
 
 def test_from_minor_units_strict_int():
@@ -79,3 +98,8 @@ def test_format_amount():
 
 def test_format_amount_negative():
     assert format_amount(-1000, "GBP") == "-£10.00"   # 부호는 기호 앞
+
+
+def test_format_amount_validates_minor_first():
+    with pytest.raises(TypeError):
+        format_amount(None, "GBP")        # 비교(<) 전에 타입 검증

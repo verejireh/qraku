@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { PlusCircle, ShoppingBasket, ChevronRight } from 'lucide-react'
 import { useLanguage } from '../../context/LanguageContext'
+import { useCurrency } from '../../context/CurrencyContext'
 
 export default function AjisaiThemeView({
     storeId,
@@ -21,6 +22,7 @@ export default function AjisaiThemeView({
     tabehoudaiMenuIds = new Set()
 }) {
     const { getMenuName, getMenuDescription } = useLanguage()
+    const { fmt } = useCurrency()
 
     return (
         <div className="relative min-h-screen bg-[var(--background-light)] text-slate-900 font-display overflow-x-hidden pb-48">
@@ -142,7 +144,7 @@ export default function AjisaiThemeView({
                                                             </div>
                                                         )}
                                                         <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full border border-white/20">
-                                                            <p className="text-primary font-bold text-sm">¥{item.price.toLocaleString()}</p>
+                                                            <p className="text-primary font-bold text-sm">{fmt(item.price)}</p>
                                                         </div>
                                                     </div>
                                                     
@@ -192,7 +194,7 @@ export default function AjisaiThemeView({
                                 </div>
                                 <div>
                                     <p className="text-xs text-primary/70 font-semibold uppercase tracking-widest">Total</p>
-                                    <p className="text-xl font-bold text-slate-900 leading-tight">¥{totalAmount.toLocaleString()}</p>
+                                    <p className="text-xl font-bold text-slate-900 leading-tight">{fmt(totalAmount)}</p>
                                 </div>
                             </div>
                             <button

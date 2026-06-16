@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { Plus, ShoppingCart, ArrowRight } from 'lucide-react'
 import { useLanguage } from '../../context/LanguageContext'
+import { useCurrency } from '../../context/CurrencyContext'
 
 export default function SakuraThemeView({
     storeId,
@@ -21,6 +22,7 @@ export default function SakuraThemeView({
     tabehoudaiMenuIds = new Set()
 }) {
     const { getMenuName, getMenuDescription } = useLanguage()
+    const { fmt } = useCurrency()
 
     return (
         <div className="relative min-h-screen text-slate-900 font-display overflow-x-hidden">
@@ -119,7 +121,7 @@ export default function SakuraThemeView({
                                                                 食べ放題対象
                                                             </span>
                                                         )}
-                                                        <p className="text-primary font-bold text-lg">¥{item.price.toLocaleString()}</p>
+                                                        <p className="text-primary font-bold text-lg">{fmt(item.price)}</p>
                                                         <h3 className="text-base font-bold text-slate-800 mt-1">{getMenuName(item)}</h3>
                                                         {item.name_jp && item.name_jp !== getMenuName(item) && (
                                                             <p className="text-xs text-slate-500 font-medium mb-1 mt-0.5">{item.name_jp}</p>
@@ -164,7 +166,7 @@ export default function SakuraThemeView({
                             </div>
                             <div>
                                 <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tight">Total Order</p>
-                                <p className="text-base font-bold text-slate-900 leading-tight">¥{totalAmount.toLocaleString()}</p>
+                                <p className="text-base font-bold text-slate-900 leading-tight">{fmt(totalAmount)}</p>
                             </div>
                         </div>
                         <button

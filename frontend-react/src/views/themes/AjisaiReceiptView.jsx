@@ -1,9 +1,16 @@
 import { ArrowLeft, Download, Mail, Home, Utensils, Receipt, User, CheckCircle } from 'lucide-react'
-
-import { useSession } from '../../context/SessionContext'
+import { useNavigate } from 'react-router-dom'
+import { currencyHelpers } from '../../config/currency'
 
 export default function AjisaiReceiptView({ store, order, onClose }) {
     const navigate = useNavigate()
+    const cur = currencyHelpers(store)
+    const taxRate = Number.isFinite(store?.tax_rate) && store.tax_rate >= 0 ? store.tax_rate : 10
+    const taxIncluded = store?.tax_included !== false
+    const orderTotal = order?.total_amount || 0
+    // total_amount = 실제 청구액. 税込이면 포함 세액 역산, 税別이면 세금 미청구로 보고 분해/표시하지 않음.
+    const tax = taxIncluded ? Math.round(orderTotal * taxRate / (100 + taxRate)) : 0
+    const subtotal = orderTotal - tax
 
     return (
         <div className="relative min-h-screen bg-[#f1f9fb] text-[#2c3e50] font-display overflow-x-hidden pb-32">
@@ -74,10 +81,10 @@ export default function AjisaiReceiptView({ store, order, onClose }) {
                                 </div>
                                 <div className="flex-1 flex justify-between items-center">
                                     <div>
-                                        <div className="font-bold text-sm text-slate-800">{item.menu?.name_ko || item.menu?.name_jp}</div>
+                                        <div className="font-bold text-sm text-slate-800">{item.menu?.name_ko || item.menu?.name_jp || `#${item.menu_item_id}`}</div>
                                         <div className="text-[10px] text-slate-400 font-bold">Quantity: {item.quantity} • Fresh Cut</div>
                                     </div>
-                                    <div className="font-bold text-sm text-slate-800">¥{(item.menu?.price * item.quantity).toLocaleString()}</div>
+                                    <div className="font-bold text-sm text-slate-800">{cur.fmt(item.unit_price * item.quantity)}</div>
                                 </div>
                             </div>
                         ))}
@@ -86,16 +93,18 @@ export default function AjisaiReceiptView({ store, order, onClose }) {
                     <div className="pt-6 border-t border-dashed border-cyan-100 space-y-3">
                         <div className="flex justify-between text-sm text-slate-500 font-medium">
                             <span>Subtotal</span>
-                            <span>¥{order.total_amount?.toLocaleString()}</span>
+                            <span>{cur.fmt(subtotal)}</span>
                         </div>
-                        <div className="flex justify-between text-sm text-slate-500 font-medium">
-                            <span>Tax (8%)</span>
-                            <span>¥{Math.round(order.total_amount * 0.08).toLocaleString()}</span>
-                        </div>
+                        {taxIncluded && (
+                            <div className="flex justify-between text-sm text-slate-500 font-medium">
+                                <span>Tax ({taxRate}%)</span>
+                                <span>{cur.fmt(tax)}</span>
+                            </div>
+                        )}
                         <div className="flex justify-between items-center pt-3">
                             <span className="text-lg font-bold text-slate-800">Total Paid</span>
                             <span className="text-2xl font-extrabold text-[#40c4e4]">
-                                ¥{(order.total_amount + Math.round(order.total_amount * 0.08)).toLocaleString()}
+                                {cur.fmt(orderTotal)}
                             </span>
                         </div>
                     </div>

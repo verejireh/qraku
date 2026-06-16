@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { X, Share2, Mail, Home, Utensils, Receipt, User, FileText, QrCode } from 'lucide-react'
 import axios from 'axios'
+import { currencyHelpers } from '../../config/currency'
 
 export default function CamelliaReceiptView({ store, order: initialOrder, onClose }) {
     const navigate = useNavigate()
@@ -35,6 +36,14 @@ export default function CamelliaReceiptView({ store, order: initialOrder, onClos
             try { navigator.vibrate?.([200, 100, 200]) } catch { }
         }
     }, [isPickupReady])
+
+    const cur = currencyHelpers(store)
+    const taxRate = Number.isFinite(store?.tax_rate) && store.tax_rate >= 0 ? store.tax_rate : 10
+    const taxIncluded = store?.tax_included !== false
+    const orderTotal = order?.total_amount || 0
+    // total_amount = 실제 청구액. 税込이면 포함 세액 역산, 税別이면 세금 미청구로 보고 분해/표시하지 않음.
+    const tax = taxIncluded ? Math.round(orderTotal * taxRate / (100 + taxRate)) : 0
+    const subtotal = orderTotal - tax
 
     return (
         <div className="relative min-h-screen bg-[#1c0d0d] text-[#f8f5f5] font-display overflow-x-hidden pb-32">
@@ -131,10 +140,10 @@ export default function CamelliaReceiptView({ store, order: initialOrder, onClos
                             </div>
                             <div className="flex-1 flex justify-between items-center">
                                 <div>
-                                    <div className="font-bold text-md text-white tracking-tight">{item.menu?.name_ko || item.menu?.name_jp || item.menu_id}</div>
+                                    <div className="font-bold text-md text-white tracking-tight">{item.menu?.name_ko || item.menu?.name_jp || `#${item.menu_item_id}`}</div>
                                     <div className="text-[10px] text-slate-500 font-bold tracking-wider">Qty: {item.quantity} • Red / OS</div>
                                 </div>
-                                <div className="font-bold text-md text-slate-300">¥{(item.menu?.price * item.quantity).toLocaleString()}</div>
+                                <div className="font-bold text-md text-slate-300">{cur.fmt(item.unit_price * item.quantity)}</div>
                             </div>
                         </div>
                     ))}
@@ -145,17 +154,19 @@ export default function CamelliaReceiptView({ store, order: initialOrder, onClos
                     <div className="space-y-4 pb-6 border-b border-white/5">
                         <div className="flex justify-between text-sm text-slate-500 font-medium">
                             <span>Subtotal</span>
-                            <span className="text-white">¥{order.total_amount?.toLocaleString()}</span>
+                            <span className="text-white">{cur.fmt(subtotal)}</span>
                         </div>
-                        <div className="flex justify-between text-sm text-slate-500 font-medium">
-                            <span>Tax (8%)</span>
-                            <span className="text-white">¥{Math.round(order.total_amount * 0.08).toLocaleString()}</span>
-                        </div>
+                        {taxIncluded && (
+                            <div className="flex justify-between text-sm text-slate-500 font-medium">
+                                <span>Tax ({taxRate}%)</span>
+                                <span className="text-white">{cur.fmt(tax)}</span>
+                            </div>
+                        )}
                     </div>
                     <div className="flex justify-between items-center pt-6">
                         <span className="text-xl font-black uppercase tracking-[0.2em] text-white">Total</span>
                         <span className="text-2xl font-black text-[#c53030] tracking-tighter shadow-red-900/10">
-                            ¥{(order.total_amount + Math.round(order.total_amount * 0.08)).toLocaleString()}
+                            {cur.fmt(orderTotal)}
                         </span>
                     </div>
                 </div>

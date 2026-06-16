@@ -65,6 +65,8 @@ class OrderItemRead(SQLModel):
     option_details: Optional[str] = None
     status: Optional[str] = "pending"
     is_takeout_item: Optional[bool] = False
+    # 영수증 표시용 메뉴 정보(이름/이미지). read_order 에서 menu_item_id 로 조회해 채움.
+    menu: Optional[MenuRead] = None
 
 class OrderRead(SQLModel):
     id: int
@@ -900,11 +902,32 @@ async def read_order(order_id: int, session: AsyncSession = Depends(get_session)
     )
     result = await session.execute(stmt)
     order = result.scalar_one_or_none()
-    
+
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-        
-    return order
+
+    # 영수증 표시용 메뉴명/이미지 부착: OrderItem.menu_item_id(str) → Menu 조회.
+    # (OrderItem 에는 menu 관계가 없어 단건 조회 응답엔 메뉴 정보가 빠져 있었음 — 영수증 아이템명 공백 원인)
+    menu_ids = set()
+    for oi in order.items:
+        try:
+            menu_ids.add(int(oi.menu_item_id))
+        except (TypeError, ValueError):
+            pass
+    menus_by_id = {}
+    if menu_ids:
+        menus_result = await session.execute(select(Menu).where(Menu.id.in_(menu_ids)))
+        menus_by_id = {m.id: m for m in menus_result.scalars().all()}
+
+    order_read = OrderRead.model_validate(order, from_attributes=True)
+    for item_read, oi in zip(order_read.items, order.items):
+        try:
+            m = menus_by_id.get(int(oi.menu_item_id))
+        except (TypeError, ValueError):
+            m = None
+        if m:
+            item_read.menu = MenuRead.model_validate(m, from_attributes=True)
+    return order_read
 
 @router.get("/", response_model=List[OrderRead])
 async def read_orders(

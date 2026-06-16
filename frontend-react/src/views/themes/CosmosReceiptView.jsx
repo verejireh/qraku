@@ -1,9 +1,16 @@
 import { Download, Share2, X, Sparkles, Home, Utensils, Receipt, User } from 'lucide-react'
-
-import { useSession } from '../../context/SessionContext'
+import { useNavigate } from 'react-router-dom'
+import { currencyHelpers } from '../../config/currency'
 
 export default function CosmosReceiptView({ store, order, onClose }) {
     const navigate = useNavigate()
+    const cur = currencyHelpers(store)
+    const taxRate = Number.isFinite(store?.tax_rate) && store.tax_rate >= 0 ? store.tax_rate : 10
+    const taxIncluded = store?.tax_included !== false
+    const orderTotal = order?.total_amount || 0
+    // total_amount = 실제 청구액. 税込이면 포함 세액 역산, 税別이면 세금 미청구로 보고 분해/표시하지 않음.
+    const tax = taxIncluded ? Math.round(orderTotal * taxRate / (100 + taxRate)) : 0
+    const subtotal = orderTotal - tax
 
     return (
         <div className="relative min-h-screen bg-[#f3f4f6] text-[#1f2937] font-display overflow-x-hidden pb-40">
@@ -29,7 +36,7 @@ export default function CosmosReceiptView({ store, order, onClose }) {
                     <div className="absolute top-0 left-0 w-full h-1.5 bg-[#d83473]/10"></div>
 
                     <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-1">Total Amount Paid</p>
-                    <h2 className="text-4xl font-black text-[#1f2937] mb-2 tracking-tight">¥{(order.total_amount + Math.round(order.total_amount * 0.08)).toLocaleString()}</h2>
+                    <h2 className="text-4xl font-black text-[#1f2937] mb-2 tracking-tight">{cur.fmt(orderTotal)}</h2>
                     <p className="text-[10px] text-slate-400 font-bold mb-10">
                         {new Date(order.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • {new Date(order.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}
                     </p>
@@ -38,10 +45,10 @@ export default function CosmosReceiptView({ store, order, onClose }) {
                         {order.items.map((item, idx) => (
                             <div key={idx} className="flex justify-between items-start">
                                 <div>
-                                    <div className="font-bold text-sm text-slate-800">{item.menu?.name_ko || item.menu?.name_jp || item.menu_id}</div>
+                                    <div className="font-bold text-sm text-slate-800">{item.menu?.name_ko || item.menu?.name_jp || `#${item.menu_item_id}`}</div>
                                     <div className="text-[10px] text-slate-400 font-bold tracking-tight">Qty: {item.quantity}</div>
                                 </div>
-                                <div className="font-bold text-sm text-slate-800">¥{(item.menu?.price * item.quantity).toLocaleString()}</div>
+                                <div className="font-bold text-sm text-slate-800">{cur.fmt(item.unit_price * item.quantity)}</div>
                             </div>
                         ))}
                     </div>
@@ -49,12 +56,14 @@ export default function CosmosReceiptView({ store, order, onClose }) {
                     <div className="pt-6 border-t border-dashed border-pink-100 space-y-3 mb-10">
                         <div className="flex justify-between text-xs text-slate-400 font-bold">
                             <span>Subtotal</span>
-                            <span>¥{order.total_amount?.toLocaleString()}</span>
+                            <span>{cur.fmt(subtotal)}</span>
                         </div>
-                        <div className="flex justify-between text-xs text-slate-400 font-bold">
-                            <span>Tax (8%)</span>
-                            <span>¥{Math.round(order.total_amount * 0.08).toLocaleString()}</span>
-                        </div>
+                        {taxIncluded && (
+                            <div className="flex justify-between text-xs text-slate-400 font-bold">
+                                <span>Tax ({taxRate}%)</span>
+                                <span>{cur.fmt(tax)}</span>
+                            </div>
+                        )}
                         <div className="flex justify-between items-center pt-4 text-[10px] text-slate-800 font-black tracking-widest uppercase">
                             <div className="flex items-center gap-2">
                                 <div className="w-4 h-3 bg-[#d83473] rounded-sm"></div>

@@ -11,6 +11,7 @@ import CamelliaReceiptView from './themes/CamelliaReceiptView'
 import BambooReceiptView from './themes/BambooReceiptView'
 import SakuraReceiptView from './themes/SakuraReceiptView'
 import html2canvas from 'html2canvas'
+import { currencyHelpers } from '../config/currency'
 
 export default function ReceiptView() {
     const { orderId } = useParams()
@@ -22,6 +23,7 @@ export default function ReceiptView() {
     const prevReadyRef = useRef(false)
 
     const handleClose = () => navigate(-1)
+    const cur = currencyHelpers(store)
 
     const isTakeout = order?.order_type === 'take_out'
     const isPickupReady = isTakeout && order?.items?.length > 0
@@ -130,7 +132,7 @@ export default function ReceiptView() {
                 {isRefunded ? (
                     <div className="mt-2 inline-flex items-center gap-2 text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-4 py-2 rounded-full">
                         <CheckCircle size={16} />
-                        <span className="font-bold text-sm">¥{(order.total_amount || 0).toLocaleString()} の返金を受け付けました（反映まで数日かかる場合があります）</span>
+                        <span className="font-bold text-sm">{cur.fmt(order.total_amount || 0)} の返金を受け付けました（反映まで数日かかる場合があります）</span>
                     </div>
                 ) : (
                     <div className="mt-2 inline-flex items-center gap-2 text-amber-300 bg-amber-500/10 border border-amber-500/30 px-4 py-2 rounded-full">
@@ -239,7 +241,7 @@ export default function ReceiptView() {
                                         <div className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter mt-0.5">Qty: {item.quantity}</div>
                                     </div>
                                     <div className="text-white text-sm font-bold">
-                                        ¥{(item.unit_price * item.quantity).toLocaleString()}
+                                        {cur.fmt(item.unit_price * item.quantity)}
                                     </div>
                                 </div>
                             ))}
@@ -247,7 +249,7 @@ export default function ReceiptView() {
 
                         <div className="pt-5 mt-5 border-t border-white/10 flex justify-between items-center">
                             <span className="text-slate-400 font-bold text-sm">합계 금액</span>
-                            <span className="text-2xl font-black text-white">¥{(order.total_amount || 0).toLocaleString()}</span>
+                            <span className="text-2xl font-black text-white">{cur.fmt(order.total_amount || 0)}</span>
                         </div>
                     </div>
                     

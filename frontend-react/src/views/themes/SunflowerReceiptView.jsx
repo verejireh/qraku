@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion'
 import { Flower, CheckCircle, Download, Home, Utensils, Receipt, User } from 'lucide-react'
-
-import { useSession } from '../../context/SessionContext'
+import { useNavigate } from 'react-router-dom'
+import { currencyHelpers } from '../../config/currency'
 
 export default function SunflowerReceiptView({
     store,
@@ -10,6 +10,9 @@ export default function SunflowerReceiptView({
 }) {
     const navigate = useNavigate()
     if (!order) return null;
+    const cur = currencyHelpers(store)
+    // total_amount = 실제 청구액. Sunflower 영수증은 세금 분해 없이 청구 총액만 표시.
+    const orderTotal = order?.total_amount || 0
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-hidden bg-[#f8f8f5] font-display">
@@ -49,7 +52,7 @@ export default function SunflowerReceiptView({
 
                     <div className="p-6 pt-8 text-center border-b border-dashed border-slate-200 shrink-0">
                         <p className="text-slate-500 text-sm font-medium">Total Amount Paid</p>
-                        <h1 className="text-5xl font-extrabold text-slate-900 mt-1 mb-4">¥{order.total_amount?.toLocaleString()}</h1>
+                        <h1 className="text-5xl font-extrabold text-slate-900 mt-1 mb-4">{cur.fmt(orderTotal)}</h1>
                         <p className="text-xs text-slate-400 font-medium tracking-widest uppercase">
                             {new Date(order.created_at).toLocaleDateString('ja-JP')} • {new Date(order.created_at).toLocaleTimeString('ja-JP')}
                         </p>
@@ -63,9 +66,9 @@ export default function SunflowerReceiptView({
                                     <span className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-500 text-xs font-bold">
                                         {(idx + 1).toString().padStart(2, '0')}
                                     </span>
-                                    <span className="font-semibold text-slate-700">{item.menu?.name_ko || item.menu?.name_jp} (x{item.quantity})</span>
+                                    <span className="font-semibold text-slate-700">{item.menu?.name_ko || item.menu?.name_jp || `#${item.menu_item_id}`} (x{item.quantity})</span>
                                 </div>
-                                <span className="font-bold text-slate-900">¥{(item.menu?.price * item.quantity).toLocaleString()}</span>
+                                <span className="font-bold text-slate-900">{cur.fmt(item.unit_price * item.quantity)}</span>
                             </div>
                         ))}
                     </div>

@@ -19,30 +19,22 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 
-# 표준 플랜 (데이터 비공개)
-STRIPE_MONTHLY_PRICE_ID = os.getenv("STRIPE_MONTHLY_PRICE_ID", "")
-STRIPE_SIXMONTH_PRICE_ID = os.getenv("STRIPE_SIXMONTH_PRICE_ID", "")
-STRIPE_YEARLY_PRICE_ID = os.getenv("STRIPE_YEARLY_PRICE_ID", "")
+def _resolve_price_id(plan: str, data_open: bool, country_code: str = "JP") -> str:
+    """plan + data_open + country_code 조합으로 Stripe price_id 반환.
 
-# 데이터 공개 플랜 (월 ¥1,000 할인)
-STRIPE_MONTHLY_OPEN_PRICE_ID = os.getenv("STRIPE_MONTHLY_OPEN_PRICE_ID", "")
-STRIPE_SIXMONTH_OPEN_PRICE_ID = os.getenv("STRIPE_SIXMONTH_OPEN_PRICE_ID", "")
-STRIPE_YEARLY_OPEN_PRICE_ID = os.getenv("STRIPE_YEARLY_OPEN_PRICE_ID", "")
-
-
-def _resolve_price_id(plan: str, data_open: bool) -> str:
-    """plan + data_open 조합으로 Stripe price_id 반환."""
-    if data_open:
-        return {
-            "monthly": STRIPE_MONTHLY_OPEN_PRICE_ID,
-            "sixmonth": STRIPE_SIXMONTH_OPEN_PRICE_ID,
-            "yearly": STRIPE_YEARLY_OPEN_PRICE_ID,
-        }.get(plan, "")
-    return {
-        "monthly": STRIPE_MONTHLY_PRICE_ID,
-        "sixmonth": STRIPE_SIXMONTH_PRICE_ID,
-        "yearly": STRIPE_YEARLY_PRICE_ID,
-    }.get(plan, "")
+    JP 는 기존 변수명(STRIPE_<PLAN>[_OPEN]_PRICE_ID) 하위호환,
+    그 외 국가는 prefix 적용(STRIPE_<PREFIX>_<PLAN>[_OPEN]_PRICE_ID).
+    env 는 호출 시점에 읽는다(국가별 변수·테스트 setenv 반영).
+    """
+    from config.countries import stripe_prefix
+    prefix = stripe_prefix(country_code)          # JP → "JP", GB → "GB"
+    plan_key = plan.upper()
+    open_seg = "_OPEN" if data_open else ""
+    if prefix == "JP":
+        var = f"STRIPE_{plan_key}{open_seg}_PRICE_ID"        # 기존 변수명 유지
+    else:
+        var = f"STRIPE_{prefix}_{plan_key}{open_seg}_PRICE_ID"
+    return os.getenv(var, "")
 
 
 _PLAN_DAYS = {"monthly": 30, "sixmonth": 180, "yearly": 365}
@@ -122,7 +114,7 @@ async def create_checkout_session(
     if store.id != admin_store.id:
         raise HTTPException(status_code=403, detail="Access denied: store mismatch")
 
-    price_id = _resolve_price_id(plan, data_open)
+    price_id = _resolve_price_id(plan, data_open, store.country_code)
     if not price_id:
         raise HTTPException(
             status_code=503,

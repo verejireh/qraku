@@ -46,8 +46,17 @@ export default function MagnoliaCartModal({
     guestCoupons = [],
     useCouponId = null,
     setUseCouponId = () => {},
+    // 통화 (매장 국가에서 파생 — 기본 JPY 로 하위호환). 금액은 모두 '최소단위 정수'.
+    currency = 'JPY',
+    currencySymbol = '¥',
+    currencyDecimals = 0,
+    countryCode = 'JP',
 }) {
     const { t } = useLanguage()
+    // 최소단위 정수 → 표시 문자열 (예: 1000 → ¥1,000 / £10.00)
+    const fmt = (minor) => `${currencySymbol}${(Number(minor || 0) / Math.pow(10, currencyDecimals)).toLocaleString(undefined, { minimumFractionDigits: currencyDecimals, maximumFractionDigits: currencyDecimals })}`
+    // 최소단위 정수 → Square paymentRequest 용 major 단위 소수 문자열 (예: 1000 → "1000"(JPY) / "10.00"(GBP))
+    const toMajorString = (minor) => (Number(minor || 0) / Math.pow(10, currencyDecimals)).toFixed(currencyDecimals)
     const computeDefaultPickup = () => {
         const d = new Date(Date.now() + (defaultWaitMinutes || 15) * 60000)
         return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
@@ -119,9 +128,9 @@ export default function MagnoliaCartModal({
                 )
                 if (initialAmount > 0) {
                     const pr = payments.paymentRequest({
-                        countryCode: 'JP',
-                        currencyCode: 'JPY',
-                        total: { amount: String(initialAmount), label: 'QRaku テイクアウト' },
+                        countryCode: countryCode,
+                        currencyCode: currency,
+                        total: { amount: toMajorString(initialAmount), label: 'QRaku テイクアウト' },
                     })
                     paymentRequestRef.current = pr
 
@@ -170,11 +179,13 @@ export default function MagnoliaCartModal({
         if (!paymentRequestRef.current) return
         try {
             paymentRequestRef.current.update({
-                total: { amount: String(finalAmount), label: 'QRaku テイクアウト' },
+                total: { amount: toMajorString(finalAmount), label: 'QRaku テイクアウト' },
             })
         } catch (e) {
             console.warn('paymentRequest update 실패:', e?.message)
         }
+        // toMajorString 은 통화 prop 기반 순수 포매터(렌더 안정) — finalAmount 만 트리거
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [finalAmount])
 
     // Google Pay 버튼 클릭 핸들러 (attach 후 별도 등록)
@@ -360,7 +371,7 @@ export default function MagnoliaCartModal({
                                                 </button>
                                             </div>
                                             <span className="text-white/60 font-bold text-xs tracking-wider">
-                                                ¥{(item.price * item.quantity).toLocaleString()}
+                                                {fmt(item.price * item.quantity)}
                                             </span>
                                         </div>
                                     </div>
@@ -414,7 +425,7 @@ export default function MagnoliaCartModal({
                                             <div className="flex items-center gap-2">
                                                 {useStampReward ? <CheckCircle2 className="w-4 h-4" /> : <div className="w-4 h-4 rounded-full border border-current" />}
                                                 <span className="text-sm font-bold tracking-wide">
-                                                    特典を使う (-¥{stampStatus.stamp_reward_discount})
+                                                    特典を使う (-{fmt(stampStatus.stamp_reward_discount)})
                                                 </span>
                                             </div>
                                             {useStampReward && <span className="text-xs font-black">適用中!</span>}
@@ -447,7 +458,7 @@ export default function MagnoliaCartModal({
                                                 <div className="flex items-center gap-2">
                                                     {useCouponId === coupon.id ? <CheckCircle2 className="w-4 h-4" /> : <div className="w-4 h-4 rounded-full border border-current" />}
                                                     <span className="text-sm font-bold tracking-wide">
-                                                        ¥{coupon.discount_amount} 割引クーポン
+                                                        {fmt(coupon.discount_amount)} 割引クーポン
                                                     </span>
                                                 </div>
                                                 {useCouponId === coupon.id && <span className="text-xs font-black">適用中!</span>}
@@ -459,7 +470,7 @@ export default function MagnoliaCartModal({
 
                             <div className="flex items-center justify-between px-2">
                                 <span className="text-slate-400 text-sm font-medium">Subtotal</span>
-                                <span className="text-lg font-medium text-white tracking-tight">¥{totalAmount.toLocaleString()}</span>
+                                <span className="text-lg font-medium text-white tracking-tight">{fmt(totalAmount)}</span>
                             </div>
                             
                             {useStampReward && (
@@ -467,7 +478,7 @@ export default function MagnoliaCartModal({
                                     <span className="text-sm font-bold flex items-center gap-1">
                                         <Gift className="w-4 h-4" /> スタンプ割引
                                     </span>
-                                    <span className="text-lg font-bold tracking-tight">-¥{stampStatus.stamp_reward_discount.toLocaleString()}</span>
+                                    <span className="text-lg font-bold tracking-tight">-{fmt(stampStatus.stamp_reward_discount)}</span>
                                 </div>
                             )}
 
@@ -477,7 +488,7 @@ export default function MagnoliaCartModal({
                                         <Gift className="w-4 h-4" /> クーポン割引
                                     </span>
                                     <span className="text-lg font-bold tracking-tight">
-                                        -¥{(guestCoupons.find(c => c.id === useCouponId)?.discount_amount || 0).toLocaleString()}
+                                        -{fmt(guestCoupons.find(c => c.id === useCouponId)?.discount_amount || 0)}
                                     </span>
                                 </div>
                             )}
@@ -485,7 +496,7 @@ export default function MagnoliaCartModal({
                             <div className="flex items-center justify-between px-2 pt-2 border-t border-white/10">
                                 <span className="text-white text-base font-bold">Total</span>
                                 <span className="text-3xl font-black text-white tracking-tight">
-                                    ¥{Math.max(0, totalAmount - (useStampReward ? stampStatus.stamp_reward_discount : 0) - (useCouponId ? (guestCoupons.find(c => c.id === useCouponId)?.discount_amount || 0) : 0)).toLocaleString()}
+                                    {fmt(Math.max(0, totalAmount - (useStampReward ? stampStatus.stamp_reward_discount : 0) - (useCouponId ? (guestCoupons.find(c => c.id === useCouponId)?.discount_amount || 0) : 0)))}
                                 </span>
                             </div>
 

@@ -23,6 +23,7 @@ const RECEIPT_PRINT_STYLE = `
 import { useLanguage } from '../context/LanguageContext'
 import { useSession } from '../context/SessionContext'
 import { useTheme } from '../context/ThemeContext'
+import { useCurrency } from '../context/CurrencyContext'
 
 export default function CheckoutView() {
     const { shop_id: paramShopId, tableNumber: paramTableNumber } = useParams()
@@ -34,6 +35,7 @@ export default function CheckoutView() {
     const navigate = useNavigate()
     const { t, language } = useLanguage()
     const { currentTheme, themes } = useTheme()
+    const { fmt } = useCurrency()
     const themeColor = themes[currentTheme]?.color || '#fb7185'
     const [orders, setOrders] = useState([])
     const [menus, setMenus] = useState({})
@@ -177,12 +179,12 @@ export default function CheckoutView() {
                 {servedItems.map((item, idx) => (
                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px dotted #ccc' }}>
                         <span>{getMenuName(item)} x{item.quantity}</span>
-                        <strong>¥{(item.unit_price * item.quantity).toLocaleString()}</strong>
+                        <strong>{fmt(item.unit_price * item.quantity)}</strong>
                     </div>
                 ))}
                 <div style={{ borderTop: '1px dashed #000', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: 14 }}>
                     <span>TOTAL</span>
-                    <span>¥{totalSum.toLocaleString()}</span>
+                    <span>{fmt(totalSum)}</span>
                 </div>
             </div>
 
@@ -254,7 +256,7 @@ export default function CheckoutView() {
                                                 </div>
                                             </div>
                                             <div className="text-sm font-bold text-inherit font-serif">
-                                                ¥{(item.unit_price * item.quantity).toLocaleString()}
+                                                {fmt(item.unit_price * item.quantity)}
                                             </div>
                                         </motion.div>
                                     ))}
@@ -265,7 +267,7 @@ export default function CheckoutView() {
                                         <div className="space-y-1">
                                             <div className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">Total Amount</div>
                                             <div className="text-3xl font-bold text-primary tracking-tighter">
-                                                ¥{totalSum.toLocaleString()}
+                                                {fmt(totalSum)}
                                             </div>
                                         </div>
                                         <div className="text-right">

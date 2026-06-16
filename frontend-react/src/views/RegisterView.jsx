@@ -7,6 +7,7 @@ import { useStaffAuth } from '../components/StaffLoginGate'
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useDisplayGuard } from '../hooks/useDisplayGuard'
+import { currencyHelpers } from '../config/currency'
 
 /* ── ユーティリティ ─────────────────────────────────────── */
 
@@ -47,6 +48,7 @@ export default function RegisterView() {
     const [cancelingId, setCancelingId] = useState(null)
     const [timeQueries, setTimeQueries] = useState([])
     const [storeInfo, setStoreInfo] = useState(null)
+    const cur = currencyHelpers(storeInfo)
     const [loading, setLoading] = useState(true)
     const [now, setNow] = useState(new Date())
 
@@ -253,7 +255,7 @@ export default function RegisterView() {
         if (cancelingId) return  // 다른 요청 진행 중
         const paid = order.payment_status === 'paid'
         const msg = paid
-            ? `この注文(#${order.order_id} ¥${(order.total_amount || 0).toLocaleString()})を全額返金してキャンセルします。よろしいですか？`
+            ? `この注文(#${order.order_id} ${cur.fmt(order.total_amount || 0)})を全額返金してキャンセルします。よろしいですか？`
             : `この注文(#${order.order_id})をキャンセルします。よろしいですか？`
         if (!window.confirm(msg)) return
         setCancelingId(order.order_id)
@@ -430,7 +432,7 @@ export default function RegisterView() {
                                                     )}
                                                 </div>
                                                 <span className="text-base font-bold text-[#1b1b1d]">
-                                                    ¥{(table.total_unpaid || table.total_amount || 0).toLocaleString()}
+                                                    {cur.fmt(table.total_unpaid || table.total_amount || 0)}
                                                 </span>
                                             </div>
                                         </div>
@@ -487,7 +489,7 @@ export default function RegisterView() {
                                                 <p className="text-stone-500 leading-relaxed mb-2 line-clamp-2">{order.items_summary}</p>
                                                 <div className="flex justify-between items-center">
                                                     <div className="flex flex-col">
-                                                        <span className="font-bold text-sm text-[#1b1b1d]">¥{(order.total_amount || 0).toLocaleString()}</span>
+                                                        <span className="font-bold text-sm text-[#1b1b1d]">{cur.fmt(order.total_amount || 0)}</span>
                                                         {order.pickup_time && (
                                                             <span className="text-[10px] text-stone-500 font-bold flex items-center gap-0.5">
                                                                 <Icon name="schedule" className="!text-[11px]" /> {order.pickup_time}
@@ -589,7 +591,7 @@ export default function RegisterView() {
                                                     <span className="font-medium text-[#1b1b1d] text-sm">{item.name}</span>
                                                     <span className="text-stone-400 ml-2 text-xs">×{item.quantity}</span>
                                                 </div>
-                                                <span className="font-bold text-stone-600 text-sm">¥{(item.subtotal || 0).toLocaleString()}</span>
+                                                <span className="font-bold text-stone-600 text-sm">{cur.fmt(item.subtotal || 0)}</span>
                                             </div>
                                         ))
                                     ) : (
@@ -611,10 +613,10 @@ export default function RegisterView() {
                                                         )}
                                                     </div>
                                                     <span className="text-[11px] text-stone-500 ml-5">
-                                                        ¥{line.price_per_person.toLocaleString()} × {line.num_people}名
+                                                        {cur.fmt(line.price_per_person)} × {line.num_people}名
                                                     </span>
                                                 </div>
-                                                <span className="font-bold text-rose-600 text-sm">¥{(line.total || 0).toLocaleString()}</span>
+                                                <span className="font-bold text-rose-600 text-sm">{cur.fmt(line.total || 0)}</span>
                                             </div>
                                         ))}
                                     </div>
@@ -624,7 +626,7 @@ export default function RegisterView() {
                                 <div className="bg-gradient-to-r from-[#ffdada]/40 to-[#ffdada]/20 px-5 py-4 flex justify-between items-center">
                                     <span className="font-bold text-stone-600">合計金額</span>
                                     <span className="text-2xl md:text-3xl font-extrabold text-[#b80035]">
-                                        ¥{(tableDetail?.total_amount ?? selectedTable.total_unpaid ?? 0).toLocaleString()}
+                                        {cur.fmt(tableDetail?.total_amount ?? selectedTable.total_unpaid ?? 0)}
                                     </span>
                                 </div>
                             </div>
@@ -662,7 +664,7 @@ export default function RegisterView() {
                                     <div className="flex-1 min-w-0">
                                         <p className="font-bold text-blue-800">Square Terminalで決済待ち</p>
                                         <p className="text-xs text-blue-600 mt-0.5">
-                                            端末に表示された ¥{(terminalOperation.amount || 0).toLocaleString()} をお客様にお支払いいただいてください。
+                                            端末に表示された {cur.fmt(terminalOperation.amount || 0)} をお客様にお支払いいただいてください。
                                         </p>
                                     </div>
                                     <button onClick={handleTerminalCancel} disabled={paying}
@@ -704,7 +706,7 @@ export default function RegisterView() {
                         </div>
                         <div className="flex justify-between text-sm">
                             <span className="text-stone-500">合計</span>
-                            <span className="font-bold text-lg text-[#b80035]">¥{(todaySales?.total_sales || 0).toLocaleString()}</span>
+                            <span className="font-bold text-lg text-[#b80035]">{cur.fmt(todaySales?.total_sales || 0)}</span>
                         </div>
                         <div className="flex justify-between text-xs">
                             <span className="text-stone-400">会計件数</span>
@@ -712,14 +714,14 @@ export default function RegisterView() {
                         </div>
                         <div className="flex justify-between text-xs">
                             <span className="text-stone-400">平均単価</span>
-                            <span className="font-bold text-stone-600">¥{(todaySales?.avg_order_value || 0).toLocaleString()}</span>
+                            <span className="font-bold text-stone-600">{cur.fmt(todaySales?.avg_order_value || 0)}</span>
                         </div>
                         {todaySales?.by_payment_method?.length > 0 && (
                             <div className="pt-2 border-t border-stone-200/60 space-y-1.5">
                                 {todaySales.by_payment_method.map(m => (
                                     <div key={m.method} className="flex justify-between text-xs">
                                         <span className="text-stone-500">{m.method === 'cash' ? '💵 現金' : m.method === 'card' ? '💳 カード' : `🔹 ${m.method}`}</span>
-                                        <span className="font-bold text-stone-600">¥{(m.amount || 0).toLocaleString()}</span>
+                                        <span className="font-bold text-stone-600">{cur.fmt(m.amount || 0)}</span>
                                     </div>
                                 ))}
                             </div>
@@ -768,7 +770,7 @@ export default function RegisterView() {
                                             }
                                         </div>
                                         <div className="text-xs font-bold text-[#1b1b1d] line-clamp-1 mb-0.5">{m.name_jp || m.name_ko}</div>
-                                        <div className="text-[10px] text-[#b80035] font-bold">¥{(m.price || 0).toLocaleString()}</div>
+                                        <div className="text-[10px] text-[#b80035] font-bold">{cur.fmt(m.price || 0)}</div>
                                     </button>
                                 ))}
                             </div>
@@ -799,7 +801,7 @@ export default function RegisterView() {
                                                     <Plus className="w-3 h-3" />
                                                 </button>
                                             </div>
-                                            <span className="text-[#b80035] text-xs font-bold">¥{((item.price || 0) * item.quantity).toLocaleString()}</span>
+                                            <span className="text-[#b80035] text-xs font-bold">{cur.fmt((item.price || 0) * item.quantity)}</span>
                                         </div>
                                     </div>
                                 ))}
@@ -808,7 +810,7 @@ export default function RegisterView() {
                             <div className="p-4 border-t border-stone-100 space-y-3 shrink-0">
                                 <div className="flex justify-between font-bold">
                                     <span className="text-stone-500 text-sm">合計</span>
-                                    <span className="text-lg">¥{posTotal.toLocaleString()}</span>
+                                    <span className="text-lg">{cur.fmt(posTotal)}</span>
                                 </div>
                                 <button onClick={submitPosOrder} disabled={!cart.length}
                                     className="w-full py-3 bg-gradient-to-r from-[#b80035] to-[#e11d48] text-white rounded-xl font-bold tracking-wide hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-30 flex items-center justify-center gap-2">

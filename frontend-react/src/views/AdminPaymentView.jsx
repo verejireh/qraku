@@ -160,6 +160,11 @@ export default function AdminPaymentView() {
         //   (백엔드/콜백/설정블록 코드는 재개 대비로 보존 — 선택지만 제거)
     ]
 
+    // 매장 국가에서 허용된 결제수단만 노출 (백엔드 GET /stores 의 allowed_payment_methods).
+    // 미제공(구버전 응답) 시 전체 노출(기존 동작). 백엔드 쓰기 경계(Task 8)가 최종 강제.
+    const allowedMethods = storeData?.allowed_payment_methods || tracks.map(t => t.key)
+    const visibleTracks = tracks.filter(t => allowedMethods.includes(t.key))
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 font-display">
             <AdminNavBar storeData={storeData} shop_id={shop_id} />
@@ -196,7 +201,7 @@ export default function AdminPaymentView() {
                     <p className="text-xs text-slate-400 mb-5">お客様からの支払いをどのように受け付けるか選択してください。</p>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {tracks.map(track => {
+                        {visibleTracks.map(track => {
                             const isActive = activeMethod === track.key
                             const colorMap = {
                                 emerald: { border: 'border-emerald-400', bg: 'bg-emerald-50', text: 'text-emerald-600', badge: 'bg-emerald-500' },

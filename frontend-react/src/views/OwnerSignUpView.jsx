@@ -45,6 +45,7 @@ export default function OwnerSignUpView() {
     address: '',
     phone: '',
     shop_id: '',
+    country_code: 'JP',   // 통화·세율·가능 결제사를 결정 (가입 후 변경 불가)
   })
   const [slugStatus, setSlugStatus] = useState({ checking: false, available: null, message: '' })
 
@@ -109,6 +110,7 @@ export default function OwnerSignUpView() {
         slug: form.shop_id.trim().toLowerCase(),
         address: form.address || '',
         phone: form.phone || '',
+        country_code: form.country_code,
       }
       const storeRes = await axios.post('/api/stores/signup', signupPayload)
       const store = storeRes.data.store
@@ -381,6 +383,21 @@ export default function OwnerSignUpView() {
                     </button>
                   ))}
                 </div>
+              </div>
+              {/* 国 / Country — 통화·세율·결제수단 결정 (가입 후 변경 불가) */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> 国 / Country
+                </label>
+                <select
+                  className="input-field"
+                  value={form.country_code}
+                  onChange={e => set('country_code', e.target.value)}
+                >
+                  <option value="JP">日本 (JPY)</option>
+                  <option value="GB">United Kingdom (GBP)</option>
+                </select>
+                <p className="text-[11px] text-slate-400">通貨・税率・決済方法を決定します（登録後は変更できません）</p>
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">

@@ -3,6 +3,7 @@ import { Outlet, useParams, useLocation, useNavigate } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext'
 import { useSession } from '../context/SessionContext'
 import { useLanguage } from '../context/LanguageContext'
+import { CurrencyProvider } from '../context/CurrencyContext'
 import axios from 'axios'
 
 import ThemeWrapper from '../components/magnolia/ThemeWrapper'
@@ -134,7 +135,9 @@ export default function StoreLayout() {
             )}
 
             {/* Passes down global store context to all subpages */}
-            <Outlet context={{ storeData, devTheme, setDevTheme }} />
+            <CurrencyProvider storeData={storeData}>
+                <Outlet context={{ storeData, devTheme, setDevTheme }} />
+            </CurrencyProvider>
 
             {/* Global Footer (Hidden for Admin/Kitchen) */}
             {!isAdmin && !isKitchen && <DynamicBottomNav currentTheme={activeTheme} />}

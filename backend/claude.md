@@ -181,6 +181,15 @@ STRIPE_YEARLY_PRICE_ID=...      # Standard ¥29,800/yr
 STRIPE_MONTHLY_OPEN_PRICE_ID=...   # Data-open ¥2,480/mo
 STRIPE_SIXMONTH_OPEN_PRICE_ID=...  # Data-open ¥11,880/6mo
 STRIPE_YEARLY_OPEN_PRICE_ID=...    # Data-open ¥17,800/yr
+# 국가별 구독 Price ID — JP 외 국가는 prefix(STRIPE_<국가>_<PLAN>[_OPEN]_PRICE_ID).
+# country_code 에서 파생(config/countries.py stripe_price_env_prefix). 운영자가 Stripe 에서
+# 해당 통화(GBP) 가격 생성 후 채움. 미설정 시 해당 국가 구독은 503.
+STRIPE_GB_MONTHLY_PRICE_ID=...        # GBP 월 (영국)
+STRIPE_GB_SIXMONTH_PRICE_ID=...       # GBP 6개월
+STRIPE_GB_YEARLY_PRICE_ID=...         # GBP 연
+STRIPE_GB_MONTHLY_OPEN_PRICE_ID=...   # GBP 월 (data-open)
+STRIPE_GB_SIXMONTH_OPEN_PRICE_ID=...  # GBP 6개월 (data-open)
+STRIPE_GB_YEARLY_OPEN_PRICE_ID=...    # GBP 연 (data-open)
 FRONTEND_BASE_URL=https://qraku.com  # PayPay 콜백용
 VISION_API_KEY=...              # GCP Vision API (사진 NSFW 자동 차단, 선택)
 # LINE 위치봇 (S4) — 플랫폼 LINE 공식계정/Messaging API

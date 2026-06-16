@@ -9,19 +9,7 @@ from datetime import datetime
 from utils.time_helpers import now_utc_naive
 import uuid
 from utils.jwt import require_admin
-from config.countries import allowed_methods
-
-
-def _assert_method_allowed(method_value: str, country_code: str) -> None:
-    """결제수단이 매장 국가에서 허용되는지 강제 (UI 숨김만으로는 강제가 아님).
-
-    예: 영국(GB) 매장이 API 로 직접 PAYPAY_DIRECT 설정 시 422 거부.
-    """
-    if method_value not in allowed_methods(country_code):
-        raise HTTPException(
-            status_code=422,
-            detail=f"{method_value} is not available in {country_code}",
-        )
+from utils.payment_methods import assert_method_allowed
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -503,9 +491,17 @@ async def update_payment_settings(
     from utils.crypto import encrypt_secret
 
     if body.payment_method_type:
-        _assert_method_allowed(body.payment_method_type, store.country_code)
-        ps.payment_method_type = PaymentMethodType(body.payment_method_type)
+        # enum 변환을 먼저 (동기화 깨진 잘못된 문자열 → 500 대신 422)
+        try:
+            method = PaymentMethodType(body.payment_method_type)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid payment_method_type")
+        assert_method_allowed(method.value, store.country_code)
+        ps.payment_method_type = method
     # ── 시크릿은 DB 저장 시 자동 암호화 (ENCRYPTION_KEY 가 설정된 경우) ───
+    # 미지원 국가에서는 PayPay 자격증명 저장도 거부 (불필요한 민감정보 저장 방지)
+    if body.paypay_api_key is not None or body.paypay_api_secret is not None or body.paypay_merchant_id is not None:
+        assert_method_allowed("PAYPAY_DIRECT", store.country_code)
     if body.paypay_api_key is not None:
         ps.paypay_api_key = encrypt_secret(body.paypay_api_key.strip()) or body.paypay_api_key
     if body.paypay_api_secret is not None:

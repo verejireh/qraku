@@ -185,6 +185,11 @@ async def square_callback(request: Request, session: AsyncSession = Depends(get_
         await session.commit()
         await session.refresh(payment_settings)
 
+    # "국가가 결제사를 강제" 불변식 — Square 연동도 쓰기 경계이므로 동일 검증.
+    # (현재 JP/GB 모두 Square 허용이라 통과; 미지원 국가 추가 시 422 로 차단)
+    from utils.payment_methods import assert_method_allowed
+    assert_method_allowed(PaymentMethodType.SQUARE_INTEGRATED.value, store.country_code)
+
     # 기본 토큰 정보 저장 (Access/Refresh 토큰은 DB 저장 시 암호화)
     from utils.crypto import encrypt_secret
     payment_settings.square_access_token = encrypt_secret(access_token) or access_token

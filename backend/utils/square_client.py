@@ -16,8 +16,18 @@ from typing import Optional, List, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from utils.crypto import decrypt_secret
+from config.countries import currency_of
 
 SQUARE_ENVIRONMENT = os.getenv("SQUARE_ENVIRONMENT", "sandbox")
+
+
+def _amount_money(amount, store) -> dict:
+    """Square Money 객체 — 금액은 최소단위 정수, 통화는 매장 국가에서 파생.
+
+    Square 는 amount_money.currency 가 판매자 비즈니스 통화와 일치할 것을 요구한다.
+    GBP 매장에 JPY 로 보내면 통화 불일치/오청구가 되므로 country_code 기반으로 맞춘다.
+    """
+    return {"amount": int(amount), "currency": currency_of(getattr(store, "country_code", "JP"))}
 
 
 def _resolve_square_token(store) -> str:
@@ -283,10 +293,7 @@ async def create_square_order(store, order, line_items: List[Dict]) -> dict:
         {
             "name": item.get("name", "Item"),
             "quantity": str(item.get("quantity", 1)),
-            "base_price_money": {
-                "amount": int(item.get("unit_price", 0)),
-                "currency": "JPY",
-            },
+            "base_price_money": _amount_money(item.get("unit_price", 0), store),
         }
         for item in line_items
     ]
@@ -357,10 +364,7 @@ async def process_square_payment(
     payload: dict = {
         "idempotency_key": str(uuid.uuid4()),
         "source_id": source_id,
-        "amount_money": {
-            "amount": amount,
-            "currency": "JPY",
-        },
+        "amount_money": _amount_money(amount, store),
         "location_id": location_id,
         "autocomplete": True,
     }
@@ -409,7 +413,7 @@ async def refund_square_payment(store, payment_id: str, amount: int, idempotency
     payload = {
         "idempotency_key": idempotency_key[:45],  # Square 제한 45자
         "payment_id": payment_id,
-        "amount_money": {"amount": int(amount), "currency": "JPY"},
+        "amount_money": _amount_money(amount, store),
     }
     if reason:
         payload["reason"] = reason[:191]

@@ -53,10 +53,13 @@ export default function MagnoliaCartModal({
     countryCode = 'JP',
 }) {
     const { t } = useLanguage()
+    // 소수 자릿수는 0..3 정수로 clamp (잘못된 prop 방어)
+    const _decimals = Number.isInteger(currencyDecimals) ? Math.min(3, Math.max(0, currencyDecimals)) : 0
+    const _safeMinor = (minor) => (Number.isFinite(Number(minor)) ? Number(minor) : 0)
     // 최소단위 정수 → 표시 문자열 (예: 1000 → ¥1,000 / £10.00)
-    const fmt = (minor) => `${currencySymbol}${(Number(minor || 0) / Math.pow(10, currencyDecimals)).toLocaleString(undefined, { minimumFractionDigits: currencyDecimals, maximumFractionDigits: currencyDecimals })}`
+    const fmt = (minor) => `${currencySymbol}${(_safeMinor(minor) / Math.pow(10, _decimals)).toLocaleString(undefined, { minimumFractionDigits: _decimals, maximumFractionDigits: _decimals })}`
     // 최소단위 정수 → Square paymentRequest 용 major 단위 소수 문자열 (예: 1000 → "1000"(JPY) / "10.00"(GBP))
-    const toMajorString = (minor) => (Number(minor || 0) / Math.pow(10, currencyDecimals)).toFixed(currencyDecimals)
+    const toMajorString = (minor) => (_safeMinor(minor) / Math.pow(10, _decimals)).toFixed(_decimals)
     const computeDefaultPickup = () => {
         const d = new Date(Date.now() + (defaultWaitMinutes || 15) * 60000)
         return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`

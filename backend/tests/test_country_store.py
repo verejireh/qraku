@@ -87,3 +87,47 @@ def test_currency_meta_for_country():
     jp = _currency_meta("JP")
     assert jp["currency"] == "JPY" and jp["currency_decimals"] == 0
     assert "PAYPAY_DIRECT" in jp["allowed_payment_methods"]
+
+
+def test_build_store_oauth_variant():
+    # OAuth 가입: password 없음 + trial 14일 + 국가 시드 동일 헬퍼 공유
+    from routers.stores import _build_store_from_signup_fields
+    store = _build_store_from_signup_fields(
+        name="x", owner_id="g1", owner_name="N", password_hash=None,
+        category="c", slug="s", address=None, phone=None,
+        country_code="GB", trial_days=14,
+    )
+    assert store.password_hash is None
+    assert store.country_code == "GB"
+    assert (store.subscription_expires_at - store.trial_start_date).days == 14
+
+
+# ── 가입 라우트 레벨 — 미지원 국가 400 (커밋 전 normalize_country 에서 거부) ──
+# 참고: 성공 생성(커밋) 경로의 route 테스트는 이 환경의 사전 이슈(passlib/bcrypt 버전,
+# SQLAlchemy Enum 이름기반 lookup vs 소문자 category) 때문에 불안정 → 국가 시드 로직은
+# 위의 helper 테스트(_build_store_from_signup_fields)가 결정적으로 커버한다.
+
+@pytest.mark.asyncio
+async def test_signup_route_invalid_country_400(db, monkeypatch):
+    from fastapi import HTTPException
+    from routers import stores as stores_mod
+    # bcrypt 환경 이슈 우회 — 국가 검증(normalize_country)까지 도달시키기 위함
+    monkeypatch.setattr(stores_mod, "get_password_hash", lambda p: "hashed")
+    body = stores_mod.SignupRequest(owner_name="O", email="zz@x.com", password="Abcdef1!Gh",
+                                    store_name="S", slug="zzshop", country_code="ZZ")
+    with pytest.raises(HTTPException) as ei:
+        await stores_mod.signup_with_password(body, session=db)
+    assert ei.value.status_code == 400      # 미지원 국가 → 조용히 JP 아님, 명시적 거부
+
+
+@pytest.mark.asyncio
+async def test_oauth_signup_invalid_country_400(db):
+    from fastapi import HTTPException
+    from routers.oauth import complete_oauth_signup, OAuthSignupComplete, create_oauth_token
+    tok = create_oauth_token({"provider": "google", "provider_id": "g2",
+                              "email": "o2@x.com", "name": "N"})
+    body = OAuthSignupComplete(oauth_token=tok, store_name="S", slug="oauthzz",
+                               country_code="ZZ")
+    with pytest.raises(HTTPException) as ei:    # 커밋 전 normalize_country 에서 거부
+        await complete_oauth_signup(body, session=db)
+    assert ei.value.status_code == 400

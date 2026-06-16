@@ -156,9 +156,11 @@ def _currency_meta(country_code: str) -> dict:
 
 
 def _build_store_from_signup_fields(*, name, owner_id, owner_name, password_hash,
-                                    category, slug, address, phone, country_code):
+                                    category, slug, address, phone, country_code,
+                                    trial_days: int = 60):
     """가입 입력 → Store. 국가 기본값(세율/언어)을 시드한다 (이후 매장이 override).
 
+    password/OAuth 가입이 공유한다 (OAuth 는 password_hash=None, trial_days=14).
     country_code 는 normalize_country 로 검증 — 미지원/빈 코드는 ValueError (조용히
     JP 로 변질되지 않게 입력 경계에서 거부).
     """
@@ -173,7 +175,7 @@ def _build_store_from_signup_fields(*, name, owner_id, owner_name, password_hash
         tax_rate=tax_rate, tax_included=tax_included,
         supported_languages=",".join(default_languages(code)),
         subscription_status="TRIAL", subscription_type="FREE",
-        trial_start_date=now, subscription_expires_at=now + timedelta(days=60),
+        trial_start_date=now, subscription_expires_at=now + timedelta(days=trial_days),
     )
 
 @router.post("/signup")
@@ -207,7 +209,7 @@ async def signup_with_password(body: SignupRequest, session: AsyncSession = Depe
             phone=body.phone,
             country_code=body.country_code,
         )
-    except ValueError as e:
+    except (ValueError, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     session.add(store)
     await session.commit()

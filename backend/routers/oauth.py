@@ -228,6 +228,7 @@ class OAuthSignupComplete(BaseModel):
     phone: str = ""
     owner_name: str = ""
     slug: str
+    country_code: str = "JP"
 
 
 @router.post("/complete-oauth-signup")
@@ -249,20 +250,24 @@ async def complete_oauth_signup(
     if not ok:
         raise HTTPException(status_code=400, detail=err)
 
-    now = now_utc_naive()
-    store = Store(
-        name=body.store_name,
-        owner_id=email or provider_id,
-        owner_name=body.owner_name or name,
-        category=body.category,
-        slug=slug_input,
-        address=body.address or None,
-        phone=body.phone or None,
-        subscription_status="TRIAL",
-        subscription_type="FREE",
-        trial_start_date=now,
-        subscription_expires_at=now + timedelta(days=14),
-    )
+    # 국가 시드 + 검증은 password 가입과 동일 헬퍼 공유 (OAuth 는 trial 14일).
+    # country_code 도 가입 후 잠기므로 여기서 반드시 받아야 GB 매장이 JP 로 고정되지 않는다.
+    from routers.stores import _build_store_from_signup_fields
+    try:
+        store = _build_store_from_signup_fields(
+            name=body.store_name,
+            owner_id=email or provider_id,
+            owner_name=body.owner_name or name,
+            password_hash=None,
+            category=body.category,
+            slug=slug_input,
+            address=body.address,
+            phone=body.phone,
+            country_code=body.country_code,
+            trial_days=14,
+        )
+    except (ValueError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if provider == "google":
         store.google_id = provider_id
     elif provider == "line":

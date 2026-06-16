@@ -325,6 +325,11 @@ async def init_db():
         "(SELECT max(id) FROM tabehoudaisession WHERE status = 'active' GROUP BY table_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_tabehoudai_active_table "
         "ON tabehoudaisession(table_id) WHERE status = 'active'",
+        # [2026-06-15] 국가 레이어: Store.country_code (기존 전 매장 JP 백필)
+        "ALTER TABLE store ADD COLUMN IF NOT EXISTS country_code VARCHAR(2) NOT NULL DEFAULT 'JP'",
+        # create_all 로 컬럼이 먼저 생긴 신규 DB 는 위 ADD COLUMN 이 스킵되어 SQL DEFAULT 가
+        # 없으므로, 기본값을 명시적으로 보장 (신규/기존 DB 동작 일치).
+        "ALTER TABLE store ALTER COLUMN country_code SET DEFAULT 'JP'",
     ]
 
     # 무시할 PG 에러 (컬럼/인덱스 이미 존재)

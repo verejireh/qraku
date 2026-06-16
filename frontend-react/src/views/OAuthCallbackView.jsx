@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import { setAdminToken } from '../hooks/useAdminApi'
 import { QrCode, Store, MapPin, Utensils, ArrowLeft, CheckCircle, AlertCircle, Link as LinkIcon, Check, X } from 'lucide-react'
+import { COUNTRY_OPTIONS } from '../config/countries'
 
 const STORE_CATEGORIES = [
     { value: 'RESTAURANT', label: '🍽️ レストラン・食堂' },
@@ -40,6 +41,7 @@ export default function OAuthCallbackView() {
         phone: '',
         owner_name: payload.name || '',
         shop_id: '',
+        country_code: '',   // 통화·세율·가능 결제사 결정 (가입 후 변경 불가) — 명시 선택 강제
     })
     const [agreedTerms, setAgreedTerms] = useState(false)
     const [slugStatus, setSlugStatus] = useState({ checking: false, available: null, message: '' })
@@ -73,6 +75,7 @@ export default function OAuthCallbackView() {
         if (!form.store_name.trim()) { setError('店舗名を入力してください'); return }
         if (!form.shop_id.trim()) { setError('shop_id を入力してください'); return }
         if (slugStatus.available !== true) { setError('使用可能な shop_id を入力してください'); return }
+        if (!form.country_code) { setError('国を選択してください / Please select a country'); return }
         if (!agreedTerms) { setError('利用規約と個人情報保護方針への同意が必要です'); return }
         setError('')
         setLoading(true)
@@ -86,6 +89,7 @@ export default function OAuthCallbackView() {
                 phone: form.phone || '',
                 owner_name: form.owner_name || '',
                 slug: form.shop_id.trim().toLowerCase(),
+                country_code: form.country_code,
             })
             const storeData = res.data.store || res.data
             if (res.data.token) {
@@ -255,6 +259,24 @@ export default function OAuthCallbackView() {
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    {/* 国 / Country — 통화·세율·결제수단 결정 (가입 후 변경 불가) */}
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                            <MapPin className="w-3 h-3" /> 国 / Country *
+                        </label>
+                        <select
+                            className="input-field"
+                            value={form.country_code}
+                            onChange={e => set('country_code', e.target.value)}
+                        >
+                            <option value="" disabled>国を選択 / Select country</option>
+                            {COUNTRY_OPTIONS.map(c => (
+                                <option key={c.code} value={c.code}>{c.label}</option>
+                            ))}
+                        </select>
+                        <p className="text-[11px] text-slate-500">通貨・税率・決済方法を決定します（登録後は変更できません）</p>
                     </div>
 
                     <div className="space-y-1">

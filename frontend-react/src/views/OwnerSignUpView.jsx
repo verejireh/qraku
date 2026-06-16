@@ -5,6 +5,7 @@ import { setAdminToken } from '../hooks/useAdminApi'
 import { QrCode, Store, User, MapPin, Utensils, ChevronRight, ArrowLeft, CheckCircle, Eye, EyeOff, Link as LinkIcon, Check, X } from 'lucide-react'
 import { useSiteLang } from '../hooks/useSiteLang'
 import { signupT } from '../i18n/siteTranslations'
+import { COUNTRY_OPTIONS } from '../config/countries'
 
 const LangToggle = ({ lang, setLang }) => (
   <div className="flex items-center gap-0.5 bg-slate-100 rounded-full p-1">
@@ -45,6 +46,7 @@ export default function OwnerSignUpView() {
     address: '',
     phone: '',
     shop_id: '',
+    country_code: '',   // 통화·세율·가능 결제사를 결정 (가입 후 변경 불가) — 명시 선택 강제
   })
   const [slugStatus, setSlugStatus] = useState({ checking: false, available: null, message: '' })
 
@@ -82,6 +84,7 @@ export default function OwnerSignUpView() {
     if (!form.shop_id.trim()) return 'shop_id を入力してください'
     if (slugStatus.available !== true) return '使用可能な shop_id を入力してください'
     if (!form.category) return t.errors.category
+    if (!form.country_code) return '国を選択してください / Please select a country'
     if (!agreedTerms) return t.errors.terms
     return ''
   }
@@ -109,6 +112,7 @@ export default function OwnerSignUpView() {
         slug: form.shop_id.trim().toLowerCase(),
         address: form.address || '',
         phone: form.phone || '',
+        country_code: form.country_code,
       }
       const storeRes = await axios.post('/api/stores/signup', signupPayload)
       const store = storeRes.data.store
@@ -381,6 +385,23 @@ export default function OwnerSignUpView() {
                     </button>
                   ))}
                 </div>
+              </div>
+              {/* 国 / Country — 통화·세율·결제수단 결정 (가입 후 변경 불가) */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> 国 / Country
+                </label>
+                <select
+                  className="input-field"
+                  value={form.country_code}
+                  onChange={e => set('country_code', e.target.value)}
+                >
+                  <option value="" disabled>国を選択 / Select country</option>
+                  {COUNTRY_OPTIONS.map(c => (
+                    <option key={c.code} value={c.code}>{c.label}</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-400">通貨・税率・決済方法を決定します（登録後は変更できません）</p>
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">

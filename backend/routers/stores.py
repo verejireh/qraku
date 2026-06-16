@@ -17,6 +17,10 @@ from models import Store, Table, PhotoReview, RewardCoupon
 from sqlalchemy.orm import selectinload
 from utils.auth import get_password_hash
 from utils.jwt import create_admin_token, require_admin, require_staff_or_admin, require_super_admin
+from config.countries import (
+    normalize_country, default_tax, default_languages,
+    currency_of, decimals_of, symbol_of, allowed_methods,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +144,41 @@ class SignupRequest(BaseModel):
     address: str = ""
     phone: str = ""
     slug: str
+    country_code: str = "JP"
+
+
+def _currency_meta(country_code: str) -> dict:
+    """매장 국가코드 → 프론트 표시·필터용 통화/결제수단 메타 (country_code 에서 파생)."""
+    return {
+        "currency": currency_of(country_code),
+        "currency_decimals": decimals_of(country_code),
+        "currency_symbol": symbol_of(country_code),
+        "allowed_payment_methods": allowed_methods(country_code),
+    }
+
+
+def _build_store_from_signup_fields(*, name, owner_id, owner_name, password_hash,
+                                    category, slug, address, phone, country_code,
+                                    trial_days: int = 60):
+    """가입 입력 → Store. 국가 기본값(세율/언어)을 시드한다 (이후 매장이 override).
+
+    password/OAuth 가입이 공유한다 (OAuth 는 password_hash=None, trial_days=14).
+    country_code 는 normalize_country 로 검증 — 미지원/빈 코드는 ValueError (조용히
+    JP 로 변질되지 않게 입력 경계에서 거부).
+    """
+    code = normalize_country(country_code)
+    tax_rate, tax_included = default_tax(code)
+    now = now_utc_naive()
+    return Store(
+        name=name, owner_id=owner_id, owner_name=owner_name,
+        password_hash=password_hash, category=category, slug=slug,
+        address=address or None, phone=phone or None,
+        country_code=code,
+        tax_rate=tax_rate, tax_included=tax_included,
+        supported_languages=",".join(default_languages(code)),
+        subscription_status="TRIAL", subscription_type="FREE",
+        trial_start_date=now, subscription_expires_at=now + timedelta(days=trial_days),
+    )
 
 @router.post("/signup")
 async def signup_with_password(body: SignupRequest, session: AsyncSession = Depends(get_session)):
@@ -160,21 +199,20 @@ async def signup_with_password(body: SignupRequest, session: AsyncSession = Depe
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="このメールアドレスは既に登録されています。")
 
-    now = now_utc_naive()
-    store = Store(
-        name=body.store_name,
-        owner_id=body.email,
-        owner_name=body.owner_name,
-        password_hash=get_password_hash(body.password),
-        category=body.category,
-        slug=slug_input,
-        address=body.address or None,
-        phone=body.phone or None,
-        subscription_status="TRIAL",
-        subscription_type="FREE",
-        trial_start_date=now,
-        subscription_expires_at=now + timedelta(days=60),
-    )
+    try:
+        store = _build_store_from_signup_fields(
+            name=body.store_name,
+            owner_id=body.email,
+            owner_name=body.owner_name,
+            password_hash=get_password_hash(body.password),
+            category=body.category,
+            slug=slug_input,
+            address=body.address,
+            phone=body.phone,
+            country_code=body.country_code,
+        )
+    except (ValueError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     session.add(store)
     await session.commit()
     await session.refresh(store)
@@ -244,6 +282,9 @@ async def read_store(store_id: str, session: AsyncSession = Depends(get_session)
     from utils.takeout import can_accept_takeout_from_store, has_online_payment_from_store
     data["has_online_payment"] = has_online_payment_from_store(store)
     data["can_accept_takeout"] = can_accept_takeout_from_store(store)
+
+    # ── 통화/결제수단 메타 (country_code 에서 파생 — 프론트 표시·필터용) ──
+    data.update(_currency_meta(store.country_code))
 
     return JSONResponse(content=data)
 
@@ -325,6 +366,33 @@ async def delete_table(store_id: str, table_id: int, admin_store: Store = Depend
     await session.commit()
     return {"status": "ok"}
 
+# 일반 PATCH 로 변경 불가한 필드.
+# 기존 update_store 는 모든 hasattr 필드를 setattr 하던 무방비 상태였다(잠재 취약점) →
+# 통화 무결성(country_code) + 인증/소셜로그인 + 구독/결제 + Square 자격증명을 보호한다.
+# 보호 필드가 요청에 하나라도 있으면 '요청 전체'를 400 으로 거부(부분 적용으로 인한
+# 클라이언트 오인 방지). 가입 후 country_code 변경·slug 변경은 전용 절차로만.
+_PROTECTED_UPDATE_FIELDS = {
+    # 식별/인증
+    "id", "owner_id", "slug", "password_hash", "master_pin",
+    "google_id", "line_id",
+    # 구독/결제
+    "subscription_type", "subscription_status", "subscription_expires_at",
+    "trial_start_date", "stripe_customer_id", "stripe_subscription_id",
+    # Square 자격증명 (OAuth 플로우로만 설정)
+    "square_access_token", "square_refresh_token",
+    "square_merchant_id", "square_location_id", "square_connected",
+    # 국가 (통화 재해석 방지 — 가입 후 잠김)
+    "country_code",
+    # 과금 상태 (Stripe 웹훅이 설정) + 시스템 타임스탬프
+    "data_open_consent", "created_at",
+    # 관계 속성 (setattr 시 관계 손상/무결성 오류) — PATCH 로 건드리면 안 됨
+    "payment_settings", "display_settings", "tables", "menus", "staff_members",
+}
+# NOTE: 본 엔드포인트는 AdminView/AdminOperationView 가 동적 필드({[field]:value})로
+# 호출하므로 편집필드 화이트리스트를 정적으로 확정할 수 없다. 화이트리스트 전환은
+# 프론트 전수 감사가 필요한 별도 작업으로 분리(블랙리스트로 위험 필드 차단).
+
+
 @router.patch("/{store_id}", response_model=Store)
 async def update_store(store_id: str, store_update: dict, admin_store: Store = Depends(require_admin), session: AsyncSession = Depends(get_session)):
     # 교차 매장 접근 방지
@@ -356,6 +424,14 @@ async def update_store(store_id: str, store_update: dict, admin_store: Store = D
             detail=f"Protected fields cannot be updated here: {', '.join(sorted(rejected))}",
         )
     
+    # 보호 필드가 하나라도 있으면 요청 전체 거부 (원자적 — 부분 적용 오인 방지)
+    rejected = _PROTECTED_UPDATE_FIELDS.intersection(store_update)
+    if rejected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fields not editable via this endpoint: {', '.join(sorted(rejected))}",
+        )
+
     for key, value in store_update.items():
         if hasattr(store, key):
             setattr(store, key, value)

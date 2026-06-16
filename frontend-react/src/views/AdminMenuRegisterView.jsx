@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { currencyHelpers } from '../config/currency'
 import axios from 'axios'
 import { useLanguage } from '../context/LanguageContext'
 import { AdminNavBar } from './AdminView'
@@ -14,6 +15,8 @@ export default function AdminMenuRegisterView() {
 
     const [isLoading, setIsLoading] = useState(false)
     const [storeData, setStoreData] = useState(null)
+    // 매장 통화 — 가격은 최소단위 정수로 저장(JP=엔/GB=펜스). 입력은 major, 저장 시 변환.
+    const cur = currencyHelpers(storeData)
     const [useAiBackground, setUseAiBackground] = useState(true)
 
     // 이미지 업로드 관련 state
@@ -317,11 +320,18 @@ export default function AdminMenuRegisterView() {
                 description_ko: formData.translations.ko?.description || null,
                 description_zh: formData.translations.zh?.description || null,
 
-                price: parseInt(formData.price),
+                price: cur.toMinorUnits(formData.price),   // major 입력 → 최소단위 정수
                 category: formData.category,
                 image_url: uploadedImageUrl || null,
                 is_takeout_available: formData.is_takeout_available,
-                options: JSON.stringify(formData.options.filter(g => g.group_name.trim() !== '')),
+                options: JSON.stringify(
+                    formData.options
+                        .filter(g => g.group_name.trim() !== '')
+                        .map(g => ({
+                            ...g,
+                            choices: g.choices.map(c => ({ ...c, extra_price: cur.toMinorUnits(c.extra_price) })),
+                        }))
+                ),
                 allergens: JSON.stringify(formData.allergens),
             }
 
@@ -506,14 +516,16 @@ export default function AdminMenuRegisterView() {
 
                         {/* Price */}
                         <div className="col-span-1 md:col-span-2">
-                            <label className="block text-sm font-bold text-slate-700 mb-2">{t('admin.register.price')} *</label>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">{t('admin.register.price')} ({cur.symbol}) *</label>
                             <input
                                 name="price"
                                 value={formData.price}
                                 onChange={handleInputChange}
                                 className="w-full text-xl p-4 rounded-lg border-2 border-adminprimary/20 focus:border-adminprimary outline-none focus:ring-0 bg-[#f8f6f6]/50 transition-all text-slate-900"
-                                placeholder="1200"
+                                placeholder={cur.decimals > 0 ? '10.00' : '1200'}
                                 type="number"
+                                step={cur.decimals > 0 ? '0.01' : '1'}
+                                min="0"
                             />
                         </div>
 
@@ -642,13 +654,14 @@ export default function AdminMenuRegisterView() {
                                                         placeholder={t('admin.register.option_name')}
                                                     />
                                                     <div className="relative w-28 flex-shrink-0">
-                                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">¥</span>
+                                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">{cur.symbol}</span>
                                                         <input
                                                             type="number"
                                                             value={choice.extra_price}
                                                             onChange={(e) => handleOptionChoiceChange(gIdx, cIdx, 'extra_price', e.target.value)}
                                                             className="w-full pl-6 pr-2 py-2 border border-slate-200 rounded-md focus:border-adminprimary outline-none bg-slate-50 text-sm font-mono"
                                                             placeholder="0"
+                                                            step={cur.decimals > 0 ? '0.01' : '1'}
                                                         />
                                                     </div>
                                                     <button onClick={() => removeOptionChoice(gIdx, cIdx)} className="text-slate-400 hover:text-red-500 mx-1">

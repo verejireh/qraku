@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useLanguage } from '../../context/LanguageContext'
+import { useCurrency } from '../../context/CurrencyContext'
 
 export default function MagnoliaMenuCard({ item, onAdd, variant = 'default' }) {
     const isTakeout = variant === 'takeout'
     const { getMenuName, getMenuDescription } = useLanguage()
+    const { fmt } = useCurrency()
 
     const [isOptionsOpen, setIsOptionsOpen] = useState(false)
     const [selectedOptions, setSelectedOptions] = useState({})
@@ -81,7 +83,7 @@ export default function MagnoliaMenuCard({ item, onAdd, variant = 'default' }) {
                 </div>
                 <p className={`text-xs line-clamp-2 leading-relaxed mb-3 ${isTakeout ? 'text-amber-800/80' : 'text-slate-400'}`}>{getMenuDescription(item)}</p>
                 <div className="flex items-center justify-between">
-                    <span className={`font-bold text-[15px] ${isTakeout ? 'text-amber-900' : 'text-white'}`}>¥{parseInt(item.price).toLocaleString()}</span>
+                    <span className={`font-bold text-[15px] ${isTakeout ? 'text-amber-900' : 'text-white'}`}>{fmt(item.price)}</span>
                     {isTakeout ? (
                         <button
                             onClick={handleAddClick}
@@ -127,7 +129,7 @@ export default function MagnoliaMenuCard({ item, onAdd, variant = 'default' }) {
                                                 >
                                                     <span className="font-medium text-sm">{choice.translations?.en || choice.name}</span>
                                                     <div className="flex items-center gap-3">
-                                                        {Number(choice.extra_price) > 0 && <span className="text-xs">+¥{Number(choice.extra_price).toLocaleString()}</span>}
+                                                        {Number(choice.extra_price) > 0 && <span className="text-xs">+{fmt(choice.extra_price)}</span>}
                                                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-gold' : 'border-slate-600'}`}>
                                                             {isSelected && <div className="w-2.5 h-2.5 bg-gold rounded-full"></div>}
                                                         </div>
@@ -143,7 +145,7 @@ export default function MagnoliaMenuCard({ item, onAdd, variant = 'default' }) {
                         <div className="mt-8 pt-4 border-t border-white/10 flex items-center justify-between">
                             <div>
                                 <p className="text-xs text-slate-400 lowercase font-serif italic">Total</p>
-                                <p className="text-xl font-bold text-white">¥{modalTotalPrice.toLocaleString()}</p>
+                                <p className="text-xl font-bold text-white">{fmt(modalTotalPrice)}</p>
                             </div>
                             <button onClick={confirmOptionsAndAdd} className="bg-gold text-charcoal px-8 py-3 rounded-2xl font-bold text-[15px] shadow-lg shadow-gold/20 active:scale-95 transition-transform">
                                 Add to Cart

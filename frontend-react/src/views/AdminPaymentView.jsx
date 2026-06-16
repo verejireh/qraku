@@ -106,6 +106,9 @@ export default function AdminPaymentView() {
     }
 
     const selectPaymentMethod = async (methodType) => {
+        // 국가에서 허용되지 않은 결제수단은 선택 차단 (백엔드도 422 로 최종 강제)
+        const allowed = storeData?.allowed_payment_methods
+        if (allowed && !allowed.includes(methodType)) return
         try {
             await axios.patch(`/api/admin/store/${shop_id}/payment-settings`, {
                 payment_method_type: methodType,
@@ -160,6 +163,11 @@ export default function AdminPaymentView() {
         //   (백엔드/콜백/설정블록 코드는 재개 대비로 보존 — 선택지만 제거)
     ]
 
+    // 매장 국가에서 허용된 결제수단만 노출 (백엔드 GET /stores 의 allowed_payment_methods).
+    // 미제공(구버전 응답) 시 전체 노출(기존 동작). 백엔드 쓰기 경계(Task 8)가 최종 강제.
+    const allowedMethods = storeData?.allowed_payment_methods || tracks.map(t => t.key)
+    const visibleTracks = tracks.filter(t => allowedMethods.includes(t.key))
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 font-display">
             <AdminNavBar storeData={storeData} shop_id={shop_id} />
@@ -196,7 +204,7 @@ export default function AdminPaymentView() {
                     <p className="text-xs text-slate-400 mb-5">お客様からの支払いをどのように受け付けるか選択してください。</p>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {tracks.map(track => {
+                        {visibleTracks.map(track => {
                             const isActive = activeMethod === track.key
                             const colorMap = {
                                 emerald: { border: 'border-emerald-400', bg: 'bg-emerald-50', text: 'text-emerald-600', badge: 'bg-emerald-500' },
@@ -222,7 +230,7 @@ export default function AdminPaymentView() {
                 </section>
 
                 {/* ── Square OAuth 連携 ── */}
-                {activeMethod === 'SQUARE_INTEGRATED' && (
+                {activeMethod === 'SQUARE_INTEGRATED' && allowedMethods.includes('SQUARE_INTEGRATED') && (
                     <section className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
                         <h4 className="font-bold mb-1 flex items-center gap-2">
                             <span className="material-symbols-outlined text-blue-500">link</span>
@@ -372,7 +380,7 @@ export default function AdminPaymentView() {
                 )}
 
                 {/* ── PayPay Direct 認証情報 ── */}
-                {activeMethod === 'PAYPAY_DIRECT' && (
+                {activeMethod === 'PAYPAY_DIRECT' && allowedMethods.includes('PAYPAY_DIRECT') && (
                     <section className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
                         <h4 className="font-bold mb-1 flex items-center gap-2">
                             <span className="material-symbols-outlined text-red-500">qr_code_2</span>

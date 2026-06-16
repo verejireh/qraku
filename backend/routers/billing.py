@@ -19,30 +19,32 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 
-# 표준 플랜 (데이터 비공개)
-STRIPE_MONTHLY_PRICE_ID = os.getenv("STRIPE_MONTHLY_PRICE_ID", "")
-STRIPE_SIXMONTH_PRICE_ID = os.getenv("STRIPE_SIXMONTH_PRICE_ID", "")
-STRIPE_YEARLY_PRICE_ID = os.getenv("STRIPE_YEARLY_PRICE_ID", "")
-
-# 데이터 공개 플랜 (월 ¥1,000 할인)
-STRIPE_MONTHLY_OPEN_PRICE_ID = os.getenv("STRIPE_MONTHLY_OPEN_PRICE_ID", "")
-STRIPE_SIXMONTH_OPEN_PRICE_ID = os.getenv("STRIPE_SIXMONTH_OPEN_PRICE_ID", "")
-STRIPE_YEARLY_OPEN_PRICE_ID = os.getenv("STRIPE_YEARLY_OPEN_PRICE_ID", "")
+_PLAN_ENV_KEYS = {"monthly": "MONTHLY", "sixmonth": "SIXMONTH", "yearly": "YEARLY"}
 
 
-def _resolve_price_id(plan: str, data_open: bool) -> str:
-    """plan + data_open 조합으로 Stripe price_id 반환."""
-    if data_open:
-        return {
-            "monthly": STRIPE_MONTHLY_OPEN_PRICE_ID,
-            "sixmonth": STRIPE_SIXMONTH_OPEN_PRICE_ID,
-            "yearly": STRIPE_YEARLY_OPEN_PRICE_ID,
-        }.get(plan, "")
-    return {
-        "monthly": STRIPE_MONTHLY_PRICE_ID,
-        "sixmonth": STRIPE_SIXMONTH_PRICE_ID,
-        "yearly": STRIPE_YEARLY_PRICE_ID,
-    }.get(plan, "")
+def _price_env_var(plan: str, data_open: bool, country_code: str) -> str:
+    """plan/country 검증 후 Stripe Price ID 의 .env 변수명을 만든다.
+
+    - plan 미지원 → ValueError (입력 오류 → 호출부에서 400).
+    - country_code 는 normalize_country 로 검증 → 미지원이면 ValueError.
+      billing 은 돈이 오가는 쓰기 경계라 read API 의 'JP 폴백'을 쓰지 않고 fail-closed.
+    - JP 는 기존 변수명(STRIPE_<PLAN>[_OPEN]_PRICE_ID) 하위호환, 그 외는 prefix.
+    """
+    from config.countries import normalize_country, stripe_prefix
+    try:
+        plan_key = _PLAN_ENV_KEYS[plan]
+    except KeyError:
+        raise ValueError(f"Invalid plan: {plan}")
+    prefix = stripe_prefix(normalize_country(country_code))   # 미지원 국가 → ValueError
+    open_seg = "_OPEN" if data_open else ""
+    if prefix == "JP":
+        return f"STRIPE_{plan_key}{open_seg}_PRICE_ID"
+    return f"STRIPE_{prefix}_{plan_key}{open_seg}_PRICE_ID"
+
+
+def _resolve_price_id(plan: str, data_open: bool, country_code: str = "JP") -> str:
+    """plan + data_open + country_code → Stripe price_id (미설정 시 ""). env 는 호출시점 조회."""
+    return os.getenv(_price_env_var(plan, data_open, country_code), "")
 
 
 _PLAN_DAYS = {"monthly": 30, "sixmonth": 180, "yearly": 365}
@@ -122,11 +124,16 @@ async def create_checkout_session(
     if store.id != admin_store.id:
         raise HTTPException(status_code=403, detail="Access denied: store mismatch")
 
-    price_id = _resolve_price_id(plan, data_open)
+    try:
+        env_var = _price_env_var(plan, data_open, store.country_code)
+    except ValueError as e:
+        # 미지원 plan/country (잘못된 store.country_code 포함) → JP 가격으로 청구하지 않고 거부
+        raise HTTPException(status_code=400, detail=str(e))
+    price_id = os.getenv(env_var, "")
     if not price_id:
         raise HTTPException(
             status_code=503,
-            detail=f"Stripe Price ID for '{plan}' (data_open={data_open}) not configured."
+            detail=f"{env_var} is not configured for country={store.country_code}"
         )
 
     # 기존 Stripe Customer 재사용 or 신규 생성
@@ -152,9 +159,11 @@ async def create_checkout_session(
             line_items=[{"price": price_id, "quantity": 1}],
             success_url=f"{FRONTEND_BASE_URL}/{store.slug or store.id}/admin/subscription?success=1",
             cancel_url=f"{FRONTEND_BASE_URL}/{store.slug or store.id}/admin/subscription?cancelled=1",
-            metadata={"store_id": str(store.id), "plan": plan, "data_open": str(data_open).lower()},
+            metadata={"store_id": str(store.id), "plan": plan, "data_open": str(data_open).lower(),
+                      "country_code": store.country_code},
             subscription_data={
-                "metadata": {"store_id": str(store.id), "plan": plan, "data_open": str(data_open).lower()}
+                "metadata": {"store_id": str(store.id), "plan": plan, "data_open": str(data_open).lower(),
+                             "country_code": store.country_code}
             }
         )
         return {"checkout_url": checkout_session.url, "session_id": checkout_session.id}

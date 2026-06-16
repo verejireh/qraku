@@ -659,6 +659,11 @@ export default function OrderView({ orderType: propOrderType } = {}) {
         paymentMethodType: storeData?.payment_settings?.payment_method_type || null,
         shopId: storeData?.id || storeId,
         defaultWaitMinutes: storeData?.takeout_default_wait_minutes || 15,
+        // 통화 메타 (백엔드 GET /stores 가 country_code 에서 파생해 내려줌; 기본 JPY)
+        currency: storeData?.currency || 'JPY',
+        currencySymbol: storeData?.currency_symbol || '¥',
+        currencyDecimals: storeData?.currency_decimals ?? 0,
+        countryCode: storeData?.country_code || 'JP',
         stampStatus,
         useStampReward,
         setUseStampReward,

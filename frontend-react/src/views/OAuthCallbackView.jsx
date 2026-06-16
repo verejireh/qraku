@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import { setAdminToken } from '../hooks/useAdminApi'
 import { QrCode, Store, MapPin, Utensils, ArrowLeft, CheckCircle, AlertCircle, Link as LinkIcon, Check, X } from 'lucide-react'
+import { COUNTRY_OPTIONS } from '../config/countries'
 
 const STORE_CATEGORIES = [
     { value: 'RESTAURANT', label: '🍽️ レストラン・食堂' },
@@ -40,7 +41,7 @@ export default function OAuthCallbackView() {
         phone: '',
         owner_name: payload.name || '',
         shop_id: '',
-        country_code: 'JP',   // 통화·세율·가능 결제사 결정 (가입 후 변경 불가)
+        country_code: '',   // 통화·세율·가능 결제사 결정 (가입 후 변경 불가) — 명시 선택 강제
     })
     const [agreedTerms, setAgreedTerms] = useState(false)
     const [slugStatus, setSlugStatus] = useState({ checking: false, available: null, message: '' })
@@ -74,6 +75,7 @@ export default function OAuthCallbackView() {
         if (!form.store_name.trim()) { setError('店舗名を入力してください'); return }
         if (!form.shop_id.trim()) { setError('shop_id を入力してください'); return }
         if (slugStatus.available !== true) { setError('使用可能な shop_id を入力してください'); return }
+        if (!form.country_code) { setError('国を選択してください / Please select a country'); return }
         if (!agreedTerms) { setError('利用規約と個人情報保護方針への同意が必要です'); return }
         setError('')
         setLoading(true)
@@ -269,8 +271,10 @@ export default function OAuthCallbackView() {
                             value={form.country_code}
                             onChange={e => set('country_code', e.target.value)}
                         >
-                            <option value="JP">日本 (JPY)</option>
-                            <option value="GB">United Kingdom (GBP)</option>
+                            <option value="" disabled>国を選択 / Select country</option>
+                            {COUNTRY_OPTIONS.map(c => (
+                                <option key={c.code} value={c.code}>{c.label}</option>
+                            ))}
                         </select>
                         <p className="text-[11px] text-slate-500">通貨・税率・決済方法を決定します（登録後は変更できません）</p>
                     </div>

@@ -106,6 +106,9 @@ export default function AdminPaymentView() {
     }
 
     const selectPaymentMethod = async (methodType) => {
+        // 국가에서 허용되지 않은 결제수단은 선택 차단 (백엔드도 422 로 최종 강제)
+        const allowed = storeData?.allowed_payment_methods
+        if (allowed && !allowed.includes(methodType)) return
         try {
             await axios.patch(`/api/admin/store/${shop_id}/payment-settings`, {
                 payment_method_type: methodType,
@@ -227,7 +230,7 @@ export default function AdminPaymentView() {
                 </section>
 
                 {/* ── Square OAuth 連携 ── */}
-                {activeMethod === 'SQUARE_INTEGRATED' && (
+                {activeMethod === 'SQUARE_INTEGRATED' && allowedMethods.includes('SQUARE_INTEGRATED') && (
                     <section className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
                         <h4 className="font-bold mb-1 flex items-center gap-2">
                             <span className="material-symbols-outlined text-blue-500">link</span>
@@ -377,7 +380,7 @@ export default function AdminPaymentView() {
                 )}
 
                 {/* ── PayPay Direct 認証情報 ── */}
-                {activeMethod === 'PAYPAY_DIRECT' && (
+                {activeMethod === 'PAYPAY_DIRECT' && allowedMethods.includes('PAYPAY_DIRECT') && (
                     <section className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
                         <h4 className="font-bold mb-1 flex items-center gap-2">
                             <span className="material-symbols-outlined text-red-500">qr_code_2</span>

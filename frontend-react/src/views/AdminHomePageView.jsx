@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import adminApi from '../hooks/useAdminApi'
 import axios from 'axios'
 import { AdminNavBar } from './AdminView'
+import { currencyHelpers } from '../config/currency'
 import {
     Sparkles, Home, Camera, MapPin, Image as ImageIcon, Plus, Trash2, Upload,
     Globe, Megaphone, ChevronRight, Star, ExternalLink, Timer, Briefcase, Gift,
@@ -685,7 +686,7 @@ export default function AdminHomePageView() {
                 <ReferralSection shop_id={shop_id} />
 
                 {/* ── インサイト ─────────────────────── */}
-                <InsightsSection shop_id={shop_id} />
+                <InsightsSection shop_id={shop_id} store={storeData} />
 
                 {/* ── 保存 ──────────────────────────── */}
                 <div className="sticky bottom-0 bg-white/90 backdrop-blur-md border border-slate-200 rounded-2xl p-4 shadow-lg flex items-center justify-between">
@@ -817,7 +818,8 @@ function ReferralSection({ shop_id }) {
 // ────────────────────────────────────────────────────
 // SPC-07 인사이트 미니 대시보드
 // ────────────────────────────────────────────────────
-function InsightsSection({ shop_id }) {
+function InsightsSection({ shop_id, store = null }) {
+    const cur = currencyHelpers(store)
     const [data, setData] = useState(null)
     const [loading, setLoading] = useState(true)
     const DAYS = 30
@@ -926,11 +928,11 @@ function InsightsSection({ shop_id }) {
                             <div className="grid grid-cols-2 gap-2 text-center">
                                 <div className="bg-white rounded-lg p-2">
                                     <p className="text-[10px] text-slate-400">割引時 平均単価</p>
-                                    <p className="font-black text-sm text-orange-500">¥{Math.round(rescue.rescue.avg_amount).toLocaleString()}</p>
+                                    <p className="font-black text-sm text-orange-500">{cur.fmt(Math.round(rescue.rescue.avg_amount))}</p>
                                 </div>
                                 <div className="bg-white rounded-lg p-2">
                                     <p className="text-[10px] text-slate-400">通常時 平均単価</p>
-                                    <p className="font-black text-sm text-slate-600">¥{Math.round(rescue.normal.avg_amount).toLocaleString()}</p>
+                                    <p className="font-black text-sm text-slate-600">{cur.fmt(Math.round(rescue.normal.avg_amount))}</p>
                                 </div>
                             </div>
                         </>
@@ -950,11 +952,11 @@ function InsightsSection({ shop_id }) {
                                 <div>
                                     <div className="flex justify-between text-xs mb-1">
                                         <span className="text-slate-600">自店舗 平均単価</span>
-                                        <span className="font-black text-blue-600">¥{Math.round(neighborhood.my.avg_amount).toLocaleString()}</span>
+                                        <span className="font-black text-blue-600">{cur.fmt(Math.round(neighborhood.my.avg_amount))}</span>
                                     </div>
                                     <div className="flex justify-between text-xs">
                                         <span className="text-slate-500">エリア平均</span>
-                                        <span className="font-bold text-slate-500">¥{Math.round(neighborhood.neighborhood.avg_amount).toLocaleString()}</span>
+                                        <span className="font-bold text-slate-500">{cur.fmt(Math.round(neighborhood.neighborhood.avg_amount))}</span>
                                     </div>
                                 </div>
                                 <div className="pt-1 border-t border-blue-100 flex justify-between text-xs">

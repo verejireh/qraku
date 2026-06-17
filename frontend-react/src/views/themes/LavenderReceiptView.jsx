@@ -1,6 +1,6 @@
 import { Share2, ArrowLeft, Home, Utensils, Receipt, User, QrCode } from 'lucide-react'
-
-import { useSession } from '../../context/SessionContext'
+import { useNavigate } from 'react-router-dom'
+import { currencyHelpers } from '../../config/currency'
 
 export default function LavenderReceiptView({
     store,
@@ -9,6 +9,13 @@ export default function LavenderReceiptView({
 }) {
     const navigate = useNavigate()
     if (!order) return null;
+    const cur = currencyHelpers(store)
+    const taxRate = Number.isFinite(store?.tax_rate) && store.tax_rate >= 0 ? store.tax_rate : 10
+    const taxIncluded = store?.tax_included !== false
+    const orderTotal = order?.total_amount || 0
+    // total_amount = 실제 청구액. 税込이면 포함 세액 역산, 税別이면 세금 미청구로 보고 분해/표시하지 않음.
+    const tax = taxIncluded ? Math.round(orderTotal * taxRate / (100 + taxRate)) : 0
+    const subtotal = orderTotal - tax
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-hidden bg-[#0a0710] font-display">
@@ -57,9 +64,9 @@ export default function LavenderReceiptView({
                                     <div key={idx} className="flex justify-between items-center">
                                         <div className="flex items-center gap-3">
                                             <span className="text-[#9c7aff] font-bold text-sm">{item.quantity}×</span>
-                                            <span className="text-white font-medium text-sm">{item.menu?.name_ko || item.menu?.name_jp}</span>
+                                            <span className="text-white font-medium text-sm">{item.menu?.name_ko || item.menu?.name_jp || `#${item.menu_item_id}`}</span>
                                         </div>
-                                        <span className="text-slate-400 text-sm">¥{(item.menu?.price * item.quantity).toLocaleString()}</span>
+                                        <span className="text-slate-400 text-sm">{cur.fmt(item.unit_price * item.quantity)}</span>
                                     </div>
                                 ))}
                             </div>
@@ -68,16 +75,18 @@ export default function LavenderReceiptView({
                         <div className="pt-6 border-t border-white/5 space-y-3">
                             <div className="flex justify-between text-slate-500 text-sm">
                                 <span>Subtotal</span>
-                                <span>¥{order.total_amount?.toLocaleString()}</span>
+                                <span>{cur.fmt(subtotal)}</span>
                             </div>
-                            <div className="flex justify-between text-slate-500 text-sm">
-                                <span>Tax (8%)</span>
-                                <span>¥{Math.round(order.total_amount * 0.08).toLocaleString()}</span>
-                            </div>
+                            {taxIncluded && (
+                                <div className="flex justify-between text-slate-500 text-sm">
+                                    <span>Tax ({taxRate}%)</span>
+                                    <span>{cur.fmt(tax)}</span>
+                                </div>
+                            )}
                             <div className="flex justify-between items-center pt-2">
                                 <span className="text-white font-bold text-lg">Total Paid</span>
                                 <span className="text-2xl font-bold text-[#9c7aff]">
-                                    ¥{(order.total_amount + Math.round(order.total_amount * 0.08)).toLocaleString()}
+                                    {cur.fmt(orderTotal)}
                                 </span>
                             </div>
                         </div>

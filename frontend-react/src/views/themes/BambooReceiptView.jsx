@@ -1,9 +1,15 @@
 import { CheckCircle, Download, ShoppingBag, QrCode, Home, Utensils, Receipt, User } from 'lucide-react'
-
-import { useSession } from '../../context/SessionContext'
+import { useNavigate } from 'react-router-dom'
+import { currencyHelpers } from '../../config/currency'
 
 export default function BambooReceiptView({ store, order, onClose }) {
     const navigate = useNavigate()
+    const cur = currencyHelpers(store)
+    const taxRate = Number.isFinite(store?.tax_rate) && store.tax_rate >= 0 ? store.tax_rate : 10
+    const taxIncluded = store?.tax_included !== false
+    const orderTotal = order?.total_amount || 0
+    // total_amount = 실제 청구액. 税込이면 포함 세액 역산, 税別이면 세금 미청구로 보고 표시하지 않음.
+    const tax = taxIncluded ? Math.round(orderTotal * taxRate / (100 + taxRate)) : 0
 
     return (
         <div className="relative min-h-screen bg-[#14160d] text-[#e0e4d0] font-sans overflow-x-hidden pb-40">
@@ -26,7 +32,7 @@ export default function BambooReceiptView({ store, order, onClose }) {
                     </div>
 
                     <p className="text-[#848d00] text-[10px] font-black uppercase tracking-[0.3em] mb-4">Payment Successful</p>
-                    <h1 className="text-6xl font-extrabold tracking-tight mb-4 text-white">¥{(order.total_amount + Math.round(order.total_amount * 0.08)).toLocaleString()}</h1>
+                    <h1 className="text-6xl font-extrabold tracking-tight mb-4 text-white">{cur.fmt(orderTotal)}</h1>
                     <p className="text-slate-500 text-sm font-medium">{store?.name || 'Bamboo Flower Boutique'} • Tokyo, JP</p>
                 </div>
 
@@ -40,17 +46,19 @@ export default function BambooReceiptView({ store, order, onClose }) {
                     {order.items.map((item, idx) => (
                         <div key={idx} className="flex justify-between items-start">
                             <div>
-                                <h3 className="text-white font-bold text-lg leading-tight mb-1">{item.menu?.name_ko || item.menu?.name_jp}</h3>
+                                <h3 className="text-white font-bold text-lg leading-tight mb-1">{item.menu?.name_ko || item.menu?.name_jp || `#${item.menu_item_id}`}</h3>
                                 <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Qty: {item.quantity}</p>
                             </div>
-                            <div className="text-white font-bold text-lg">¥{(item.menu?.price * item.quantity).toLocaleString()}</div>
+                            <div className="text-white font-bold text-lg">{cur.fmt(item.unit_price * item.quantity)}</div>
                         </div>
                     ))}
 
-                    <div className="flex justify-between items-center text-sm text-slate-500 font-bold pt-4 border-t border-dashed border-white/10">
-                        <span className="uppercase tracking-widest">Tax (8%)</span>
-                        <span>¥{Math.round(order.total_amount * 0.08).toLocaleString()}</span>
-                    </div>
+                    {taxIncluded && (
+                        <div className="flex justify-between items-center text-sm text-slate-500 font-bold pt-4 border-t border-dashed border-white/10">
+                            <span className="uppercase tracking-widest">Tax ({taxRate}%)</span>
+                            <span>{cur.fmt(tax)}</span>
+                        </div>
+                    )}
                 </div>
 
                 {/* QR Section */}

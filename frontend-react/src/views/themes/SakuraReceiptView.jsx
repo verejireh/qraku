@@ -1,9 +1,16 @@
 import { ArrowLeft, Share2, FileText, Home, Utensils, Receipt, User, QrCode } from 'lucide-react'
-
-import { useSession } from '../../context/SessionContext'
+import { useNavigate } from 'react-router-dom'
+import { currencyHelpers } from '../../config/currency'
 
 export default function SakuraReceiptView({ store, order, onClose }) {
     const navigate = useNavigate()
+    const cur = currencyHelpers(store)
+    const taxRate = Number.isFinite(store?.tax_rate) && store.tax_rate >= 0 ? store.tax_rate : 10
+    const taxIncluded = store?.tax_included !== false
+    const orderTotal = order?.total_amount || 0
+    // total_amount = 실제 청구액. 税込이면 포함 세액 역산, 税別이면 세금 미청구로 보고 분해/표시하지 않음.
+    const tax = taxIncluded ? Math.round(orderTotal * taxRate / (100 + taxRate)) : 0
+    const subtotal = orderTotal - tax
 
     return (
         <div className="relative min-h-screen bg-[#f8f5f6] text-[#2d1525] font-display overflow-x-hidden pb-32">
@@ -64,11 +71,11 @@ export default function SakuraReceiptView({ store, order, onClose }) {
                                 </div>
                                 <div className="flex-1 flex justify-between items-center">
                                     <div>
-                                        <div className="font-bold text-sm">{item.menu?.name_en || item.menu?.name_jp}</div>
+                                        <div className="font-bold text-sm">{item.menu?.name_en || item.menu?.name_jp || `#${item.menu_item_id}`}</div>
                                         <div className="text-[10px] text-slate-400">{item.menu?.name_jp}</div>
                                     </div>
                                     <div className="text-right">
-                                        <div className="font-bold text-sm">¥{item.menu?.price.toLocaleString()}</div>
+                                        <div className="font-bold text-sm">{cur.fmt(item.unit_price)}</div>
                                         <div className="text-[10px] text-slate-400 font-bold">Qty: {item.quantity}</div>
                                     </div>
                                 </div>
@@ -80,16 +87,18 @@ export default function SakuraReceiptView({ store, order, onClose }) {
                     <div className="space-y-3 pt-6 border-t border-dashed border-pink-100">
                         <div className="flex justify-between items-center text-sm text-slate-500">
                             <span>Subtotal</span>
-                            <span>¥{order.total_price.toLocaleString()}</span>
+                            <span>{cur.fmt(subtotal)}</span>
                         </div>
-                        <div className="flex justify-between items-center text-sm text-slate-500">
-                            <span>Tax (8%)</span>
-                            <span>¥{Math.round(order.total_price * 0.08).toLocaleString()}</span>
-                        </div>
+                        {taxIncluded && (
+                            <div className="flex justify-between items-center text-sm text-slate-500">
+                                <span>Tax ({taxRate}%)</span>
+                                <span>{cur.fmt(tax)}</span>
+                            </div>
+                        )}
                         <div className="flex justify-between items-center pt-3">
                             <span className="text-lg font-bold">Total</span>
                             <span className="text-2xl font-bold text-[#ffb8c6]">
-                                ¥{(order.total_price + Math.round(order.total_price * 0.08)).toLocaleString()}
+                                {cur.fmt(orderTotal)}
                             </span>
                         </div>
                     </div>

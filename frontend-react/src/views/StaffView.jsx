@@ -5,6 +5,7 @@ import { useDisplayGuard } from '../hooks/useDisplayGuard'
 import { useStaffAuth } from '../components/StaffLoginGate'
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { currencyHelpers } from '../config/currency'
 
 export default function StaffView() {
     const { shop_id } = useParams()
@@ -17,6 +18,7 @@ export default function StaffView() {
     const [allOrders, setAllOrders] = useState([])
     const [menus, setMenus] = useState({})
     const [storeData, setStoreData] = useState(null)
+    const cur = currencyHelpers(storeData)
     const [loading, setLoading] = useState(true)
 
     // 테이크아웃 조리시간 문의 목록
@@ -313,7 +315,7 @@ export default function StaffView() {
     }
 
     const handlePayAndClose = async (table) => {
-        if (!window.confirm(`テーブル ${table.table_number} の合計 ¥${(table.total_unpaid || 0).toLocaleString()} を決済し、テーブルを閉じますか？`)) return
+        if (!window.confirm(`テーブル ${table.table_number} の合計 ${cur.fmt(table.total_unpaid || 0)} を決済し、テーブルを閉じますか？`)) return
         try {
             const orders = getTableOrders(table)
             const allItemIds = orders.flatMap(o => (o.items || []).map(i => i.id)).filter(Boolean)
@@ -547,7 +549,7 @@ export default function StaffView() {
                         {elapsed && (
                             <p className="text-sm font-bold text-[#1b1b1d]">{elapsed} Elapsed</p>
                         )}
-                        <p className="text-lg font-black text-[#b80035] tabular-nums">¥{total.toLocaleString()}</p>
+                        <p className="text-lg font-black text-[#b80035] tabular-nums">{cur.fmt(total)}</p>
                     </div>
                 </div>
 
@@ -759,7 +761,7 @@ export default function StaffView() {
                     </div>
                     <div className="mt-2">
                         <p className="text-[#5c3f40] text-xs font-medium">{table.guest_count ? `${table.guest_count} Guests` : ''}</p>
-                        <p className="font-bold text-lg text-[#1b1b1d]">¥{total.toLocaleString()}</p>
+                        <p className="font-bold text-lg text-[#1b1b1d]">{cur.fmt(total)}</p>
                     </div>
                 </div>
             )
@@ -824,7 +826,7 @@ export default function StaffView() {
                     <div className="text-right flex flex-col items-end gap-0.5">
                         <p className="text-[#5c3f40] text-xs font-medium">{table.guest_count ? `${table.guest_count} Guests` : ''}</p>
                         {elapsed && <p className="text-[11px] font-bold text-[#1b1b1d]">{elapsed}</p>}
-                        <p className="text-sm font-black text-[#b80035] tabular-nums">¥{total.toLocaleString()}</p>
+                        <p className="text-sm font-black text-[#b80035] tabular-nums">{cur.fmt(total)}</p>
                     </div>
                 </div>
 
@@ -959,7 +961,7 @@ export default function StaffView() {
                     {occupied ? (
                         <>
                             <p className="text-xs font-medium text-[#5c3f40]">{table.guest_count ? `${table.guest_count} Guests` : ''}</p>
-                            <p className="font-bold text-lg text-[#1b1b1d]">¥{total.toLocaleString()}</p>
+                            <p className="font-bold text-lg text-[#1b1b1d]">{cur.fmt(total)}</p>
                             {checkout && (
                                 <p className="text-[10px] text-[#b80035] font-bold uppercase tracking-wider mt-1">Payment Ready</p>
                             )}
@@ -1058,7 +1060,7 @@ export default function StaffView() {
                                             )}
                                         </p>
                                         <p className="text-xs text-amber-600">
-                                            ¥{q.total_amount?.toLocaleString()} ·
+                                            {cur.fmt(q.total_amount)} ·
                                             {q.items?.map(i => ` ${i.name}×${i.quantity}`).join(',')}
                                         </p>
                                     </div>
@@ -1126,7 +1128,7 @@ export default function StaffView() {
                                                 </div>
                                             </div>
                                             <div className="text-center my-1.5">
-                                                <p className="text-lg font-extrabold text-amber-800 tabular-nums">¥{(order.total_amount || 0).toLocaleString()}</p>
+                                                <p className="text-lg font-extrabold text-amber-800 tabular-nums">{cur.fmt(order.total_amount || 0)}</p>
                                                 {order.pickup_time && (
                                                     <p className="text-[10px] text-amber-600 font-bold">🕐 {order.pickup_time}</p>
                                                 )}
@@ -1273,7 +1275,7 @@ export default function StaffView() {
                                 <div>
                                     <h3 className="text-lg font-extrabold text-[#1b1b1d]">Table {table.table_number}</h3>
                                     <p className="text-xs text-[#5c3f40]">
-                                        {table.guest_count ? `${table.guest_count} Guests` : ''} · {orders.length} Orders · ¥{total.toLocaleString()}
+                                        {table.guest_count ? `${table.guest_count} Guests` : ''} · {orders.length} Orders · {cur.fmt(total)}
                                     </p>
                                 </div>
                                 <button onClick={() => setDetailModal(null)} className="text-[#5c3f40] hover:text-[#1b1b1d] text-2xl leading-none">&times;</button>
@@ -1303,7 +1305,7 @@ export default function StaffView() {
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <span className="text-sm font-extrabold text-[#1b1b1d]">¥{(order.total_amount || 0).toLocaleString()}</span>
+                                                <span className="text-sm font-extrabold text-[#1b1b1d]">{cur.fmt(order.total_amount || 0)}</span>
                                                 <button
                                                     onClick={() => setDeleteConfirm({ orderId: order.id })}
                                                     className="text-[10px] px-2 py-1 bg-red-50 text-red-500 font-bold rounded-lg hover:bg-red-100 transition-colors"
@@ -1395,7 +1397,7 @@ export default function StaffView() {
                             ))}
                             <div className="pt-3 mt-1 border-t border-slate-200/80 flex justify-between items-center">
                                 <span className="font-bold text-slate-500 text-xs">합계</span>
-                                <span className="font-black text-slate-900 text-lg tracking-tight">¥{respondModal.total_amount?.toLocaleString()}</span>
+                                <span className="font-black text-slate-900 text-lg tracking-tight">{cur.fmt(respondModal.total_amount)}</span>
                             </div>
                         </div>
 
@@ -1500,7 +1502,7 @@ export default function StaffView() {
                                             {m.image_url ? <img src={m.image_url} alt={m.name_jp} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-[#e4e2e4]"></div>}
                                         </div>
                                         <div className="text-sm font-bold w-full line-clamp-1 text-[#1b1b1d]">{m.name_jp || m.name_ko}</div>
-                                        <div className="text-xs text-[#b80035] w-full font-medium">¥{m.price.toLocaleString()}</div>
+                                        <div className="text-xs text-[#b80035] w-full font-medium">{cur.fmt(m.price)}</div>
                                     </button>
                                 ))}
                             </div>
@@ -1526,7 +1528,7 @@ export default function StaffView() {
                                                     <button onClick={() => updatePosQuantity(item.id, 1)} className="px-3 py-1 bg-[#e4e2e4] hover:bg-[#dcd9dc]">+</button>
                                                 </div>
                                                 <div className="font-bold text-[#b80035] text-sm">
-                                                    ¥{(item.price * item.quantity).toLocaleString()}
+                                                    {cur.fmt(item.price * item.quantity)}
                                                 </div>
                                             </div>
                                         </div>
@@ -1536,7 +1538,7 @@ export default function StaffView() {
                             <div className="p-4 border-t border-[#e4e2e4] space-y-4">
                                 <div className="flex justify-between items-center font-bold text-lg text-[#1b1b1d]">
                                     <span>Total</span>
-                                    <span>¥{posTotal.toLocaleString()}</span>
+                                    <span>{cur.fmt(posTotal)}</span>
                                 </div>
                                 <button
                                     onClick={submitPosOrder}

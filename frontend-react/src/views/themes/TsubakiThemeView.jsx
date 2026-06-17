@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { Plus, ShoppingBag, ArrowRight } from 'lucide-react'
 import { useLanguage } from '../../context/LanguageContext'
+import { useCurrency } from '../../context/CurrencyContext'
 
 export default function TsubakiThemeView({
     storeId,
@@ -20,6 +21,7 @@ export default function TsubakiThemeView({
     onCheckout
 }) {
     const { getMenuName, getMenuDescription } = useLanguage()
+    const { fmt } = useCurrency()
 
     return (
         <div className="relative min-h-screen text-slate-100 overflow-x-hidden font-sans pb-40">
@@ -140,7 +142,7 @@ export default function TsubakiThemeView({
                                                     {getMenuDescription(featuredItem) || "Chef's meticulously prepared signature selection."}
                                                 </p>
                                                 <div className="flex items-center justify-between pt-4 mt-auto">
-                                                    <span className="font-display text-xl font-bold text-primary">¥{featuredItem.price.toLocaleString()}</span>
+                                                    <span className="font-display text-xl font-bold text-primary">{fmt(featuredItem.price)}</span>
                                                     <button 
                                                         onClick={(e) => featuredItem.is_available && onAddToCart(e, featuredItem)}
                                                         disabled={!featuredItem.is_available}
@@ -195,7 +197,7 @@ export default function TsubakiThemeView({
                                                                 {getMenuDescription(item) || "Classic traditional choice."}
                                                             </p>
                                                             <div className="flex items-center justify-between mt-auto">
-                                                                <span className="font-bold text-primary font-display text-sm">¥{item.price.toLocaleString()}</span>
+                                                                <span className="font-bold text-primary font-display text-sm">{fmt(item.price)}</span>
                                                                 <button 
                                                                     onClick={(e) => item.is_available && onAddToCart(e, item)}
                                                                     disabled={!item.is_available}
@@ -234,7 +236,7 @@ export default function TsubakiThemeView({
                                 </div>
                                 <div className="flex flex-col">
                                     <span className="text-[10px] opacity-80 font-bold uppercase tracking-widest leading-none mb-0.5">Order Total</span>
-                                    <span className="font-display text-lg font-bold leading-none">¥{totalAmount.toLocaleString()}</span>
+                                    <span className="font-display text-lg font-bold leading-none">{fmt(totalAmount)}</span>
                                 </div>
                             </div>
                             <button 

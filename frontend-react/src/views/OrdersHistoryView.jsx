@@ -7,6 +7,7 @@ import { useTheme } from '../context/ThemeContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useSession } from '../context/SessionContext'
 import { useCart } from '../hooks/useCart'
+import { useCurrency } from '../context/CurrencyContext'
 
 export default function OrdersHistoryView() {
     const { shop_id: paramShopId, tableNumber: paramTableNumber } = useParams()
@@ -28,6 +29,7 @@ export default function OrdersHistoryView() {
     const { currentTheme, themes } = useTheme()
     const themeColor = themes[currentTheme]?.color || '#fb7185' // Fallback to Sakura pink
     const { addToCart } = useCart()
+    const { fmt } = useCurrency()
     const [orders, setOrders] = useState([])
     const [menus, setMenus] = useState({})
     const [loading, setLoading] = useState(true)
@@ -275,7 +277,7 @@ export default function OrdersHistoryView() {
                                         {/* Price */}
                                         <div className="text-right flex-shrink-0">
                                             <div className="text-sm font-bold text-inherit font-serif">
-                                                ¥{(item.unit_price * item.quantity).toLocaleString()}
+                                                {fmt(item.unit_price * item.quantity)}
                                             </div>
                                         </div>
                                     </motion.div>
@@ -288,7 +290,7 @@ export default function OrdersHistoryView() {
                                     <div className="space-y-1">
                                         <div className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">{t('order_summary')}</div>
                                         <div className="text-3xl font-bold text-primary tracking-tighter">
-                                            ¥{totalSum.toLocaleString()}
+                                            {fmt(totalSum)}
                                         </div>
                                     </div>
                                     <div className="text-right">

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { useLanguage } from '../context/LanguageContext'
+import { currencyHelpers } from '../config/currency'
 
 export default function AdminAnalyticsView() {
     const { shop_id } = useParams()
@@ -16,6 +17,7 @@ export default function AdminAnalyticsView() {
     const [dailyData, setDailyData] = useState([])
     const [hourlyData, setHourlyData] = useState([])
     const [topMenus, setTopMenus] = useState([])
+    const [storeMeta, setStoreMeta] = useState(null)
 
     const fetchAll = useCallback(async (selectedDays) => {
         setLoading(true)
@@ -44,9 +46,16 @@ export default function AdminAnalyticsView() {
         return () => clearInterval(id)
     }, [shop_id, days, fetchAll, setLanguage])
 
+    // 통화 메타(심볼/소수) — 분석 뷰는 store 를 직접 fetch (CurrencyProvider 밖)
+    useEffect(() => {
+        if (!shop_id) return
+        axios.get(`/api/stores/${shop_id}`).then(r => setStoreMeta(r.data)).catch(() => {})
+    }, [shop_id])
+
     /* ── helpers ── */
+    const cur = currencyHelpers(storeMeta)
     const fmt = (num) => Number(num || 0).toLocaleString()
-    const fmtYen = (num) => `¥${fmt(num)}`
+    const fmtYen = (num) => cur.fmt(num)
 
     // 일별 바 차트: 최대값 대비 비율 계산
     const maxSales = Math.max(...dailyData.map(d => d.sales), 1)
@@ -73,8 +82,8 @@ export default function AdminAnalyticsView() {
     // CSV 다운로드
     const handleDownloadCSV = () => {
         // 일별 data CSV
-        const header = 'Date,Sales (¥),Orders\n'
-        const body = dailyData.map(d => `${d.day},${d.sales},${d.orders}`).join('\n')
+        const header = `Date,Sales (${cur.symbol}),Orders\n`
+        const body = dailyData.map(d => `${d.day},${cur.toMajorString(d.sales)},${d.orders}`).join('\n')
         const blob = new Blob([header + body], { type: 'text/csv;charset=utf-8;' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')

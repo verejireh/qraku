@@ -5,6 +5,7 @@ import { CheckCircle, Clock, Bell, X, Eye, LayoutGrid, List, Layers } from 'luci
 import { useDisplayGuard } from '../hooks/useDisplayGuard';
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { currencyHelpers } from '../config/currency';
 
 // ─── Print CSS ────────────────────────────────────────────────────────────────
 const PRINT_STYLE = `
@@ -89,6 +90,8 @@ export default function KitchenView() {
     const [menus, setMenus] = useState({});
     const [allMenus, setAllMenus] = useState([]);
     const [numericStoreId, setNumericStoreId] = useState(null);
+    const [storeMeta, setStoreMeta] = useState(null);
+    const cur = currencyHelpers(storeMeta);
     const [sortNewest, setSortNewest] = useState(false);
     const [soldOutPanel, setSoldOutPanel] = useState(false);
     const [showFullView, setShowFullView] = useState(false);
@@ -148,6 +151,7 @@ export default function KitchenView() {
             const storeRes = await axios.get(`/api/stores/${actualStoreId}`);
             const sId = storeRes.data.id;
             setNumericStoreId(sId);
+            setStoreMeta(storeRes.data);
 
             const menuRes = await axios.get(`/api/menus/${actualStoreId}`);
             const rawMenus = Array.isArray(menuRes.data) ? menuRes.data : (menuRes.data?.data || []);
@@ -1057,7 +1061,7 @@ export default function KitchenView() {
                                                             <p className={`text-xs font-medium truncate ${item.is_available ? 'text-white/80' : 'text-red-300/80 line-through'}`}>
                                                                 {item.name_jp || item.name_ko}
                                                             </p>
-                                                            <p className="text-[10px] text-white/20">¥{item.price?.toLocaleString()}</p>
+                                                            <p className="text-[10px] text-white/20">{cur.fmt(item.price)}</p>
                                                         </div>
                                                     </div>
                                                     <button

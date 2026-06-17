@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import adminApi from '../hooks/useAdminApi'
+import { currencyHelpers } from '../config/currency'
 
 // 숫자 입력 파싱 — 빈 값/비숫자만 fallback 으로, 유효한 0 은 그대로 둔다
 // (`parseInt(v) || fallback` 은 0 을 fallback 으로 잘못 바꿈).
@@ -81,7 +82,8 @@ function Portal({ children }) {
     return createPortal(children, document.body)
 }
 
-export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
+export default function MenuGroupsSection({ shop_id, allMenus = [], store = null }) {
+    const cur = currencyHelpers(store)
     const [expanded, setExpanded] = useState(false)
     const [groups, setGroups] = useState([])
     const [loading, setLoading] = useState(false)
@@ -116,7 +118,7 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
             active_from: g.active_from || '11:00',
             active_to: g.active_to || '15:00',
             weekdays: g.weekdays || '',
-            price_per_person: g.price_per_person || 0,
+            price_per_person: cur.toMajorString(g.price_per_person || 0),
             duration_minutes: g.duration_minutes || 90,
             last_order_minutes: g.last_order_minutes || 10,
             course_type: g.course_type || 'food',
@@ -152,7 +154,7 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
                 active_from: editingGroup.group_type === 'TIME_WINDOW' ? editingGroup.active_from : null,
                 active_to: editingGroup.group_type === 'TIME_WINDOW' ? editingGroup.active_to : null,
                 weekdays: editingGroup.group_type === 'TIME_WINDOW' ? (editingGroup.weekdays || null) : null,
-                price_per_person: editingGroup.group_type === 'COURSE' ? editingGroup.price_per_person : 0,
+                price_per_person: editingGroup.group_type === 'COURSE' ? cur.toMinorUnits(editingGroup.price_per_person) : 0,
                 duration_minutes: editingGroup.group_type === 'COURSE' ? editingGroup.duration_minutes : 90,
                 last_order_minutes: editingGroup.group_type === 'COURSE' ? editingGroup.last_order_minutes : 10,
                 course_type: editingGroup.group_type === 'COURSE' ? editingGroup.course_type : null,
@@ -281,7 +283,7 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
                                                             <>{g.active_from}〜{g.active_to}{g.weekdays ? ` · ${g.weekdays.split(',').map(d => WEEKDAYS.find(w => w.key === d)?.label).join('')}` : ' · 毎日'}</>
                                                         )}
                                                         {g.group_type === 'COURSE' && (
-                                                            <>¥{g.price_per_person.toLocaleString()}/人 · {g.duration_minutes}分 · {g.course_type === 'food' ? '食べ放題' : g.course_type === 'drink' ? '飲み放題' : '食べ&飲み放題'}</>
+                                                            <>{cur.fmt(g.price_per_person)}/人 · {g.duration_minutes}分 · {g.course_type === 'food' ? '食べ放題' : g.course_type === 'drink' ? '飲み放題' : '食べ&飲み放題'}</>
                                                         )}
                                                         {g.group_type === 'MANUAL' && (
                                                             <span className={g.is_active ? 'text-green-600 font-bold' : 'text-slate-400'}>{g.is_active ? '● 有効' : '○ 無効'}</span>
@@ -456,9 +458,10 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
                                             </p>
                                             <div className="grid grid-cols-2 gap-3">
                                                 <div>
-                                                    <label className="text-xs font-bold text-slate-500 block mb-1">1人あたり料金 (円)</label>
+                                                    <label className="text-xs font-bold text-slate-500 block mb-1">1人あたり料金 ({cur.symbol})</label>
                                                     <input type="number" min="0" value={editingGroup.price_per_person}
-                                                        onChange={e => setEditingGroup(prev => ({ ...prev, price_per_person: parseIntOr(e.target.value, 0) }))}
+                                                        onChange={e => setEditingGroup(prev => ({ ...prev, price_per_person: e.target.value }))}
+                                                        step={cur.decimals > 0 ? '0.01' : '1'}
                                                         className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white" />
                                                 </div>
                                                 <div>
@@ -530,7 +533,7 @@ export default function MenuGroupsSection({ shop_id, allMenus = [] }) {
                                                                     onChange={() => toggleMenuId(m.id)}
                                                                     className="w-4 h-4 accent-adminprimary" />
                                                                 <span className="flex-1 text-sm">{m.name_jp || m.name_ko || m.name_en}</span>
-                                                                <span className="text-xs text-slate-400">¥{(m.price || 0).toLocaleString()}</span>
+                                                                <span className="text-xs text-slate-400">{cur.fmt(m.price || 0)}</span>
                                                             </label>
                                                         )
                                                     })}

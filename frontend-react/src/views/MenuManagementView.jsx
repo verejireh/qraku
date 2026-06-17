@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '../context/LanguageContext'
 import { AdminNavBar } from './AdminView'
 import MenuGroupsSection from '../components/MenuGroupsSection'
+import { currencyHelpers } from '../config/currency'
 
 export default function MenuManagementView() {
     const { shop_id } = useParams()
@@ -14,6 +15,7 @@ export default function MenuManagementView() {
     const { t } = useLanguage()
 
     const [storeData, setStoreData] = useState(null)
+    const cur = currencyHelpers(storeData)
     const [menus, setMenus] = useState([])
     const [categories, setCategories] = useState([])
     const [activeCategory, setActiveCategory] = useState('All')
@@ -348,7 +350,7 @@ export default function MenuManagementView() {
                     </AnimatePresence>
                 </div>
 
-                <MenuGroupsSection shop_id={shop_id} allMenus={menus} />
+                <MenuGroupsSection shop_id={shop_id} allMenus={menus} store={storeData} />
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
                     <AnimatePresence>
@@ -394,11 +396,11 @@ export default function MenuManagementView() {
                                     <div className="text-right shrink-0">
                                         {item.is_daily_special && item.special_price != null ? (
                                             <>
-                                                <span className="font-black text-lg text-amber-600 px-2 rounded-lg bg-amber-50 border border-amber-200 whitespace-nowrap">¥{item.special_price?.toLocaleString()}</span>
-                                                <div className="text-xs text-slate-400 line-through mt-0.5">¥{item.price?.toLocaleString()}</div>
+                                                <span className="font-black text-lg text-amber-600 px-2 rounded-lg bg-amber-50 border border-amber-200 whitespace-nowrap">{cur.fmt(item.special_price)}</span>
+                                                <div className="text-xs text-slate-400 line-through mt-0.5">{cur.fmt(item.price)}</div>
                                             </>
                                         ) : (
-                                            <span className="font-black text-lg text-adminprimary px-2 rounded-lg bg-adminprimary/5 border border-adminprimary/10 whitespace-nowrap">¥{item.price?.toLocaleString()}</span>
+                                            <span className="font-black text-lg text-adminprimary px-2 rounded-lg bg-adminprimary/5 border border-adminprimary/10 whitespace-nowrap">{cur.fmt(item.price)}</span>
                                         )}
                                     </div>
                                 </div>

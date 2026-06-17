@@ -6,6 +6,7 @@ import { useTheme } from '../context/ThemeContext'
 import { useLanguage } from '../context/LanguageContext'
 import { clearAdminToken } from '../hooks/useAdminApi'
 import SubscriptionView from './SubscriptionView'
+import { currencyHelpers } from '../config/currency'
 // Pure CSS charts — no recharts dependency
 
 const DAYS_OF_WEEK = ['月', '火', '水', '木', '金', '土', '日']
@@ -95,6 +96,7 @@ export default function AdminView() {
     const { themes } = useTheme()
 
     const [storeData, setStoreData] = useState(null)
+    const cur = currencyHelpers(storeData)
     const [loading, setLoading] = useState(true)
     const [showSubscription, setShowSubscription] = useState(false)
     const [subStatus, setSubStatus] = useState(null)
@@ -272,7 +274,7 @@ export default function AdminView() {
                             <div>
                                 <p className="text-sm font-medium text-slate-400 mb-1">Today's Total Sales</p>
                                 <h2 className="text-5xl md:text-6xl font-black text-slate-900 tracking-tight">
-                                    ¥{(summary.total_sales || 0).toLocaleString()}
+                                    {cur.fmt(summary.total_sales || 0)}
                                 </h2>
                                 <div className="flex items-center gap-4 mt-3">
                                     <div className="flex items-center gap-2 px-3 py-1.5 bg-adminprimary/10 rounded-lg">
@@ -281,7 +283,7 @@ export default function AdminView() {
                                     </div>
                                     <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-lg">
                                         <span className="material-symbols-outlined text-sm text-emerald-500">person</span>
-                                        <span className="text-sm font-bold text-emerald-600">Avg ¥{Math.round(summary.avg_order_value || 0).toLocaleString()}</span>
+                                        <span className="text-sm font-bold text-emerald-600">Avg {cur.fmt(Math.round(summary.avg_order_value || 0))}</span>
                                     </div>
                                 </div>
                             </div>
@@ -342,7 +344,7 @@ export default function AdminView() {
                                             return (
                                                 <div key={i} className="flex-1 flex flex-col items-center justify-end h-full group relative">
                                                     <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-[10px] px-2 py-1 rounded-lg whitespace-nowrap z-10 pointer-events-none">
-                                                        {chartMode === 'sales' ? `¥${val.toLocaleString()}` : `${val}件`}
+                                                        {chartMode === 'sales' ? `${cur.fmt(val)}` : `${val}件`}
                                                     </div>
                                                     <div className="w-full rounded-t-md bg-adminprimary hover:bg-adminprimary/50 transition-all relative"
                                                         style={{ height: `${Math.max(pct, 2)}%`, minHeight: val > 0 ? 4 : 1 }} />
@@ -377,7 +379,7 @@ export default function AdminView() {
                                                         <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
                                                         {c.category}
                                                     </span>
-                                                    <span className="font-bold text-slate-500">¥{(Number(c.revenue) || 0).toLocaleString()}</span>
+                                                    <span className="font-bold text-slate-500">{cur.fmt(Number(c.revenue) || 0)}</span>
                                                 </div>
                                                 <div className="h-2.5 bg-slate-200 rounded-full overflow-hidden">
                                                     <div className="h-full rounded-full transition-all" style={{
@@ -446,7 +448,7 @@ export default function AdminView() {
                                         <p className="text-sm font-bold truncate">{item.name_jp || item.name}</p>
                                         <p className="text-[10px] text-slate-400">{item.total_qty}個 sold</p>
                                     </div>
-                                    <p className="text-sm font-bold text-emerald-500">¥{item.total_revenue?.toLocaleString()}</p>
+                                    <p className="text-sm font-bold text-emerald-500">{cur.fmt(item.total_revenue)}</p>
                                 </div>
                             ))}
                         </div>

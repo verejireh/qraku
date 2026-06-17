@@ -114,7 +114,7 @@ export default function MenuManagementView() {
 
     const updateSpecialPrice = async (menuId, price) => {
         try {
-            const val = price === '' || price === null ? null : parseInt(price)
+            const val = price === '' || price === null ? null : cur.toMinorUnits(price)
             setMenus(prev => (Array.isArray(prev) ? prev : []).map(m => m.id === menuId ? { ...m, special_price: val } : m))
             await axios.put(`/api/menus/${menuId}`, { special_price: val })
         } catch (e) {
@@ -188,7 +188,7 @@ export default function MenuManagementView() {
         setEditForm({
             name_jp: item.name_jp || item.name || '',
             description_jp: item.description_jp || item.description || '',
-            price: item.price || 0,
+            price: cur.toMajorString(item.price || 0),
             category: item.category || '',
             allergens: Array.isArray(parsedAllergens) ? parsedAllergens : [],
         })
@@ -197,11 +197,13 @@ export default function MenuManagementView() {
     const saveEdit = async () => {
         if (!editingMenu) return
         try {
+            const priceMinor = cur.toMinorUnits(editForm.price)
             await axios.put(`/api/menus/${editingMenu.id}`, {
                 ...editForm,
+                price: priceMinor,
                 allergens: JSON.stringify(editForm.allergens),
             })
-            setMenus(prev => prev.map(m => m.id === editingMenu.id ? { ...m, ...editForm } : m))
+            setMenus(prev => prev.map(m => m.id === editingMenu.id ? { ...m, ...editForm, price: priceMinor } : m))
             setEditingMenu(null)
         } catch (e) {
             console.error('メニュー更新失敗:', e)
@@ -406,15 +408,13 @@ export default function MenuManagementView() {
                                 </div>
                                 {item.is_daily_special && (
                                     <div className="flex items-center gap-2 mb-2 p-2 bg-amber-50 rounded-lg border border-amber-200/50">
-                                        <span className="text-[10px] font-bold text-amber-700 whitespace-nowrap">SPECIAL ¥</span>
+                                        <span className="text-[10px] font-bold text-amber-700 whitespace-nowrap">SPECIAL {cur.symbol}</span>
                                         <input
                                             type="number"
-                                            value={item.special_price ?? ''}
-                                            placeholder={String(item.price)}
-                                            onChange={e => {
-                                                const val = e.target.value === '' ? null : parseInt(e.target.value)
-                                                setMenus(prev => prev.map(m => m.id === item.id ? { ...m, special_price: val } : m))
-                                            }}
+                                            key={item.special_price ?? 'empty'}
+                                            defaultValue={item.special_price != null ? cur.toMajorString(item.special_price) : ''}
+                                            placeholder={cur.toMajorString(item.price)}
+                                            step={cur.decimals > 0 ? '0.01' : '1'}
                                             onBlur={e => updateSpecialPrice(item.id, e.target.value)}
                                             className="w-20 px-2 py-1 text-sm font-bold bg-white border border-amber-300 rounded-md text-amber-800 focus:ring-1 focus:ring-amber-400 outline-none"
                                         />
@@ -512,9 +512,10 @@ export default function MenuManagementView() {
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">価格 (¥)</label>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">価格 ({cur.symbol})</label>
                                         <input type="number" value={editForm.price}
-                                            onChange={e => setEditForm(prev => ({ ...prev, price: parseInt(e.target.value) || 0 }))}
+                                            onChange={e => setEditForm(prev => ({ ...prev, price: e.target.value }))}
+                                            step={cur.decimals > 0 ? '0.01' : '1'}
                                             className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-adminprimary focus:border-adminprimary outline-none transition-colors" />
                                     </div>
                                     <div>

@@ -178,27 +178,13 @@ export default function AdminOperationView() {
                         <span className="material-symbols-outlined text-adminprimary">receipt</span>
                         {t('admin.operation.tax_setting')}
                     </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">消費税率 (%)</label>
-                            <input type="number" min={0} max={100} step={0.1}
-                                defaultValue={storeData?.tax_rate ?? 10}
-                                onBlur={e => handleStoreUpdate('tax_rate', parseFloat(e.target.value))}
-                                className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-adminprimary/50" />
-                        </div>
-                        <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-2">表示方式</label>
-                            <div className="grid grid-cols-2 gap-2">
-                                <button onClick={() => handleStoreUpdate('tax_included', true)}
-                                    className={`py-3 text-xs font-bold rounded-xl border-2 transition-all ${storeData?.tax_included !== false ? 'bg-adminprimary/10 border-adminprimary/50 text-adminprimary' : 'border-slate-200 text-slate-400'}`}>
-                                    税込（内税）
-                                </button>
-                                <button onClick={() => handleStoreUpdate('tax_included', false)}
-                                    className={`py-3 text-xs font-bold rounded-xl border-2 transition-all ${storeData?.tax_included === false ? 'bg-adminprimary/10 border-adminprimary/50 text-adminprimary' : 'border-slate-200 text-slate-400'}`}>
-                                    税別（外税）
-                                </button>
-                            </div>
-                        </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 block mb-1">消費税率 (%)</label>
+                        <input type="number" min={0} max={100} step={0.1}
+                            defaultValue={storeData?.tax_rate ?? 10}
+                            onBlur={e => handleStoreUpdate('tax_rate', parseFloat(e.target.value))}
+                            className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-adminprimary/50" />
+                        <p className="text-[11px] text-slate-400 mt-1.5">価格は税込で表示・登録されます（内税）。</p>
                     </div>
                 </section>
 

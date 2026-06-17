@@ -110,6 +110,12 @@ WorkingDirectory=/home/verejireh/qr-order-system
 #   2) 0.5초 대기 후 KILL fallback
 # 실패는 무시 (`-` 접두사). 정상 운영 (포트 비어있음) 시 NOOP.
 ExecStartPre=-/bin/bash -c 'PID=$(/usr/bin/lsof -ti :8003 -u verejireh 2>/dev/null); if [ -n "$PID" ]; then kill -TERM $PID 2>/dev/null; sleep 0.5; kill -KILL $PID 2>/dev/null || true; fi'
+# [2026-06-17] Cloud SQL Auth Proxy 레디니스 대기.
+#   After=cloud-sql-proxy.service 는 프록시 "시작"만 보장하고 "listening(준비)"은
+#   보장하지 않음 → 배포/재부팅 시 앱이 프록시보다 먼저 떠 DB ConnectionRefused →
+#   StartLimitBurst(5/300s) 소진 → systemd 포기 사고 발생(2026-06-17).
+#   5432 가 TCP 연결 가능해질 때까지 최대 30초 대기 후 uvicorn 기동.
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null && exit 0; sleep 1; done; echo "cloud-sql-proxy(127.0.0.1:5432) not ready after 30s" >&2; exit 1'
 ExecStart=/home/verejireh/qr-order-system/.venv/bin/python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8003
 # [2026-05-22] Restart=always → on-failure 변경. deterministic bind 실패에서
 # 무한 재시작 폭주 차단. systemctl stop 같은 정상 종료에서는 재시작 안 함.

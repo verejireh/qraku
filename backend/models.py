@@ -27,6 +27,7 @@ class StoreCategory(str, Enum):
     RESTAURANT = "RESTAURANT"
     CAFE = "CAFE"
     BAR = "BAR"
+    HOTEL = "HOTEL"
     OTHER = "OTHER"
 
 class SubscriptionType(str, Enum):
@@ -688,6 +689,22 @@ class Announcement(SQLModel, table=True):
     title: str
     content: str
     is_important: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=now_utc_naive)
+
+
+# ── Room Service Chat (호텔 모드) ─────────────────────────────────
+class RoomMessageSenderType(str, Enum):
+    GUEST = "GUEST"
+    STAFF = "STAFF"
+
+class RoomMessage(SQLModel, table=True):
+    """객실(손님)↔스태프 채팅. (store_id, room_number) 로 스레드 조회."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    store_id: int = Field(index=True)
+    room_number: str = Field(index=True, max_length=32)   # Order.table_number 와 동일 규약
+    sender_type: RoomMessageSenderType
+    content: str = Field(max_length=2000)
+    is_read: bool = Field(default=False)
     created_at: datetime = Field(default_factory=now_utc_naive)
 
 

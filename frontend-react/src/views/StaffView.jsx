@@ -6,6 +6,9 @@ import { useStaffAuth } from '../components/StaffLoginGate'
 import { StaffSidebar, StaffBottomNav } from '../components/StaffNav'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { currencyHelpers } from '../config/currency'
+import staffApi from '../hooks/useStaffApi'
+import RoomChatPanel from '../components/RoomChatPanel'
+import { termsOf } from '../config/terminology'
 
 export default function StaffView() {
     const { shop_id } = useParams()
@@ -19,6 +22,25 @@ export default function StaffView() {
     const [menus, setMenus] = useState({})
     const [storeData, setStoreData] = useState(null)
     const cur = currencyHelpers(storeData)
+    // 호텔 객실 채팅 - 스태프측
+    const [chatPanelOpen, setChatPanelOpen] = useState(false)
+    const [chatRoom, setChatRoom] = useState(null)
+    const [roomThreads, setRoomThreads] = useState([])
+    const isHotel = storeData?.category === 'HOTEL'
+    // 호텔 객실 채팅: 활성/미읽음 스레드 폴링(staffApi=JWT). 조기 return 이전(Rules of Hooks).
+    useEffect(() => {
+        if (!isHotel || !storeData?.id) return
+        let cancelled = false
+        const tick = async () => {
+            try {
+                const r = await staffApi.get(`/api/room-chat/staff/${storeData.id}/active`)
+                if (!cancelled) setRoomThreads(Array.isArray(r.data) ? r.data : [])
+            } catch { /* noop */ }
+        }
+        const t = setTimeout(tick, 0)
+        const id = setInterval(tick, 5000)
+        return () => { cancelled = true; clearTimeout(t); clearInterval(id) }
+    }, [isHotel, storeData?.id])
     const [loading, setLoading] = useState(true)
 
     // 테이크아웃 조리시간 문의 목록
@@ -982,8 +1004,73 @@ export default function StaffView() {
     // ── Takeout orders ──────────────────────────────────────────────────────
     const takeoutOrders = allOrders.filter(o => o.order_type === 'take_out' && o.status !== 'cancelled')
 
+    const totalRoomUnread = roomThreads.reduce((s, t) => s + (t.unread || 0), 0)
+    const openRoomChat = async (room) => {
+        setChatRoom(room)
+        setChatPanelOpen(true)
+        try {
+            await staffApi.post(`/api/room-chat/${storeData.id}/${room}/read`)
+            // 읽음 처리 후 로컬 unread 즉시 0 (5초 폴링 전 stale 배지 방지)
+            setRoomThreads(prev => prev.map(t => t.room_number === room ? { ...t, unread: 0 } : t))
+        } catch { /* noop */ }
+    }
+
     return (
         <div className="bg-[#fcf8fb] min-h-screen text-[#1b1b1d] flex flex-col lg:flex-row" style={{ fontFamily: "'Inter', sans-serif" }}>
+            {/* 호텔 객실 채팅 위젯 (HOTEL 매장만) */}
+            {isHotel && (
+                <>
+                    {!chatPanelOpen && (
+                        <button onClick={() => setChatPanelOpen(true)}
+                            className="fixed bottom-20 right-4 z-[120] px-4 py-3 rounded-full bg-[#b80035] text-white text-sm font-bold shadow-lg">
+                            💬 {termsOf('HOTEL').callStaff}
+                            {totalRoomUnread > 0 && (
+                                <span className="ml-2 inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-white text-[#b80035] text-[11px] font-black">{totalRoomUnread}</span>
+                            )}
+                        </button>
+                    )}
+                    {chatPanelOpen && (
+                        <div className="fixed inset-0 z-[130] flex items-end sm:items-center justify-center bg-black/40"
+                             onClick={() => { setChatPanelOpen(false); setChatRoom(null) }}>
+                            <div className="bg-white w-full sm:max-w-md h-[75vh] rounded-t-3xl sm:rounded-3xl flex flex-col overflow-hidden"
+                                 onClick={e => e.stopPropagation()}>
+                                {!chatRoom ? (
+                                    <>
+                                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                                            <span className="font-bold text-slate-800">客室メッセージ</span>
+                                            <button onClick={() => setChatPanelOpen(false)} className="text-slate-400 text-2xl leading-none">×</button>
+                                        </div>
+                                        <div className="flex-1 overflow-y-auto">
+                                            {roomThreads.length === 0 && (
+                                                <p className="text-center text-xs text-slate-400 py-8">メッセージはまだありません</p>
+                                            )}
+                                            {roomThreads.map(thr => (
+                                                <button key={thr.room_number} onClick={() => openRoomChat(thr.room_number)}
+                                                    className="w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-slate-50 flex items-center gap-2">
+                                                    <span className="font-bold text-slate-800">客室 {thr.room_number}</span>
+                                                    <span className="flex-1 truncate text-xs text-slate-400">{thr.last?.content || ''}</span>
+                                                    {thr.unread > 0 && (
+                                                        <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-[#b80035] text-white text-[11px] font-black">{thr.unread}</span>
+                                                    )}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+                                            <button onClick={() => setChatRoom(null)} className="text-slate-500 text-lg">←</button>
+                                            <span className="font-bold text-slate-800">客室 {chatRoom}</span>
+                                            <button onClick={() => { setChatPanelOpen(false); setChatRoom(null) }} className="ml-auto text-slate-400 text-2xl leading-none">×</button>
+                                        </div>
+                                        <RoomChatPanel shopId={storeData?.id} roomNumber={String(chatRoom)} sender="staff" postClient={staffApi} />
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
             {/* ── Left Sidebar Nav (lg+) ── */}
             <StaffSidebar activePage="staff" />
 

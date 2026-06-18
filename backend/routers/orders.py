@@ -91,6 +91,27 @@ class OrderCreateResponse(SQLModel):
     payment_method: Optional[str] = None
     pickup_code: Optional[str] = None
 
+
+def _is_prepay(order_type: str, total_amount: float, is_take_out: bool) -> bool:
+    """선결제(카드) 대상 여부 — 테이크아웃 + 유료 룸서비스. ¥0 룸서비스(비품/요청)는 제외."""
+    return bool(is_take_out or (order_type == "room_service" and total_amount > 0))
+
+
+def _resolve_payment_state(order_type: str, total_amount: float, is_take_out: bool,
+                           square_payment_id) -> tuple:
+    """주문 결제상태/진행상태 결정.
+    - 선결제 대상 + payment_id → paid
+    - ¥0 룸서비스(무료 요청) → paid (Square 호출 스킵)
+    - 그 외(eat_in 등) → unpaid
+    """
+    is_free_request = (order_type == "room_service" and total_amount == 0)
+    is_paid = bool(
+        (_is_prepay(order_type, total_amount, is_take_out) and square_payment_id)
+        or is_free_request
+    )
+    status = "pending" if is_paid else "pending_payment"
+    return is_paid, status
+
 def calculate_distance(lat1, lon1, lat2, lon2):
     # Haversine formula
     R = 6371000  # Earth radius in meters
@@ -356,6 +377,9 @@ async def create_order(
     sq_payment_order_id = None
     pending_paypay_order = None
 
+    # 선결제 대상: 테이크아웃 + 유료 룸서비스 (¥0 룸서비스 요청은 결제 스킵)
+    is_prepay = _is_prepay(order_type, total_amount, is_take_out)
+
     # 설정 가져오기 (없으면 구형 Square 기본값)
     payment_method_type = store.payment_settings.payment_method_type if store.payment_settings else "SQUARE_INTEGRATED"
     payment_method_value = getattr(payment_method_type, "value", payment_method_type)
@@ -370,8 +394,8 @@ async def create_order(
             )
 
     # ── 테이크아웃 선결제 필수 체크 ──
-    # Square/PayPay 미설정 매장은 선결제가 불가 → 테이크아웃 주문 자체를 거부
-    if is_take_out:
+    # Square/PayPay 미설정 매장은 선결제가 불가 → 선결제 주문(테이크아웃/유료 룸서비스) 거부
+    if is_prepay:
         has_square = bool(getattr(store, 'square_access_token', None) and getattr(store, 'square_location_id', None))
         ps = store.payment_settings
         has_payment_ps = ps and ps.payment_method_type != "PAY_AT_COUNTER" and (
@@ -381,10 +405,10 @@ async def create_order(
         if not has_square and not has_payment_ps:
             raise HTTPException(
                 status_code=400,
-                detail="このお店はオンライン決済が未設定のため、テイクアウト注文はご利用いただけません。"
+                detail="このお店はオンライン決済が未設定のため、オンライン決済が必要なご注文はご利用いただけません。"
             )
         if not order_in.source_id:
-            raise HTTPException(status_code=400, detail="テイクアウトには決済情報が必要です (source_id required)")
+            raise HTTPException(status_code=400, detail="オンライン決済には決済情報が必要です (source_id required)")
 
         # 멱등성은 결제 후 square_payment_id UNIQUE INDEX 로 강제(아래). 선결제 전 중복검사는
         # Order.square_payment_id UNIQUE 가 담당하므로 별도 사전 쿼리는 두지 않는다.
@@ -473,12 +497,11 @@ async def create_order(
     pickup_code = await next_pickup_code(session, store.id) if is_take_out else None
 
     # 결제 상태 결정: 테이크아웃 선결제 완료 → "paid" / 이트인 → "unpaid"
-    is_paid = bool(is_take_out and square_payment_id)
+    # 결제 상태/진행상태: 선결제 완료(테이크아웃/유료 룸서비스) 또는 ¥0 룸서비스 요청 → paid+pending
+    is_paid, order_status = _resolve_payment_state(order_type, total_amount, is_take_out, square_payment_id)
     payment_status = "paid" if is_paid else "unpaid"
     # payment_method: 서버 설정 기준으로 저장 (클라이언트 값 무시)
-    resolved_payment_method = payment_method_value if is_take_out else (order_in.payment_method or "PAY_AT_COUNTER")
-    # order status: 결제 완료된 테이크아웃 → "pending" (바로 주방 가능), 이트인 → "pending_payment"
-    order_status = "pending" if is_paid else "pending_payment"
+    resolved_payment_method = payment_method_value if is_prepay else (order_in.payment_method or "PAY_AT_COUNTER")
 
     db_order = Order(
         store_id=store.id,                 # 정규 FK

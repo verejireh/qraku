@@ -501,7 +501,12 @@ async def create_order(
     is_paid, order_status = _resolve_payment_state(order_type, total_amount, is_take_out, square_payment_id)
     payment_status = "paid" if is_paid else "unpaid"
     # payment_method: 서버 설정 기준으로 저장 (클라이언트 값 무시)
-    resolved_payment_method = payment_method_value if is_prepay else (order_in.payment_method or "PAY_AT_COUNTER")
+    if order_type == "room_service" and total_amount == 0:
+        resolved_payment_method = "room_request"   # ¥0 비품/요청 — 결제 없음(현금 오분류 방지, 서버 결정)
+    elif is_prepay:
+        resolved_payment_method = payment_method_value
+    else:
+        resolved_payment_method = order_in.payment_method or "PAY_AT_COUNTER"
 
     db_order = Order(
         store_id=store.id,                 # 정규 FK

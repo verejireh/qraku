@@ -9,6 +9,7 @@ const STORE_CATEGORIES = [
     { value: 'RESTAURANT', label: '🍽️ レストラン・食堂' },
     { value: 'CAFE', label: '☕ カフェ・喫茶店' },
     { value: 'BAR', label: '🍺 バー・居酒屋' },
+    { value: 'HOTEL', label: '🏨 ホテル・旅館' },
     { value: 'OTHER', label: '🏪 その他' },
 ]
 

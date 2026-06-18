@@ -269,7 +269,7 @@ async def mark_read(store_id: int, room_number: str,
     await session.commit()
     return {"status": "ok"}
 
-@router.get("/{store_id}/active")
+@router.get("/staff/{store_id}/active")  # literal "staff" — 2세그먼트 공개 조회와 충돌 방지
 async def active_threads(store_id: int, session: AsyncSession = Depends(get_session),
                          auth_store = Depends(require_staff_or_admin)):
     if auth_store.id != store_id:
@@ -563,7 +563,7 @@ git commit -m "feat(hotel): 손님 객실 페이지 룸서비스+채팅 통합 (
 **Files:**
 - Modify: `frontend-react/src/views/StaffView.jsx` (객실 채팅 패널 + 미읽음), `KitchenView.jsx` (room_service 주문에 객실번호 태그 표시)
 
-- [ ] **Step 1: StaffView 채팅 패널** — `GET /api/room-chat/{store}/active`(staffApi)로 미읽음 객실 목록 → 선택 시 `<RoomChatPanel shopId={shop_id} roomNumber={room} sender="staff" postClient={staffApi} />`. 읽음 처리 `POST .../read`.
+- [ ] **Step 1: StaffView 채팅 패널** — `GET /api/room-chat/staff/{store}/active`(staffApi)로 미읽음 객실 목록 → 선택 시 `<RoomChatPanel shopId={shop_id} roomNumber={room} sender="staff" postClient={staffApi} />`. 읽음 처리 `POST .../read`.
 
 - [ ] **Step 2: KitchenView room_service 태그** — order_type==='room_service' 주문에 "객실 {table_number}" 뱃지 표시(테이크아웃 뱃지 패턴 재사용).
 

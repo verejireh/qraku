@@ -64,7 +64,7 @@
 |---|---|---|---|
 | GET | `/api/room-chat/{store_id}/{room_number}` | 공개(객실 QR) | 해당 객실 대화 목록 |
 | POST | `/api/room-chat/{store_id}/{room_number}` | 공개(객실 QR) | 손님 메시지 전송(sender=GUEST) → WS emit |
-| GET | `/api/room-chat/{store_id}/active` | 스태프 | 미읽음/활성 객실 대화 요약(스태프 패널용) |
+| GET | `/api/room-chat/staff/{store_id}/active` | 스태프 | 미읽음/활성 객실 대화 요약(스태프 패널용). literal `staff` 경로로 2세그먼트 공개 조회와 충돌 방지 |
 | POST | `/api/room-chat/{store_id}/{room_number}/reply` | 스태프 | 스태프 답장(sender=STAFF) → WS emit |
 | POST | `/api/room-chat/{store_id}/{room_number}/read` | 스태프 | 읽음 처리 |
 

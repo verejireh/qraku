@@ -311,6 +311,14 @@ export default function KitchenView() {
             .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
     }, [orders]);
 
+    // ── Room service orders (호텔 객실 — 선결제/¥0 요청; 'roomservice' 세션이라 eat-in 그리드엔 안 뜸) ──
+    const roomServiceOrders = useMemo(() => {
+        return orders
+            .filter(o => o.order_type === 'room_service')
+            .filter(o => o.status !== 'cancelled' && o.status !== 'served')
+            .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    }, [orders]);
+
     // ── Filter orders for kitchen display ────────────────────────────────────
     const kitchenOrders = useMemo(() => {
         if (showFullView) {
@@ -635,7 +643,63 @@ export default function KitchenView() {
                         </div>
                     </section>
                 )}
-                {kitchenOrders.length === 0 && takeoutOrders.length === 0 ? (
+                {roomServiceOrders.length > 0 && (
+                    <section className="mb-4 rounded-xl ring-1 ring-indigo-500/30 bg-gradient-to-br from-indigo-500/10 to-blue-500/5 p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="text-[11px] font-black tracking-widest text-indigo-300">🏨 ルームサービス</span>
+                            <span className="text-[10px] text-indigo-200/60 font-mono tabular-nums">{roomServiceOrders.length}件</span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                            {roomServiceOrders.map(o => {
+                                const pending = (o.items || []).filter(i => i.status === 'pending' || !i.status);
+                                const allDone = pending.length === 0 && (o.items || []).length > 0;
+                                return (
+                                    <div key={o.id} className="bg-[#161923] rounded-xl overflow-hidden flex flex-col ring-1 ring-indigo-500/20" style={{ borderTop: '3px solid #6366f1' }}>
+                                        <div className="px-3 py-2 flex justify-between items-center bg-[#1c1f2e]">
+                                            <div className="flex items-baseline gap-1.5">
+                                                <span className="text-lg font-black text-indigo-300 leading-none">客室 {o.table_number}</span>
+                                                <span className="text-[9px] font-bold text-indigo-400/70">ROOM</span>
+                                            </div>
+                                            <span className="text-[10px] font-semibold text-white/40 tabular-nums">
+                                                {new Date(o.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        </div>
+                                        <div className="px-3 py-2 space-y-1">
+                                            {(o.items || []).map((item, idx) => {
+                                                const m = menus[String(item.menu_item_id)] || {};
+                                                const done = item.status === 'cooking_complete' || item.status === 'pickup_ready' || item.status === 'served';
+                                                return (
+                                                    <div key={idx} className={`flex justify-between text-[12px] ${done ? 'text-white/30 line-through' : 'text-white/90'}`}>
+                                                        <span className="truncate pr-2">{m.name_jp || m.name_ko || `#${item.menu_item_id}`}</span>
+                                                        <strong className="tabular-nums">×{item.quantity}</strong>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        {!allDone && (
+                                            <button
+                                                onClick={async () => {
+                                                    for (const it of (o.items || []).filter(i => i.status === 'pending' || !i.status)) {
+                                                        try { await axios.patch(`/api/orders/items/${it.id}/status`, { status: 'cooking_complete' }); } catch {}
+                                                    }
+                                                    setOrders(prev => prev.map(oo => oo.id === o.id ? { ...oo, items: oo.items.map(i => (i.status === 'pending' || !i.status) ? { ...i, status: 'cooking_complete' } : i) } : oo));
+                                                }}
+                                                className="mx-3 mb-2 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 text-[11px] font-bold hover:bg-emerald-500/30 transition-all">
+                                                全て完成
+                                            </button>
+                                        )}
+                                        {allDone && (
+                                            <div className="mx-3 mb-2 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 text-[11px] font-bold text-center">
+                                                客室へお届け
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </section>
+                )}
+                {kitchenOrders.length === 0 && takeoutOrders.length === 0 && roomServiceOrders.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-[70vh]">
                         <div className="text-5xl mb-6">🍳</div>
                         <p className="text-lg font-bold text-white/50">注文待ち</p>

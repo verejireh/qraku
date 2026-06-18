@@ -6,6 +6,8 @@ import MagnoliaCategoryTabs from '../components/magnolia/MagnoliaCategoryTabs'
 import MagnoliaMenuCard from '../components/magnolia/MagnoliaMenuCard'
 import MagnoliaFloatingCart from '../components/magnolia/MagnoliaFloatingCart'
 import MagnoliaCartModal from '../components/magnolia/MagnoliaCartModal'
+import RoomChatPanel from '../components/RoomChatPanel'
+import { termsOf } from '../config/terminology'
 import { useCart } from '../hooks/useCart'
 import { useLiff } from '../hooks/useLiff'
 import { computeStoreStatus } from '../utils/businessHours'
@@ -45,6 +47,9 @@ export default function OrderView({ orderType: propOrderType } = {}) {
     // All OrderView routes are inside <StoreLayout />, so this is always available
     const outletContext = useOutletContext() || {}
     const storeData = outletContext.storeData || null
+    // 호텔 룸서비스 모드: HOTEL 매장 + 객실(테이블)번호 있는 비-테이크아웃 진입(객실 QR)
+    const isRoomService = !isTakeOut && storeData?.category === 'HOTEL'
+        && Boolean(tableNumber) && tableNumber !== 'undefined' && tableNumber !== 'null'
     const devTheme = outletContext.devTheme || null
 
     const query = new URLSearchParams(location.search)
@@ -81,6 +86,7 @@ export default function OrderView({ orderType: propOrderType } = {}) {
     const [isInvalidToken, setIsInvalidToken] = useState(false)
     const [tokenErrorMsg, setTokenErrorMsg] = useState('')
     const [isCartOpen, setIsCartOpen] = useState(false)
+    const [chatOpen, setChatOpen] = useState(false)   // 호텔 룸서비스 객실 채팅
     const [tableData, setTableData] = useState(null)
     const [placingOrder, setPlacingOrder] = useState(false)
     const [sessionToken, setSessionToken] = useState(null)
@@ -304,7 +310,7 @@ export default function OrderView({ orderType: propOrderType } = {}) {
     // - eat_in : handlePlaceOrder('cash_at_counter')
     // - take_out: handlePlaceOrder('square', squareNonce, '12:30')
     const handlePlaceOrder = async (selectedPayment = 'cash_at_counter', sourceId = null, pickupTime = null) => {
-        if (!isTakeOut && !tableData) {
+        if (!isTakeOut && !isRoomService && !tableData) {
             alert("⚠️ 테이블 정보가 없습니다. 매장의 QR 코드를 통해 다시 접속해 주세요.")
             return
         }
@@ -318,8 +324,8 @@ export default function OrderView({ orderType: propOrderType } = {}) {
             const orderPayload = {
                 shop_id: String(storeId),
                 table_number: isTakeOut ? '0' : String(tableNumber || tableData?.table_number || '1'),
-                session_token: isTakeOut ? 'takeout' : sessionToken,
-                order_type: isTakeOut ? "take_out" : "eat_in",
+                session_token: isRoomService ? 'roomservice' : (isTakeOut ? 'takeout' : sessionToken),
+                order_type: isRoomService ? "room_service" : (isTakeOut ? "take_out" : "eat_in"),
                 payment_method: selectedPayment,
                 source_id: sourceId,
                 pickup_time: pickupTime,
@@ -596,6 +602,11 @@ export default function OrderView({ orderType: propOrderType } = {}) {
 
     // 외부 테이크아웃 — 장바구니에서 "주문" 시 시간 문의 먼저 진행
     const handleCartCheckout = () => {
+        // 룸서비스 ¥0(비품/요청): 결제 모달 우회, 바로 제출 (백엔드가 ¥0 → paid 처리)
+        if (isRoomService && totalAmount === 0) {
+            handlePlaceOrder('cash_at_counter')
+            return
+        }
         if (isTakeOut && !tableNumber) {
             if (!takeoutEnabled) {
                 alert('この店舗ではテイクアウト注文を受け付けていません。')
@@ -652,7 +663,7 @@ export default function OrderView({ orderType: propOrderType } = {}) {
         onPlaceOrder: handlePlaceOrder,
         loading: placingOrder,
         storePaymentOptions: storeData?.payment_options || 'CASH_ONLY',
-        orderType: isTakeOut ? 'take_out' : 'eat_in',
+        orderType: isRoomService ? 'room_service' : (isTakeOut ? 'take_out' : 'eat_in'),
         agreedPickupTime,
         squareAppId: storeData?.square_application_id || import.meta.env?.VITE_SQUARE_APP_ID || null,
         squareLocationId: storeData?.square_location_id || null,
@@ -760,6 +771,35 @@ export default function OrderView({ orderType: propOrderType } = {}) {
 
             {/* Premium Overlays & Modals */}
             <MagnoliaCartModal {...cartModalProps} />
+
+            {/* 호텔 룸서비스: 객실↔스태프 채팅 (call-staff 호출의 진화) */}
+            {isRoomService && (
+                <>
+                    {!chatOpen && (
+                        <button
+                            onClick={() => setChatOpen(true)}
+                            className="fixed bottom-24 right-4 z-[120] px-4 py-3 rounded-full bg-primary text-white text-sm font-bold shadow-lg shadow-primary/30"
+                        >
+                            💬 {termsOf(storeData?.category).callStaff}
+                        </button>
+                    )}
+                    {chatOpen && (
+                        <div className="fixed inset-0 z-[130] flex items-end sm:items-center justify-center bg-black/40"
+                             onClick={() => setChatOpen(false)}>
+                            <div className="bg-white w-full sm:max-w-md h-[70vh] rounded-t-3xl sm:rounded-3xl flex flex-col overflow-hidden"
+                                 onClick={e => e.stopPropagation()}>
+                                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+                                    <span className="font-bold text-slate-800">
+                                        {termsOf(storeData?.category).callStaff} · {termsOf(storeData?.category).unit} {tableNumber}
+                                    </span>
+                                    <button onClick={() => setChatOpen(false)} className="text-slate-400 text-2xl leading-none">×</button>
+                                </div>
+                                <RoomChatPanel shopId={storeData?.id || storeId} roomNumber={String(tableNumber)} sender="guest" />
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
 
             {/* 요리완료 알림 모달 */}
             {completedModal && (

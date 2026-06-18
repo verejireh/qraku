@@ -86,7 +86,9 @@ export default function MagnoliaCartModal({
     )
 
     const isTakeOut = orderType === 'take_out'
-    const canUseSquare = isTakeOut && squareAppId && squareLocationId
+    const isRoomService = orderType === 'room_service'   // 호텔 룸서비스: 카드 선결제, 픽업시간 없음
+    const isPrepay = isTakeOut || isRoomService
+    const canUseSquare = isPrepay && squareAppId && squareLocationId
     const canUsePayPay = isTakeOut && paymentMethodType === 'PAYPAY_DIRECT'
 
     useEffect(() => {
@@ -215,7 +217,7 @@ export default function MagnoliaCartModal({
         try {
             const result = await walletInstance.tokenize()
             if (result.status === 'OK') {
-                onPlaceOrder('square', result.token, pickupTime || null)
+                onPlaceOrder('square', result.token, isRoomService ? null : (pickupTime || null))
             } else {
                 const msg = result.errors?.[0]?.message || '決済に失敗しました'
                 alert(`ウォレット決済エラー: ${msg}`)
@@ -237,7 +239,7 @@ export default function MagnoliaCartModal({
         try {
             const result = await squareCard.tokenize()
             if (result.status === 'OK') {
-                onPlaceOrder('square', result.token, pickupTime || null)
+                onPlaceOrder('square', result.token, isRoomService ? null : (pickupTime || null))
             } else {
                 const msg = result.errors?.[0]?.message || 'カード検証に失敗しました'
                 alert(`決済エラー: ${msg}`)
@@ -503,10 +505,11 @@ export default function MagnoliaCartModal({
                                 </span>
                             </div>
 
-                            {/* Take-out extras: pickup time + payment form */}
-                            {isTakeOut && (
+                            {/* 선결제 extras: 픽업시간(테이크아웃만) + 결제폼. 룸서비스는 픽업시간 숨김 */}
+                            {isPrepay && (
                                 <div className="space-y-3 p-4 bg-white/5 rounded-2xl border border-white/10">
-                                    {/* Pickup time */}
+                                    {/* Pickup time — 테이크아웃만 (룸서비스는 객실 배달이라 불필요) */}
+                                    {isTakeOut && (
                                     <div>
                                         <label className="text-xs text-slate-400 font-bold uppercase tracking-widest block mb-1.5">
                                             🕐 ピックアップ時間
@@ -525,6 +528,7 @@ export default function MagnoliaCartModal({
                                             />
                                         )}
                                     </div>
+                                    )}
 
                                     {/* Square card container */}
                                     {canUseSquare && (

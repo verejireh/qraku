@@ -378,6 +378,7 @@ export const signupT = {
       { value: 'RESTAURANT', label: '🍽️ レストラン・食堂' },
       { value: 'CAFE', label: '☕ カフェ・喫茶店' },
       { value: 'BAR', label: '🍺 バー・居酒屋' },
+      { value: 'HOTEL', label: '🏨 ホテル・旅館' },
       { value: 'OTHER', label: '🏪 その他' },
     ],
     done: {
@@ -430,6 +431,7 @@ export const signupT = {
       { value: 'RESTAURANT', label: '🍽️ Restaurant' },
       { value: 'CAFE', label: '☕ Café' },
       { value: 'BAR', label: '🍺 Bar / Izakaya' },
+      { value: 'HOTEL', label: '🏨 Hotel / Inn' },
       { value: 'OTHER', label: '🏪 Other' },
     ],
     done: {
